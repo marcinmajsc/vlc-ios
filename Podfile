@@ -132,14 +132,23 @@ post_install do |installer_representation|
     end
   end
   # Xcode 26 SDKs mark netinet6/in6.h as private; AFNetworking still imports it.
-  # Patch the pod source after installation to use public netinet/in.h instead.
-  af_reachability = 'Pods/AFNetworking/AFNetworking/AFNetworkReachabilityManager.m'
-  if File.exist?(af_reachability)
-    source = File.read(af_reachability)
+  # Patch pod sources after installation to use public netinet/in.h instead.
+  af_sources_dir = 'Pods/AFNetworking/AFNetworking'
+  patched_files_count = 0
+
+  Dir.glob(File.join(af_sources_dir, '**', '*.{m,h}')).each do |af_file|
+    next unless File.file?(af_file)
+
+    source = File.read(af_file)
+    next unless source.include?('<netinet6/in6.h>')
+
     patched = source.gsub('<netinet6/in6.h>', '<netinet/in.h>')
-    if source != patched
-      File.open(af_reachability, 'w') { |file| file << patched }
-    end
+    next if source == patched
+
+    File.open(af_file, 'w') { |file| file << patched }
+    patched_files_count += 1
   end
+
+  puts "AFNetworking netinet patch: patched #{patched_files_count} file(s)."
 
 end
