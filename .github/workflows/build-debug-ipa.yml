@@ -14,9 +14,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Use Xcode 26.5
+      - name: Use Xcode 26.4
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+          sudo xcode-select -s /Applications/Xcode_26.4.app/Contents/Developer
 
       - name: Show tool versions
         run: |
@@ -27,6 +27,9 @@ jobs:
       - name: Install CocoaPods dependencies
         run: pod update
 
+      - name: Lint (SwiftLint)
+        run: ./Pods/SwiftLint/swiftlint --config Buildsystem/swiftlint.yml
+
       - name: Archive VLC-iOS (Debug, unsigned)
         run: |
           set -euo pipefail
@@ -34,7 +37,6 @@ jobs:
             -workspace "VLC.xcworkspace" \
             -scheme "VLC-iOS" \
             -configuration "Debug" \
-            -sdk iphoneos \
             -destination "generic/platform=iOS" \
             -archivePath "$GITHUB_WORKSPACE/build/VLC-iOS-Debug.xcarchive" \
             clean archive \

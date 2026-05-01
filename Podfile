@@ -120,11 +120,27 @@ post_install do |installer_representation|
       config.build_settings['SKIP_INSTALL'] = 'YES'
       config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
 
+      # Xcode 26 explicit module dependency scanning can fail for AFNetworking
+      # with MobileCoreServices when building iOS device archives.
+      if target.name == 'AFNetworking-iOS'
+        config.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
+      end
+
       # Patch out sqlite3 linker flag
       xcconfig_path = config.base_configuration_reference.real_path
       xcconfig = File.read(xcconfig_path)
       new_xcconfig = xcconfig.sub('-l"sqlite3"', '')
       File.open(xcconfig_path, "w") { |file| file << new_xcconfig }
+    end
+  end
+  # Xcode 26 SDKs mark netinet6/in6.h as private; AFNetworking still imports it.
+  # Patch the pod source after installation to use public netinet/in.h instead.
+  af_reachability = 'Pods/AFNetworking/AFNetworking/AFNetworkReachabilityManager.m'
+  if File.exist?(af_reachability)
+    source = File.read(af_reachability)
+    patched = source.gsub('<netinet6/in6.h>', '<netinet/in.h>')
+    if source != patched
+      File.open(af_reachability, 'w') { |file| file << patched }
     end
   end
 end
