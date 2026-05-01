@@ -120,11 +120,9 @@ post_install do |installer_representation|
       config.build_settings['SKIP_INSTALL'] = 'YES'
       config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
 
-      # Xcode 26 explicit module dependency scanning can fail for AFNetworking
-      # with MobileCoreServices when building iOS device archives.
-      if target.name == 'AFNetworking-iOS'
-        config.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
-      end
+      # Xcode 26 explicit module dependency scanning can fail across multiple
+      # CocoaPods targets during archive builds, so disable it for Pods targets.
+      config.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
 
       # Patch out sqlite3 linker flag
       xcconfig_path = config.base_configuration_reference.real_path
@@ -143,4 +141,5 @@ post_install do |installer_representation|
       File.open(af_reachability, 'w') { |file| file << patched }
     end
   end
+
 end
