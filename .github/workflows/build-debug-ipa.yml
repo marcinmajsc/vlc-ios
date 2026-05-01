@@ -1,11 +1,11 @@
-name: Build VLC-iOS Debug IPA
+name: Build VLC-iOS Release IPA
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-debug-ipa:
-    runs-on: macos-26-intel
+  build-release-ipa:
+    runs-on: macos-26
     env:
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
@@ -30,15 +30,15 @@ jobs:
       - name: Lint (SwiftLint)
         run: ./Pods/SwiftLint/swiftlint --config Buildsystem/swiftlint.yml
 
-      - name: Archive VLC-iOS (Debug, unsigned)
+      - name: Archive VLC-iOS (Release, unsigned)
         run: |
           set -euo pipefail
           xcodebuild \
             -workspace "VLC.xcworkspace" \
             -scheme "VLC-iOS" \
-            -configuration "Debug" \
+            -configuration "Release" \
             -destination "generic/platform=iOS" \
-            -archivePath "$GITHUB_WORKSPACE/build/VLC-iOS-Debug.xcarchive" \
+            -archivePath "$GITHUB_WORKSPACE/build/VLC-iOS-Release.xcarchive" \
             clean archive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -47,19 +47,19 @@ jobs:
       - name: Create unsigned IPA from archive
         run: |
           set -euo pipefail
-          APP_PATH="$(find "$GITHUB_WORKSPACE/build/VLC-iOS-Debug.xcarchive/Products/Applications" -maxdepth 1 -type d -name "*.app" | head -n 1)"
+          APP_PATH="$(find "$GITHUB_WORKSPACE/build/VLC-iOS-Release.xcarchive/Products/Applications" -maxdepth 1 -type d -name "*.app" | head -n 1)"
           test -d "$APP_PATH"
           rm -rf "$GITHUB_WORKSPACE/build/Payload"
           mkdir -p "$GITHUB_WORKSPACE/build/Payload"
           cp -R "$APP_PATH" "$GITHUB_WORKSPACE/build/Payload/"
           cd "$GITHUB_WORKSPACE/build"
-          zip -qry "VLC-iOS-Debug-unsigned.ipa" "Payload"
+          zip -qry "VLC-iOS-Release-unsigned.ipa" "Payload"
 
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VLC-iOS-Debug-unsigned-ipa
+          name: VLC-iOS-Release-unsigned-ipa
           path: |
-            build/VLC-iOS-Debug-unsigned.ipa
-            build/VLC-iOS-Debug.xcarchive
+            build/VLC-iOS-Release-unsigned.ipa
+            build/VLC-iOS-Release.xcarchive
           if-no-files-found: error
