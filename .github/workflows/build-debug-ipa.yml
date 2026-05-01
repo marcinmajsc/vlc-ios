@@ -47,7 +47,7 @@ jobs:
       - name: Create unsigned IPA from archive
         run: |
           set -euo pipefail
-          APP_PATH="$GITHUB_WORKSPACE/build/VLC-iOS-Debug.xcarchive/Products/Applications/VLC.app"
+          APP_PATH="$(find "$GITHUB_WORKSPACE/build/VLC-iOS-Debug.xcarchive/Products/Applications" -maxdepth 1 -type d -name "*.app" | head -n 1)"
           test -d "$APP_PATH"
           rm -rf "$GITHUB_WORKSPACE/build/Payload"
           mkdir -p "$GITHUB_WORKSPACE/build/Payload"

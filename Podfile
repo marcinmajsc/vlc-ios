@@ -132,7 +132,6 @@ post_install do |installer_representation|
     end
   end
   # Xcode 26 SDKs mark netinet6/in6.h as private; AFNetworking still imports it.
-  # The concrete failure was seen in AFHTTPSessionManager.m with Xcode 26.4 / iPhoneOS 26.4 SDK.
   # Patch pod sources after installation to use public netinet/in.h instead.
   af_sources_dir = 'Pods/AFNetworking/AFNetworking'
   patched_files_count = 0
