@@ -1,0 +1,63 @@
+name: Build VLC-iOS Debug IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-debug-ipa:
+    runs-on: macos-latest
+    env:
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Xcode 26.5
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+
+      - name: Show tool versions
+        run: |
+          xcodebuild -version
+          ruby --version
+          pod --version
+
+      - name: Install CocoaPods dependencies
+        run: pod update
+
+      - name: Archive VLC-iOS (Debug, unsigned)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace "VLC.xcworkspace" \
+            -scheme "VLC-iOS" \
+            -configuration "Debug" \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$GITHUB_WORKSPACE/build/VLC-iOS-Debug.xcarchive" \
+            clean archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Create unsigned IPA from archive
+        run: |
+          set -euo pipefail
+          APP_PATH="$GITHUB_WORKSPACE/build/VLC-iOS-Debug.xcarchive/Products/Applications/VLC.app"
+          test -d "$APP_PATH"
+          rm -rf "$GITHUB_WORKSPACE/build/Payload"
+          mkdir -p "$GITHUB_WORKSPACE/build/Payload"
+          cp -R "$APP_PATH" "$GITHUB_WORKSPACE/build/Payload/"
+          cd "$GITHUB_WORKSPACE/build"
+          zip -qry "VLC-iOS-Debug-unsigned.ipa" "Payload"
+
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VLC-iOS-Debug-unsigned-ipa
+          path: |
+            build/VLC-iOS-Debug-unsigned.ipa
+            build/VLC-iOS-Debug.xcarchive
+          if-no-files-found: error
