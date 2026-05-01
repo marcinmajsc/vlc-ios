@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-debug-ipa:
-    runs-on: macos-26
+    runs-on: macos-26-intel
     env:
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
