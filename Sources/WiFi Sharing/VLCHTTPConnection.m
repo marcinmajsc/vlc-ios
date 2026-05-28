@@ -22,6 +22,7 @@
 #import "MultipartMessageHeaderField.h"
 #import "HTTPDynamicFileResponse.h"
 #import "HTTPErrorResponse.h"
+#import "HTTPRedirectResponse.h"
 #import "NSString+SupportedMedia.h"
 #import "VLCHTTPUploaderController.h"
 #import "VLCMetaData.h"
@@ -184,11 +185,16 @@ static NSMutableDictionary *authentifiedHosts;
 
     NSData *authData = [NSData dataWithContentsOfFile:[self filePathForURI:@"/public/auth.html"]];
     NSString *authContent = [[NSString alloc] initWithData:authData encoding:NSUTF8StringEncoding];
+    NSInteger passcodeLength = [[VLCKeychainCoordinator passcodeService] secretLength];
+    if (passcodeLength <= 0) {
+        passcodeLength = 4;
+    }
     NSDictionary *replacementDict = @{
         @"WEBINTF_TITLE" : [self localizedWebInterfaceTitle],
         @"WEBINTF_AUTH_REQUIRED" : (_languageBundle
             ? [_languageBundle localizedStringForKey:@"WEBINTF_AUTH_REQUIRED" value:nil table:nil]
-            : NSLocalizedString(@"WEBINTF_AUTH_REQUIRED", nil))
+            : NSLocalizedString(@"WEBINTF_AUTH_REQUIRED", nil)),
+        @"WEBINTF_PASSCODE_LENGTH" : [NSString stringWithFormat:@"%ld", (long)passcodeLength]
     };
 
     for(id key in replacementDict) {
@@ -389,15 +395,19 @@ static NSMutableDictionary *authentifiedHosts;
 
 - (NSObject<HTTPResponse> *)_httpGETThumbnailForPath:(NSString *)path
 {
-    NSString *filePath = [[path stringByReplacingOccurrencesOfString:@"/Thumbnail/" withString:@""] stringByRemovingPercentEncoding];
+    NSString *identifier = [[path stringByReplacingOccurrencesOfString:@"/Thumbnail/" withString:@""] stringByRemovingPercentEncoding];
+    VLCMLIdentifier mediaId = [identifier longLongValue];
 
-    if ([filePath isEqualToString:@"/"]) return [[HTTPErrorResponse alloc] initWithErrorCode:404];
+    if (mediaId <= 0) return [[HTTPErrorResponse alloc] initWithErrorCode:404];
 
-    UIImage *thumbnail = [UIImage imageWithContentsOfFile:filePath];
+    MediaLibraryService *medialibrary = [[VLCAppCoordinator sharedInstance] mediaLibraryService];
+    VLCMLMedia *media = [medialibrary mediaFor:mediaId];
+    if (!media) return [[HTTPErrorResponse alloc] initWithErrorCode:404];
+
+    UIImage *thumbnail = [media thumbnailImage];
     if (!thumbnail) return [[HTTPErrorResponse alloc] initWithErrorCode:404];
 
     NSData *theData = UIImageJPEGRepresentation(thumbnail, .9);
-
     if (!theData) return [[HTTPErrorResponse alloc] initWithErrorCode:404];
 
     HTTPDataResponse *dataResponse = [[HTTPDataResponse alloc] initWithData:theData];
@@ -424,8 +434,13 @@ static NSMutableDictionary *authentifiedHosts;
     NSMutableArray *allMedia = [[medialibrary albumsWithSortingCriteria:VLCMLSortingCriteriaDefault desc:false] mutableCopy] ?: [NSMutableArray new];
     // Adding all Playlists
     [allMedia addObjectsFromArray:[medialibrary playlistsWithSortingCriteria:VLCMLSortingCriteriaDefault desc:false]];
-    // Adding all Videos files
-    [allMedia addObjectsFromArray:[medialibrary mediaOfType:VLCMLMediaTypeVideo sortingCriteria:VLCMLSortingCriteriaDefault desc:false]];
+    // Adding all Video Media Groups (mirrors the iOS video view: every video belongs to a group)
+    NSArray *videoGroups = [medialibrary mediaGroupsWithSortingCriteria:VLCMLSortingCriteriaDefault desc:false];
+    for (VLCMLMediaGroup *group in videoGroups) {
+        if ([group mediaOfType:VLCMLMediaTypeVideo].count > 0) {
+            [allMedia addObject:group];
+        }
+    }
 
     //TODO: add all shows
     // Adding all audio files which are not in an Album
@@ -449,41 +464,65 @@ static NSMutableDictionary *authentifiedHosts;
 
 - (NSString *)createHTMLMediaObjectFromMedia:(VLCMLMedia *)media
 {
+    float progress = media.progress;
+    NSString *progressHTML = @"";
+    if (progress > 0) {
+        progressHTML = [NSString stringWithFormat:
+                        @"<div class=\"progress-bar\" style=\"width:%.0f%%\"></div>",
+                        progress * 100];
+    }
     return [NSString stringWithFormat:
-            @"<div style=\"background-image:url('Thumbnail/%@')\"> \
+            @"<div> \
             <a href=\"download/%@\" class=\"inner\"> \
-            <div class=\"down icon\"></div> \
+            <div class=\"thumb-wrapper\"> \
+            <img src=\"Thumbnail/%lld\" alt=\"\"/> \
+            %@ \
+            <div class=\"download-overlay\"></div> \
+            </div> \
             <div class=\"infos\"> \
             <span class=\"first-line\">%@</span> \
             <span class=\"second-line\">%@ - %@</span> \
             </div> \
             </a> \
             </div>",
-            media.thumbnail.path,
             [[media mainFile].mrl.path
              stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLFragmentAllowedCharacterSet],
+            media.identifier,
+            progressHTML,
             [self escapeTags:media.title],
             [media mediaDuration], [media formatSize]];
 }
 
 
-- (NSString *)createHTMLFolderObjectWithImagePath:(NSString *)imagePath
-                                             name:(NSString *)name
-                                            count:(NSUInteger)count
+- (NSString *)createHTMLFolderObjectWithMediaId:(VLCMLIdentifier)mediaId
+                                           name:(NSString *)name
+                                          count:(NSUInteger)count
 {
+    NSString *thumbnailHTML = @"";
+    if (mediaId > 0) {
+        thumbnailHTML = [NSString stringWithFormat:@"<img src=\"Thumbnail/%lld\" alt=\"\"/>", mediaId];
+    }
+    NSString *countKey = count > 1 ? @"TRACKS" : @"TRACK";
+    NSString *countFormat = _languageBundle
+        ? [_languageBundle localizedStringForKey:countKey value:nil table:nil]
+        : NSLocalizedString(countKey, nil);
+    NSString *countString = [NSString stringWithFormat:countFormat, (int)count];
     return [NSString stringWithFormat:
-            @"<div style=\"background-image:url('Thumbnail/%@')\"> \
+            @"<div> \
             <a href=\"#\" class=\"inner folder\"> \
-            <div class=\"open icon\"></div> \
+            <div class=\"thumb-wrapper\"> \
+            %@ \
+            <div class=\"download-overlay\"></div> \
+            </div> \
             <div class=\"infos\"> \
             <span class=\"first-line\">%@</span> \
-            <span class=\"second-line\">%lu items</span> \
+            <span class=\"second-line\">%@</span> \
             </div> \
             </a> \
             <div class=\"content\">",
-            imagePath,
+            thumbnailHTML,
             [self escapeTags:name],
-            count];
+            countString];
 }
 
 
@@ -498,9 +537,10 @@ static NSMutableDictionary *authentifiedHosts;
         } else if ([mediaObject isKindOfClass:[VLCMLPlaylist class]]) {
             VLCMLPlaylist *playlist = (VLCMLPlaylist *)mediaObject;
             NSArray *playlistItems = [playlist media];
-            [mediaInHtml addObject: [self createHTMLFolderObjectWithImagePath:playlist.artworkMrl
-                                                                name:playlist.name
-                                                               count:playlistItems.count]];
+            VLCMLIdentifier firstMediaId = playlistItems.firstObject ? [(VLCMLMedia *)playlistItems.firstObject identifier] : 0;
+            [mediaInHtml addObject: [self createHTMLFolderObjectWithMediaId:firstMediaId
+                                                                      name:playlist.name
+                                                                     count:playlistItems.count]];
             for (VLCMLMedia *media in playlistItems) {
                 [mediaInHtml addObject:[self createHTMLMediaObjectFromMedia:media]];
             }
@@ -508,13 +548,30 @@ static NSMutableDictionary *authentifiedHosts;
         } else if ([mediaObject isKindOfClass:[VLCMLAlbum class]]) {
             VLCMLAlbum *album = (VLCMLAlbum *)mediaObject;
             NSArray *albumTracks = [album tracks];
-            [mediaInHtml addObject:[self createHTMLFolderObjectWithImagePath:[album artworkMRL].path
-                                                                        name:album.title
-                                                                       count:albumTracks.count]];
+            VLCMLIdentifier firstTrackId = albumTracks.firstObject ? [(VLCMLMedia *)albumTracks.firstObject identifier] : 0;
+            [mediaInHtml addObject:[self createHTMLFolderObjectWithMediaId:firstTrackId
+                                                                     name:album.title
+                                                                    count:albumTracks.count]];
             for (VLCMLMedia *track in albumTracks) {
                 [mediaInHtml addObject:[self createHTMLMediaObjectFromMedia:track]];
             }
             [mediaInHtml addObject:@"</div></div>"];
+        } else if ([mediaObject isKindOfClass:[VLCMLMediaGroup class]]) {
+            VLCMLMediaGroup *group = (VLCMLMediaGroup *)mediaObject;
+            NSArray *groupVideos = [group mediaOfType:VLCMLMediaTypeVideo];
+            // Mirror MediaGroupViewModel: a non-interacted singleton group is shown as a flat video
+            if (group.nbTotalMedia == 1 && !group.userInteracted && groupVideos.count == 1) {
+                [mediaInHtml addObject:[self createHTMLMediaObjectFromMedia:groupVideos.firstObject]];
+            } else {
+                VLCMLIdentifier firstVideoId = groupVideos.firstObject ? [(VLCMLMedia *)groupVideos.firstObject identifier] : 0;
+                [mediaInHtml addObject:[self createHTMLFolderObjectWithMediaId:firstVideoId
+                                                                         name:group.name
+                                                                        count:groupVideos.count]];
+                for (VLCMLMedia *video in groupVideos) {
+                    [mediaInHtml addObject:[self createHTMLMediaObjectFromMedia:video]];
+                }
+                [mediaInHtml addObject:@"</div></div>"];
+            }
         }
     } // end of forloop
 
@@ -559,10 +616,10 @@ static NSMutableDictionary *authentifiedHosts;
             NSString *pathSub = [self _checkIfSubtitleWasFound:[file mainFile].mrl.path];
             if (pathSub)
                 pathSub = [NSString stringWithFormat:@"http://%@/download/%@", hostName, pathSub];
-            [mediaInXml addObject:[NSString stringWithFormat:@"<Media title=\"%@\" thumb=\"http://%@/Thumbnail/%@\" duration=\"%@\" size=\"%@\" pathfile=\"http://%@/download/%@\" pathSubtitle=\"%@\"/>",
+            [mediaInXml addObject:[NSString stringWithFormat:@"<Media title=\"%@\" thumb=\"http://%@/Thumbnail/%lld\" duration=\"%@\" size=\"%@\" pathfile=\"http://%@/download/%@\" pathSubtitle=\"%@\"/>",
                                    [file.title stringByAddingPercentEncodingWithAllowedCharacters:characterSet],
                                    hostName,
-                                   file.thumbnail.path,
+                                   file.identifier,
                                    [file mediaDuration], [file formatSize],
                                    hostName,
                                    [[file mainFile].mrl.path stringByAddingPercentEncodingWithAllowedCharacters:characterSet], pathSub]];
@@ -573,10 +630,10 @@ static NSMutableDictionary *authentifiedHosts;
                 NSString *pathSub = [self _checkIfSubtitleWasFound:[file mainFile].mrl.path];
                 if (pathSub)
                     pathSub = [NSString stringWithFormat:@"http://%@/download/%@", hostName, pathSub];
-                [mediaInXml addObject:[NSString stringWithFormat:@"<Media title=\"%@\" thumb=\"http://%@/Thumbnail/%@\" duration=\"%@\" size=\"%@\" pathfile=\"http://%@/download/%@\" pathSubtitle=\"%@\"/>",
+                [mediaInXml addObject:[NSString stringWithFormat:@"<Media title=\"%@\" thumb=\"http://%@/Thumbnail/%lld\" duration=\"%@\" size=\"%@\" pathfile=\"http://%@/download/%@\" pathSubtitle=\"%@\"/>",
                                        [file.title stringByAddingPercentEncodingWithAllowedCharacters:characterSet],
                                        hostName,
-                                       file.thumbnail.path,
+                                       file.identifier,
                                        [file mediaDuration],
                                        [file formatSize],
                                        hostName,
@@ -587,14 +644,30 @@ static NSMutableDictionary *authentifiedHosts;
             NSArray *albumTracks = [album tracks];
             for (VLCMLMedia *track in albumTracks) {
 
-                [mediaInXml addObject:[NSString stringWithFormat:@"<Media title=\"%@\" thumb=\"http://%@/Thumbnail/%@\" duration=\"%@\" size=\"%@\" pathfile=\"http://%@/download/%@\" pathSubtitle=\"\"/>",
+                [mediaInXml addObject:[NSString stringWithFormat:@"<Media title=\"%@\" thumb=\"http://%@/Thumbnail/%lld\" duration=\"%@\" size=\"%@\" pathfile=\"http://%@/download/%@\" pathSubtitle=\"\"/>",
                                        [track.title stringByAddingPercentEncodingWithAllowedCharacters:characterSet],
                                        hostName,
-                                       track.thumbnail.path,
+                                       track.identifier,
                                        [track mediaDuration],
                                        [track formatSize],
                                        hostName,
                                        [[track mainFile].mrl.path stringByAddingPercentEncodingWithAllowedCharacters:characterSet]]];
+            }
+        } else if ([mediaObject isKindOfClass:[VLCMLMediaGroup class]]) {
+            VLCMLMediaGroup *group = (VLCMLMediaGroup *)mediaObject;
+            NSArray *groupVideos = [group mediaOfType:VLCMLMediaTypeVideo];
+            for (VLCMLMedia *video in groupVideos) {
+                NSString *pathSub = [self _checkIfSubtitleWasFound:[video mainFile].mrl.path];
+                if (pathSub)
+                    pathSub = [NSString stringWithFormat:@"http://%@/download/%@", hostName, pathSub];
+                [mediaInXml addObject:[NSString stringWithFormat:@"<Media title=\"%@\" thumb=\"http://%@/Thumbnail/%lld\" duration=\"%@\" size=\"%@\" pathfile=\"http://%@/download/%@\" pathSubtitle=\"%@\"/>",
+                                       [video.title stringByAddingPercentEncodingWithAllowedCharacters:characterSet],
+                                       hostName,
+                                       video.identifier,
+                                       [video mediaDuration],
+                                       [video formatSize],
+                                       hostName,
+                                       [[video mainFile].mrl.path stringByAddingPercentEncodingWithAllowedCharacters:characterSet], pathSub]];
             }
         }
     } // end of forloop
@@ -787,7 +860,11 @@ static NSMutableDictionary *authentifiedHosts;
         return [self _httpGETCSSForPath:path];
     }
 
-    return [super httpResponseForMethod:method URI:path];
+    NSObject<HTTPResponse> *response = [super httpResponseForMethod:method URI:path];
+    if (response == nil) {
+        return [[HTTPRedirectResponse alloc] initWithPath:@"/"];
+    }
+    return response;
 }
 
 - (WebSocket *)webSocketForURI:(NSString *)path
