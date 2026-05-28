@@ -2,7 +2,8 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="theme-color" content="#1f1f1f"/>
+        <meta name="theme-color" content="rgb(31,31,31)" media="(prefers-color-scheme: dark)"/>
+        <meta name="theme-color" content="rgb(242,242,247)" media="(prefers-color-scheme: light)"/>
         <title>%%WEBINTF_TITLE%%</title>
         <link rel="stylesheet" href="/public/common.css"/>
         <link rel="stylesheet" href="/public/auth.css"/>
@@ -22,13 +23,8 @@
         </div>
         <form id="code_form">
             <div id="loader"></div>
-            <input id="code" autocomplete="off" type="password"/>
-            <div id="code_bgd">
-                <div class="code_bgd bgd0 bgd_selected"></div>
-                <div class="code_bgd bgd1"></div>
-                <div class="code_bgd bgd2"></div>
-                <div class="code_bgd bgd3 last_bgd"></div>
-            </div>
+            <input id="code" autocomplete="off" type="password" maxlength="%%WEBINTF_PASSCODE_LENGTH%%"/>
+            <div id="code_bgd" data-length="%%WEBINTF_PASSCODE_LENGTH%%"></div>
         </form>
     </body>
 </html>
