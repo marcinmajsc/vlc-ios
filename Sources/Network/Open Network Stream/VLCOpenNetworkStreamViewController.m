@@ -2,7 +2,7 @@
  * VLCOpenNetworkStreamViewController.m
  * VLC for iOS
  *****************************************************************************
- * Copyright (c) 2013-2023 VideoLAN. All rights reserved.
+ * Copyright (c) 2013-2026 VideoLAN. All rights reserved.
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne # videolan.org>
@@ -17,6 +17,7 @@
 #import "VLCStreamingHistoryCell.h"
 #import "VLC-Swift.h"
 #import "VLCOpenNetworkSubtitlesFinder.h"
+#import "VLCMediaList+M3U.h"
 
 @interface VLCOpenNetworkStreamViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, VLCStreamingHistoryCellMenuItemProtocol>
 {
@@ -150,13 +151,7 @@
 
     self.historyTableView.rowHeight = [VLCStreamingHistoryCell heightOfCell];
 
-    UIBarButtonItem *editButton = [[UIBarButtonItem alloc]
-                                   initWithTitle:NSLocalizedString(@"BUTTON_EDIT", nil)
-                                   style:UIBarButtonItemStylePlain
-                                   target:self
-                                   action:@selector(editTableView:)];
-
-    self.navigationItem.rightBarButtonItems = @[editButton];
+    [self _setRightBarButtonItemsEditing:NO];
 }
 
 - (void)updateForTheme
@@ -207,10 +202,7 @@
     self.scanSubToggleButton.selected = [defaults boolForKey:kVLChttpScanSubtitle];
 
     self.historyTableView.editing = NO;
-    UIBarButtonItem *editButtonItem = self.navigationItem.rightBarButtonItems.firstObject;
-    editButtonItem.title = NSLocalizedString(@"BUTTON_EDIT", nil);
-    editButtonItem.style = UIBarButtonItemStylePlain;
-    self.navigationItem.rightBarButtonItems = @[editButtonItem];
+    [self _setRightBarButtonItemsEditing:NO];
 
     [self updateEditButtonState];
     [super viewWillAppear:animated];
@@ -307,27 +299,9 @@
 
 - (void)editTableView:(id)sender
 {
-    BOOL editing = self.historyTableView.editing;
-    [self.historyTableView setEditing:!editing animated:YES];
-
-    // Find current edit button and construct/reset right buttons
-    UIBarButtonItem *editButtonItem = self.navigationItem.rightBarButtonItems.firstObject;
-    if (!editButtonItem) { return; }
-
-    if (editing) {
-        // Leaving editing: set title back to Edit and remove trash button
-        editButtonItem.title = NSLocalizedString(@"BUTTON_EDIT", nil);
-        editButtonItem.style = UIBarButtonItemStylePlain;
-        self.navigationItem.rightBarButtonItems = @[editButtonItem];
-    } else {
-        // Entering editing: set title to Done and add trash button
-        editButtonItem.title = NSLocalizedString(@"BUTTON_DONE", nil);
-        editButtonItem.style = UIBarButtonItemStyleDone;
-
-        UIBarButtonItem *resetButton = [self _resetBarButtonItem];
-
-        self.navigationItem.rightBarButtonItems = @[editButtonItem, resetButton];
-    }
+    BOOL wasEditing = self.historyTableView.editing;
+    [self.historyTableView setEditing:!wasEditing animated:YES];
+    [self _setRightBarButtonItemsEditing:!wasEditing];
 }
 
 - (void)emptyListAction:(id)sender
@@ -561,35 +535,101 @@ forRowAtIndexPath:(NSIndexPath *)indexPath
 
 #pragma mark - internals
 
-- (UIBarButtonItem *)_resetBarButtonItem
+- (void)_setRightBarButtonItemsEditing:(BOOL)editing
 {
-    UIImage *resetImage = nil;
-    if (@available(iOS 13.0, *)) {
-        resetImage = [UIImage systemImageNamed:@"trash"];
+    UIBarButtonItem *first;
+    UIBarButtonItem *second;
+    if (editing) {
+        first = [[UIBarButtonItem alloc] initWithTitle:NSLocalizedString(@"BUTTON_DONE", nil)
+                                                 style:UIBarButtonItemStyleDone
+                                                target:self
+                                                action:@selector(editTableView:)];
+
+        UIImage *resetImage = nil;
+        if (@available(iOS 13.0, *)) {
+            resetImage = [UIImage systemImageNamed:@"trash"];
+        }
+        if (!resetImage) {
+            resetImage = [UIImage imageNamed:@"trash"];
+        }
+        second = [[UIBarButtonItem alloc] initWithImage:resetImage
+                                                  style:UIBarButtonItemStylePlain
+                                                 target:self
+                                                 action:@selector(emptyListAction:)];
+        second.accessibilityLabel = NSLocalizedString(@"BUTTON_RESET", nil);
+    } else {
+        first = [[UIBarButtonItem alloc] initWithTitle:NSLocalizedString(@"BUTTON_EDIT", nil)
+                                                 style:UIBarButtonItemStylePlain
+                                                target:self
+                                                action:@selector(editTableView:)];
+
+        UIImage *shareImage = nil;
+        if (@available(iOS 13.0, *)) {
+            shareImage = [UIImage systemImageNamed:@"square.and.arrow.up"];
+        }
+        if (!shareImage) {
+            shareImage = [UIImage imageNamed:@"share"];
+        }
+        second = [[UIBarButtonItem alloc] initWithImage:shareImage
+                                                  style:UIBarButtonItemStylePlain
+                                                 target:self
+                                                 action:@selector(shareAction:)];
+        second.accessibilityLabel = NSLocalizedString(@"SHARE_LABEL", nil);
     }
-    if (!resetImage) {
-        resetImage = [UIImage imageNamed:@"trash"];
+    self.navigationItem.rightBarButtonItems = @[first, second];
+}
+
+- (void)shareAction:(id)sender
+{
+    if (_recentURLs.count == 0) {
+        return;
     }
-    UIBarButtonItem *resetButton = [[UIBarButtonItem alloc] initWithImage:resetImage
-                                                                     style:UIBarButtonItemStylePlain
-                                                                    target:self
-                                                                    action:@selector(emptyListAction:)];
-    resetButton.accessibilityLabel = NSLocalizedString(@"BUTTON_RESET", nil);
-    return resetButton;
+
+    VLCMediaList *mediaList = [[VLCMediaList alloc] init];
+    NSInteger count = _recentURLs.count;
+    for (NSInteger i = 0; i < count; i++) {
+        NSString *urlString = _recentURLs[i];
+        NSURL *url = [NSURL URLWithString:urlString];
+        if (url == nil) {
+            continue;
+        }
+        VLCMedia *media = [VLCMedia mediaWithURL:url];
+        NSString *renamedTitle = _recentURLTitles[@(i).stringValue];
+        if (renamedTitle.length > 0) {
+            media.metaData.title = renamedTitle;
+        }
+        [mediaList addMedia:media];
+    }
+
+    NSString *fileName = [NSLocalizedString(@"RECENT_STREAMS", nil) stringByAppendingPathExtension:@"m3u"];
+    NSURL *tempURL = [[NSURL fileURLWithPath:NSTemporaryDirectory()] URLByAppendingPathComponent:fileName];
+    // we might have crashed in the past and left a file over, remove it
+    [[NSFileManager defaultManager] removeItemAtURL:tempURL error:nil];
+
+    NSError *error = nil;
+    if (![mediaList writeM3UToURL:tempURL error:&error]) {
+        APLog(@"Failed to write M3U for sharing: %@", error);
+        return;
+    }
+
+    UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:@[tempURL]
+                                                                             applicationActivities:nil];
+    activityVC.popoverPresentationController.barButtonItem = sender;
+    activityVC.completionWithItemsHandler = ^(UIActivityType activityType, BOOL completed, NSArray *returnedItems, NSError *activityError) {
+        [[NSFileManager defaultManager] removeItemAtURL:tempURL error:nil];
+    };
+    [self presentViewController:activityVC animated:YES completion:nil];
 }
 
 - (void)updateEditButtonState
 {
     BOOL hasItems = _recentURLs.count > 0;
-    for (UIBarButtonItem *item in self.navigationItem.rightBarButtonItems) {
-        item.enabled = hasItems;
-    }
     if (!hasItems && self.historyTableView.editing) {
         [self.historyTableView setEditing:NO animated:YES];
-        UIBarButtonItem *editButtonItem = self.navigationItem.rightBarButtonItems.firstObject;
-        editButtonItem.title = NSLocalizedString(@"BUTTON_EDIT", nil);
-        editButtonItem.style = UIBarButtonItemStylePlain;
-        self.navigationItem.rightBarButtonItems = @[editButtonItem];
+        [self _setRightBarButtonItemsEditing:NO];
+    }
+    for (UIBarButtonItem *item in self.navigationItem.rightBarButtonItems) {
+        item.enabled = hasItems;
     }
 }
 	
