@@ -120,6 +120,10 @@ post_install do |installer_representation|
       config.build_settings['SKIP_INSTALL'] = 'YES'
       config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
 
+      # Xcode 26 explicit module dependency scanning can fail across multiple
+      # CocoaPods targets during archive builds, so disable it for Pods targets.
+      config.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
+
       # Patch out sqlite3 linker flag
       xcconfig_path = config.base_configuration_reference.real_path
       xcconfig = File.read(xcconfig_path)
@@ -127,4 +131,24 @@ post_install do |installer_representation|
       File.open(xcconfig_path, "w") { |file| file << new_xcconfig }
     end
   end
+  # Xcode 26 SDKs mark netinet6/in6.h as private; AFNetworking still imports it.
+  # Patch pod sources after installation to use public netinet/in.h instead.
+  af_sources_dir = 'Pods/AFNetworking/AFNetworking'
+  patched_files_count = 0
+
+  Dir.glob(File.join(af_sources_dir, '**', '*.{m,h}')).each do |af_file|
+    next unless File.file?(af_file)
+
+    source = File.read(af_file)
+    next unless source.include?('<netinet6/in6.h>')
+
+    patched = source.gsub('<netinet6/in6.h>', '<netinet/in.h>')
+    next if source == patched
+
+    File.open(af_file, 'w') { |file| file << patched }
+    patched_files_count += 1
+  end
+
+  puts "AFNetworking netinet patch: patched #{patched_files_count} file(s)."
+
 end
