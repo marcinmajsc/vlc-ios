@@ -200,6 +200,12 @@ class VideoPlayerViewController: PlayerViewController {
         return artWorkImageView
     }()
 
+    private lazy var coneLoadingView: PulsingConeView = {
+        let coneLoadingView = PulsingConeView()
+        coneLoadingView.translatesAutoresizingMaskIntoConstraints = false
+        return coneLoadingView
+    }()
+
     private var videoOutputView: UIView = {
         var videoOutputView = UIView()
         videoOutputView.backgroundColor = .black
@@ -441,7 +447,9 @@ class VideoPlayerViewController: PlayerViewController {
         }
 
         // Reset lock interface on end of playback.
-        playerController.isInterfaceLocked = false
+        if playerController.isInterfaceLocked {
+            setPlayerInterfaceEnabled(true)
+        }
 
 #if os(iOS)
         volumeControlView.alpha = 0
@@ -491,6 +499,7 @@ class VideoPlayerViewController: PlayerViewController {
         view.addSubview(volumeControlView)
 #endif
         view.addSubview(externalVideoOutputView)
+        view.addSubview(coneLoadingView)
         view.addSubview(statusLabel)
         view.addSubview(titleSelectionView)
         view.addSubview(longPressPlaybackSpeedView)
@@ -597,6 +606,7 @@ class VideoPlayerViewController: PlayerViewController {
         setupVolumeControlConstraints()
 #endif
         setupStatusLabelConstraints()
+        setupConeLoadingViewConstraints()
         setupTitleSelectionConstraints()
         setupLongPressPlaybackSpeedConstraints()
     }
@@ -769,6 +779,15 @@ class VideoPlayerViewController: PlayerViewController {
         NSLayoutConstraint.activate([
             statusLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             statusLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+        ])
+    }
+
+    private func setupConeLoadingViewConstraints() {
+        NSLayoutConstraint.activate([
+            coneLoadingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            coneLoadingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            coneLoadingView.topAnchor.constraint(equalTo: view.topAnchor),
+            coneLoadingView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
 
@@ -1299,6 +1318,7 @@ class VideoPlayerViewController: PlayerViewController {
         upSwipeRecognizer.isEnabled = enabled
         downSwipeRecognizer.isEnabled = enabled
         panRecognizer.isEnabled = enabled
+        minimizeGestureRecognizer.isEnabled = enabled
 
 #if os(iOS)
         brightnessControlView.isEnabled(enabled)
@@ -1335,6 +1355,12 @@ extension VideoPlayerViewController {
         videoPlayerControls.updatePlayPauseButton(toState: isPlaying)
         videoPlayerControls.shouldEnableSeekButtons(playbackService.mediaList.count == 1)
 
+        if currentState == .buffering {
+            coneLoadingView.startAnimating()
+        } else {
+            coneLoadingView.stopAnimating()
+        }
+
         if currentState == .error {
             statusLabel.showStatusMessage(NSLocalizedString("PLAYBACK_FAILED",
                                                             comment: ""))
@@ -1346,7 +1372,8 @@ extension VideoPlayerViewController {
 
         let media = VLCMLMedia(forPlaying: playbackService.currentlyPlayingMedia)
         if let media = media, currentState == .opening &&
-            (media.type() == .audio && playbackService.numberOfVideoTracks == 0) {
+            (media.type() == .audio && playbackService.numberOfVideoTracks == 0),
+           presentingViewController != nil {
             // This media is audio only and can be played with the Audio Player.
             delegate?.videoPlayerViewControllerShouldSwitchPlayer(self)
             return
@@ -1374,6 +1401,11 @@ extension VideoPlayerViewController {
             supportedInterfaceOrientations = .allButUpsideDown
             videoPlayerControls.rotationLockButton.tintColor = .white
         }
+    }
+
+    override func playbackPositionUpdated(_ playbackService: PlaybackService) {
+        super.playbackPositionUpdated(playbackService)
+        coneLoadingView.stopAnimating()
     }
 
     func playbackServiceDidSwitchAspectRatio(_ aspectRatio: Int) {

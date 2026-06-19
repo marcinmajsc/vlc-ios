@@ -24,10 +24,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 #if !TARGET_OS_WATCH
 @class VLCHTTPUploaderController;
+@class VLCTransferController;
 #endif
-
-@class VideoModel;
-@class TrackModel;
 
 @interface VLCAppCoordinator : NSObject
 
@@ -35,6 +33,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 #if !TARGET_OS_WATCH
 @property (readonly) VLCHTTPUploaderController *httpUploaderController;
+@property (readonly) VLCTransferController *transferController;
 @property (readonly) VLCFavoriteService *favoriteService;
 #endif
 @property (readonly) MediaLibraryService *mediaLibraryService;
@@ -46,11 +45,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 #if TARGET_OS_IOS || TARGET_OS_VISION
 @property (readonly) VLCStripeController *stripeController;
-#endif
-
-#if TARGET_OS_TV
-@property (readonly) VideoModel *videoModel;
-@property (readonly) TrackModel *trackModel;
 #endif
 
 #if TARGET_OS_IOS || TARGET_OS_VISION

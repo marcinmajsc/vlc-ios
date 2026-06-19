@@ -25,6 +25,7 @@
 #import "HTTPRedirectResponse.h"
 #import "NSString+SupportedMedia.h"
 #import "VLCHTTPUploaderController.h"
+#import "VLCTransferController.h"
 #import "VLCMetaData.h"
 #import "GCDAsyncSocket.h"
 #import "VLC-Swift.h"
@@ -41,6 +42,8 @@
     NSString *_filepath;
     UInt64 _contentLength;
     UInt64 _receivedContent;
+    NSUInteger _uploadToken;
+    BOOL _uploadTracked;
     NSBundle *_languageBundle;
     BOOL _languageBundleResolved;
 #if TARGET_OS_TV
@@ -887,6 +890,9 @@ static NSMutableDictionary *authentifiedHosts;
 
     APLog(@"expecting file of size %lli kB", contentLength / 1024);
     _contentLength = contentLength;
+
+    _uploadToken = [[[VLCAppCoordinator sharedInstance] transferController] startUploadWithExpectedSize:(long long)contentLength];
+    _uploadTracked = YES;
 }
 
 - (void)processBodyData:(NSData *)postDataChunk
@@ -897,6 +903,10 @@ static NSMutableDictionary *authentifiedHosts;
 
     _receivedContent += postDataChunk.length;
 
+    if (_uploadTracked) {
+        [[[VLCAppCoordinator sharedInstance] transferController] updateUpload:_uploadToken receivedBytes:(long long)_receivedContent];
+    }
+
 #if WIFI_SHARING_DEBUG || TARGET_OS_TV
     long long percentage = ((_receivedContent * 100) / _contentLength);
 #if WIFI_SHARING_DEBUG
@@ -904,7 +914,8 @@ static NSMutableDictionary *authentifiedHosts;
 #endif
 #endif
 #if TARGET_OS_TV
-        if (percentage >= 10) {
+        if (percentage >= 10
+            && [[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingPlayUploadsWhileReceiving]) {
             [self performSelectorOnMainThread:@selector(startPlaybackOfPath:) withObject:_filepath waitUntilDone:NO];
         }
 #endif
@@ -981,10 +992,19 @@ static NSMutableDictionary *authentifiedHosts;
     // make sure to exclude illegal characters
     filename = [self _sanitizeFilePath:filename];
 
+    if (_uploadTracked) {
+        [[[VLCAppCoordinator sharedInstance] transferController] updateUpload:_uploadToken displayName:[filename lastPathComponent]];
+    }
+
     // create the path where to store the media temporarily
     NSArray *searchPaths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+#if TARGET_OS_TV
+    NSString *uploadDirPath = [searchPaths.firstObject
+                               stringByAppendingPathComponent:kVLCHTTPUploadInFlightDirectory];
+#else
     NSString *uploadDirPath = [searchPaths.firstObject
                                stringByAppendingPathComponent:kVLCHTTPUploadDirectory];
+#endif
     NSFileManager *fileManager = [NSFileManager defaultManager];
 
     BOOL isDir = YES;
@@ -1003,6 +1023,7 @@ static NSMutableDictionary *authentifiedHosts;
                 withIntermediateDirectories:true attributes:nil error:nil]) {
         APLog(@"Could not create directory at path: %@", _filepath);
         [self performSelectorOnMainThread:@selector(notifyUserAboutEndOfFreeStorage:) withObject:filename waitUntilDone:NO];
+        [self failTrackedUpload];
         [self handleResourceNotFound];
         [self stop];
     }
@@ -1010,6 +1031,7 @@ static NSMutableDictionary *authentifiedHosts;
     if (![fileManager createFileAtPath:_filepath contents:nil attributes:nil]) {
         APLog(@"Could not create file at path: %@", _filepath);
         [self performSelectorOnMainThread:@selector(notifyUserAboutEndOfFreeStorage:) withObject:filename waitUntilDone:NO];
+        [self failTrackedUpload];
         [self handleResourceNotFound];
         [self stop];
     }
@@ -1058,6 +1080,7 @@ static NSMutableDictionary *authentifiedHosts;
             APLog(@"File to write further data because storage is full.");
             [_storeFile closeFile];
             _storeFile = nil;
+            [self failTrackedUpload];
             /* don't block */
             [self performSelector:@selector(stop) withObject:nil afterDelay:0.1];
         }
@@ -1073,18 +1096,48 @@ static NSMutableDictionary *authentifiedHosts;
     _storeFile = nil;
 }
 
+- (void)failTrackedUpload
+{
+    if (_uploadTracked) {
+        [[[VLCAppCoordinator sharedInstance] transferController] failUpload:_uploadToken
+                                         errorDescription:NSLocalizedString(@"DISK_FULL", nil)];
+        _uploadTracked = NO;
+    }
+}
+
 - (BOOL)shouldDie
 {
     if (_filepath) {
         if (_filepath.length > 0) {
-            [_httpUploaderController moveFileFrom:_filepath];
+            NSString *finalFilePath = [_httpUploaderController moveFileFrom:_filepath];
 
 #if TARGET_OS_TV
             [_receivedFiles removeObject:_filepath];
 #endif
+            if (_uploadTracked) {
+                [[[VLCAppCoordinator sharedInstance] transferController] finishUpload:_uploadToken filePath:finalFilePath];
+                _uploadTracked = NO;
+            }
         }
     }
+    if (_uploadTracked) {
+        [[[VLCAppCoordinator sharedInstance] transferController] cancelUpload:_uploadToken];
+        _uploadTracked = NO;
+    }
     return [super shouldDie];
+}
+
+- (void)die
+{
+    if (_storeFile) {
+        [_storeFile closeFile];
+        _storeFile = nil;
+    }
+    if (_uploadTracked) {
+        [[[VLCAppCoordinator sharedInstance] transferController] cancelUpload:_uploadToken];
+        _uploadTracked = NO;
+    }
+    [super die];
 }
 
 #pragma mark subtitle

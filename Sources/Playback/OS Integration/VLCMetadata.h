@@ -21,7 +21,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property(readwrite, copy, nullable) NSString *artist;
 @property(readwrite, copy, nullable) NSString *albumName;
 @property(readwrite, assign) BOOL isAudioOnly;
+@property(readwrite, copy, nullable) NSString *genre;
 @property(readwrite, nullable) NSNumber *trackNumber;
+@property(readwrite, nullable) NSNumber *albumTrackCount;
+@property(readwrite, nullable) NSNumber *discNumber;
 @property(readwrite, nullable) NSNumber *playbackDuration;
 @property(readwrite, nullable) NSNumber *elapsedPlaybackTime;
 @property(readwrite, nullable) NSNumber *playbackRate;
@@ -29,11 +32,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(readwrite, nullable) NSNumber *identifier;
 @property(readwrite, assign) BOOL isLiveStream;
 
-#if TARGET_OS_IOS || TARGET_OS_VISION || TARGET_OS_WATCH
-- (void)updateMetadataFromMedia:(VLCMLMedia *)media mediaPlayer:(VLCMediaPlayer*)mediaPlayer;
-#else
-- (void)updateMetadataFromMediaPlayer:(VLCMediaPlayer *)mediaPlayer;
-#endif
+- (void)updateMetadataFromMedia:(nullable VLCMLMedia *)media mediaPlayer:(VLCMediaPlayer*)mediaPlayer;
 
 - (void)updateExposedTimingFromMediaPlayer:(VLCMediaPlayer*)mediaPlayer;
 

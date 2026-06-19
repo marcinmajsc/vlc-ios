@@ -373,15 +373,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 #endif
 
     [_mediaPlayer setDelegate:self];
-    id speedValue = [defaults objectForKey:kVLCSettingPlaybackSpeedDefaultValue];
-    CGFloat defaultPlaybackSpeed = 1.0;
-
-    if ([speedValue isKindOfClass:[NSString class]] && [speedValue isEqualToString:@"custom"]) {
-        defaultPlaybackSpeed = [defaults floatForKey:@"playback-speed-custom"];
-    } else {
-        defaultPlaybackSpeed = [speedValue floatValue];
-    }
-
+    CGFloat defaultPlaybackSpeed = self.defaultPlaybackRate;
     if (defaultPlaybackSpeed != 0.)
         [_mediaPlayer setRate: defaultPlaybackSpeed];
     int deinterlace = [[defaults objectForKey:kVLCSettingDeinterlace] intValue];
@@ -723,6 +715,16 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     _metadata.playbackRate = @(_mediaPlayer.rate);
 }
 
+- (CGFloat)defaultPlaybackRate
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    id speedValue = [defaults objectForKey:kVLCSettingPlaybackSpeedDefaultValue];
+    if ([speedValue isKindOfClass:[NSString class]] && [speedValue isEqualToString:@"custom"]) {
+        return [defaults floatForKey:@"playback-speed-custom"];
+    }
+    return [speedValue floatValue];
+}
+
 - (void)setAudioDelay:(float)audioDelay
 {
     _mediaPlayer.currentAudioPlaybackDelay = 1000.*audioDelay;
@@ -812,20 +814,12 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
 - (NSInteger)numberOfAudioTracks
 {
-#if TARGET_OS_TV
-    return [[_mediaPlayer audioTracks] count] + 1;
-#else
     return [[_mediaPlayer audioTracks] count] + 2;
-#endif
 }
 
 - (NSInteger)numberOfVideoSubtitlesIndexes
 {
-#if TARGET_OS_TV
-    return [[_mediaPlayer textTracks] count]  + 1;
-#else
-    return [[_mediaPlayer textTracks] count]  + 3;
-#endif
+    return [[_mediaPlayer textTracks] count] + 3;
 }
 
 - (NSInteger)numberOfTitles
@@ -843,20 +837,12 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     NSArray *textTracks = [_mediaPlayer textTracks];
     NSInteger count = textTracks.count;
 
-#if TARGET_OS_TV
-    if (index < count) {
-        VLCMediaPlayerTrack *track = textTracks[index];
-        return track.trackName;
-    }
-#else
-
     if (index == count) {
         return NSLocalizedString(@"SELECT_SUBTITLE_FROM_FILES", nil);
     } else if (index < count) {
         VLCMediaPlayerTrack *track = textTracks[index];
         return track.trackName;
     }
-#endif
     return @"";
 }
 
@@ -865,19 +851,12 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     NSArray *audioTracks = _mediaPlayer.audioTracks;
     NSInteger count = audioTracks.count;
 
-#if TARGET_OS_TV
-    if (index < count) {
-        VLCMediaPlayerTrack *track = audioTracks[index];
-        return track.trackName;
-    }
-#else
     if (index == count) {
         return NSLocalizedString(@"SELECT_AUDIO_FROM_FILES", nil);
     } else if (index < count) {
         VLCMediaPlayerTrack *track = audioTracks[index];
         return track.trackName;
     }
-#endif
     return @"";
 }
 
@@ -1770,12 +1749,8 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
 - (void)setNeedsMetadataUpdate
 {
-#if TARGET_OS_TV
-    [_metadata updateMetadataFromMediaPlayer:_mediaPlayer];
-#else
     VLCMLMedia *media = self->_mediaPlayer.media ? [VLCMLMedia mediaForPlayingMedia:self->_mediaPlayer.media] : nil;
     [_metadata updateMetadataFromMedia:media mediaPlayer:_mediaPlayer];
-#endif
 
     [self recoverDisplayedMetadata];
 }

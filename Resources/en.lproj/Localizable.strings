@@ -8,13 +8,17 @@
 "CHAPTER_SELECTION_TITLE" = "Chapters";
 "TITLE" = "Title";
 "CHAPTER" = "Chapter";
-"TRACK_SELECTION" = "Track Selection";
 "AUDIO" = "Audio";
 "SUBTITLES" = "Subtitles";
 "LANGUAGE" = "Language";
 "MEDIA_INFO" = "Media Information";
 "VIDEO_DIMENSIONS" = "Video dimensions";
 "FORMAT_VIDEO_DIMENSIONS" = "%ix%i pixel";
+"VIDEO_CODEC" = "Video Codec";
+"RESOLUTION_CLASS_8K" = "8K";
+"RESOLUTION_CLASS_4K" = "4K";
+"RESOLUTION_CLASS_HD" = "HD";
+"RESOLUTION_CLASS_SD" = "SD";
 "FORMAT_AUDIO_TRACKS" = "%i audio tracks";
 "ONE_AUDIO_TRACK" = "One audio track";
 "FORMAT_SPU_TRACKS" = "%i subtitles tracks";
@@ -55,11 +59,13 @@
 "BUTTON_ABOUT" = "About";
 "BUTTON_BACK" = "Back";
 "BUTTON_DONE" = "Done";
+"BUTTON_OPEN" = "Open";
 "BUTTON_CANCEL" = "Cancel";
 "BUTTON_SAVE" = "Save";
 "BUTTON_DOWNLOAD" = "Download";
 "BUTTON_DELETE" = "Delete";
 "BUTTON_RENAME" = "Rename";
+"BUTTON_COPY" = "Copy";
 "BUTTON_OK" = "OK";
 "BUTTON_DISMISS" = "Dismiss";
 "BUTTON_CONTACT" = "Contact us";
@@ -71,7 +77,6 @@
 "BUTTON_RESET" = "Reset";
 "BUTTON_RESCAN" = "Rescan";
 "PRIVATE_PLAYBACK_TOGGLE" = "Private Playback";
-"SCAN_SUBTITLE_TOGGLE" = "Scan for Subtitles (http-only)";
 
 "BUTTON_RENDERER" = "Casting devices";
 "BUTTON_RENDERER_HINT" = "Show a menu of available casting devices";
@@ -89,7 +94,7 @@
 
 "OPEN_NETWORK" = "Open Network Stream";
 "NETWORK_TITLE" = "Network Stream";
-"OPEN_NETWORK_HELP" = "Enter any HTTP, RTSP, RTMP, MMS, FTP or UDP/RTP address to open the stream directly.";
+"RECENT_STREAMS" = "Recent Streams";
 "HTTP_UPLOAD_SERVER_OFF" = "Inactive Server";
 "HTTP_UPLOAD_NO_CONNECTIVITY" = "No active Wi-Fi connection";
 "OPEN_STREAM_OR_DOWNLOAD" = "Would you like to download or play this URL?";
@@ -104,7 +109,13 @@
 
 "HTTP_DOWNLOAD_CANCELLED" = "Download canceled by user";
 
-"DOWNLOAD_FROM_HTTP" = "Downloads";
+"DOWNLOAD_FROM_HTTP" = "Transfers";
+"TRANSFERS" = "Transfers";
+"TRANSFERS_IN_PROGRESS" = "In progress";
+"TRANSFER_FAILED" = "Transfer failed";
+"TRANSFERS_COUNT_FORMAT" = "%lu transfers";
+"DOWNLOADS_SECTION_COMPLETED" = "Completed";
+"DOWNLOAD_FILE_UNAVAILABLE" = "This file is no longer available. It may have been moved, renamed or deleted.";
 "ERROR_NUMBER" = "Error %i occured";
 "DOWNLOAD_FAILED" = "Download failed";
 "FILE_NOT_SUPPORTED" = "File format not supported";
@@ -123,7 +134,7 @@
 
 "FAVORITEVC_DETAILTEXT" = "See your favorite folders";
 "STREAMVC_DETAILTEXT" = "Play streams directly without downloading";
-"DOWNLOADVC_DETAILTEXT" = "Download files directly to your device";
+"DOWNLOADVC_DETAILTEXT" = "Load files directly to your device";
 "CLOUDVC_DETAILTEXT" = "Play or download media from online services";
 "HEADER_TITLE_RENDERER" = "Select a casting device";
 
@@ -144,6 +155,11 @@
 
 "FILES_APP_CELL_TITLE" = "Local files";
 "FILES_APP_CELL_SUBTITLE" = "Open a file without copying it to VLC";
+
+"PHOTO_LIBRARY_CELL_TITLE" = "Photo Library";
+"PHOTO_LIBRARY_CELL_SUBTITLE" = "Import videos from your photo library";
+"PHOTO_LIBRARY_IMPORT_FAILED" = "Import failed";
+"PHOTO_LIBRARY_IMPORT_FAILED_MESSAGE" = "VLC could not import %d of the selected videos from your photo library.";
 
 "CLOUD_SERVICES" = "Cloud Services";
 "LOGIN" = "Login";
@@ -282,7 +298,6 @@
 "ROTATE_BUTTON" = "Rotate"; /* Accessibility label for rotate button on the player */
 "ROTATE_BUTTON_HINT" = "Toggles the video player between landscape and portrait mode."; /* Accessibility hint for rotate button on the player */
 
-"AUDIO_INFO_VC_TITLE" = "Audio Info";
 "ENTER_URL" = "Enter URL to play";
 "HTTP_SERVER_ON" = "Disable Remote Playback";
 "HTTP_SERVER_OFF" = "Enable Remote Playback";
@@ -294,11 +309,7 @@
 "SELECT_AUDIO_FROM_FILES" = "Load External Audio...";
 "SELECT_SUBTITLE_FROM_FILES" = "Load External Subtitles...";
 
-"PLAYBACK" = "Playback";
 "REPEAT_MODE" = "Repeat";
-"REPEAT_DISABLED" = "Disabled";
-"REPEAT_SINGLE" = "Single";
-"REPEAT_FOLDER" = "Folder";
 "SHUFFLE" = "Shuffle";
 "SHUFFLE_DISABLED" = "Shuffle off";
 
@@ -327,6 +338,7 @@
 "DELETE_ITEM_HINT" = "Press %@ to Delete"; /* Insert %@ where play-pause-glyph should be placed */
 "DELETE_MESSAGE" = "Confirm the deletion of the selection";
 "DELETE_MESSAGE_PLAYLIST" = "Are you sure to delete the selected playlist?\nAssociated media files won't be deleted.";
+"DELETE_MESSAGE_PLAYLISTS" = "Are you sure to delete the selected playlists?\nAssociated media files won't be deleted.";
 "DELETE_MESSAGE_PLAYLIST_CONTENT" = "Are you sure to remove the selected media from the playlist?\nThey won't be deleted from the disk.";
 
 // MARK: - Drag and Drop
@@ -380,6 +392,11 @@
 
 "PLAY_AS_AUDIO" = "Play as audio";
 "PLAY_AS_AUDIO_HINT" = "Play the video file as an audio file.";
+
+"MARK_AS_PLAYED" = "Mark as Played";
+"MARK_AS_PLAYED_HINT" = "Mark the media as played";
+"MARK_AS_UNPLAYED" = "Mark as Unplayed";
+"MARK_AS_UNPLAYED_HINT" = "Mark the media as unplayed";
 
 "PLAYLIST_PLACEHOLDER" = "Playlist title";
 "PLAYLIST_DESCRIPTION" = "Choose a title for your new playlist";
@@ -449,6 +466,7 @@
 
 "PRIMARY_SUBTITLES" = "PRIMARY SUBTITLE";
 "SECONDARY_SUBTITLES" = "SECONDARY SUBTITLE";
+"SECONDARY_SUBTITLE" = "Secondary Subtitle...";
 "SUBTITLE_AND_TRACK_BUTTON" = "Subtitles and audio tracks";
 "SUBTITLE_AND_TRACK_HINT" = "Choose subtitle or audio tracks";
 
@@ -538,8 +556,6 @@
 "DISPLAY_PLAYBACK_SPEED_SHORTCUT_HINT" = "Enable to display the playback speed shortcut";
 "VIDEO_FILTERS_HINT" = "Select to open the video filters view";
 "PLAYBACK_SPEED_HINT" = "Select to open the playback speed view";
-"SUBTITLES_DELAY_HINT" = "Select to open the subtitles delay view";
-"AUDIO_DELAY_HINT" = "Select to open the audio delay view";
 "SLEEP_TIMER_HINT" = "Select to open the sleep timer view";
 "EQUALIZER_HINT" = "Select to open the equalizer view";
 "CHAPTERS_HINT" = "Select to open the chapters view";

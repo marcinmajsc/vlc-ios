@@ -49,27 +49,6 @@ extension EditActions {
         rootViewController.present(navigationController, animated: true, completion: nil)
     }
 
-    private func createMediaGroup(from mediaGroupIds: [VLCMLIdentifier],
-                                  _ completion: ((completionState) -> Void)? = nil) {
-        let alertInfo = TextFieldAlertInfo(alertTitle: NSLocalizedString("MEDIA_GROUPS", comment: ""),
-                                           placeHolder: NSLocalizedString("MEDIA_GROUPS_PLACEHOLDER",
-                                                                          comment: ""))
-
-        presentTextFieldAlert(with: alertInfo) {
-            [unowned self] text -> Void in
-            guard text != "" else {
-                DispatchQueue.main.async {
-                    VLCAlertViewController.alertViewManager(title: NSLocalizedString("ERROR_EMPTY_NAME",
-                                                                                     comment: ""),
-                                                            viewController: self.rootViewController)
-                    completion?(.fail)
-                }
-                return
-            }
-            self.createMediaGroup(with: text)
-        }
-    }
-
     func addToPlaylist(_ completion: ((completionState) -> Void)? = nil) {
         self.completion = completion
         ParentalControlCoordinator.shared.authorizeIfParentalControlIsEnabled(action: {
@@ -92,13 +71,13 @@ extension EditActions {
             DispatchQueue.main.async {
                 var mediaGroupIds = [VLCMLIdentifier]()
                 self.objects.forEach { mediaGroupIds.append($0.identifier()) }
-                
+
                 guard var mediaGroups = self.mediaLibraryService.medialib.mediaGroups() else {
                     assertionFailure("EditActions: addToMediaGroup: Failed to retrieve mediaGroups.")
                     self.completion?(.fail)
                     return
                 }
-                
+
                 // Filter out visible groups and action originated source media groups
                 mediaGroups = mediaGroups.filter {
                     if mediaGroupIds.contains($0.identifier()) {
@@ -110,7 +89,7 @@ extension EditActions {
                     }
                     return true
                 }
-                
+
                 self.addToCollection(mediaGroups, for: VLCMLMediaGroup.self)
             }
         }, fail: {
@@ -210,11 +189,17 @@ extension EditActions {
         if objects.count != 1 {
             title = String(format: NSLocalizedString("DELETE_MULTIPLE_TITLE", comment: ""), mediaTitle, objects.count-1)
         }
-        var message = NSLocalizedString("DELETE_MESSAGE", comment: "")
+        var message: String
         if model is PlaylistModel {
-            message = NSLocalizedString("DELETE_MESSAGE_PLAYLIST", comment: "")
+            if objects.count > 1 {
+                message = NSLocalizedString("DELETE_MESSAGE_PLAYLISTS", comment: "")
+            } else {
+                message = NSLocalizedString("DELETE_MESSAGE_PLAYLIST", comment: "")
+            }
         } else if (model as? CollectionModel)?.mediaCollection is VLCMLPlaylist {
             message = NSLocalizedString("DELETE_MESSAGE_PLAYLIST_CONTENT", comment: "")
+        } else {
+            message = NSLocalizedString("DELETE_MESSAGE", comment: "")
         }
 
         let cancelButton = VLCAlertButton(title: NSLocalizedString("BUTTON_CANCEL", comment: ""),
@@ -243,6 +228,24 @@ extension EditActions {
                                                 viewController: rootViewController,
                                                 buttonsAction: [cancelButton,
                                                                 deleteButton])
+    }
+
+    func markAsSeen(_ completion: ((completionState) -> Void)? = nil) {
+        for media in objects.compactMap({ $0 as? VLCMLMedia }) {
+            if media.playCount() == 0 {
+                media.setPlayCount(1)
+            }
+            media.isNew = false
+        }
+        completion?(.success)
+    }
+
+    func markAsUnseen(_ completion: ((completionState) -> Void)? = nil) {
+        for media in objects.compactMap({ $0 as? VLCMLMedia }) {
+            media.removeFromHistory()
+            media.isNew = true
+        }
+        completion?(.success)
     }
 
     func share(origin: UIView, _ completion: ((completionState) -> Void)? = nil) {
@@ -592,3 +595,4 @@ extension EditActions: AddToCollectionViewControllerDelegate {
         completion?(.success)
     }
 }
+

@@ -2,7 +2,7 @@
  * VLCOpenNetworkStreamViewController.m
  * VLC for iOS
  *****************************************************************************
- * Copyright (c) 2013-2023 VideoLAN. All rights reserved.
+ * Copyright (c) 2013-2026 VideoLAN. All rights reserved.
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne # videolan.org>
@@ -16,13 +16,23 @@
 #import "VLCPlaybackService.h"
 #import "VLCStreamingHistoryCell.h"
 #import "VLC-Swift.h"
-#import "VLCOpenNetworkSubtitlesFinder.h"
+#import "VLCMediaList+M3U.h"
 
 @interface VLCOpenNetworkStreamViewController () <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate, VLCStreamingHistoryCellMenuItemProtocol>
 {
     NSMutableArray *_recentURLs;
     NSMutableDictionary *_recentURLTitles;
 }
+
+@property (strong, nonatomic) UITextField *urlField;
+@property (strong, nonatomic) UIButton *openButton;
+@property (strong, nonatomic) UIButton *fieldClearButton;
+@property (strong, nonatomic) UIButton *privateToggleButton;
+@property (strong, nonatomic) UITableView *historyTableView;
+@property (strong, nonatomic) UILabel *recentsHeaderLabel;
+@property (strong, nonatomic) UIButton *clearButton;
+@property (strong, nonatomic) UIButton *shareButton;
+
 @end
 
 @implementation VLCOpenNetworkStreamViewController
@@ -37,6 +47,11 @@
 
 - (void)applicationDidBecomeActive:(NSNotification *)notification
 {
+    /* Only paste while we are actually the front-most UI */
+    UIWindow *window = self.viewIfLoaded.window;
+    if (window == nil || window.rootViewController.presentedViewController != nil)
+        return;
+
     [self updatePasteboardTextInURLField];
 }
 
@@ -57,6 +72,163 @@
     _recentURLTitles = [NSMutableDictionary dictionaryWithDictionary:[[NSUbiquitousKeyValueStore defaultStore] dictionaryForKey:kVLCRecentURLTitles]];
     [self.historyTableView reloadData];
     [self updateEditButtonState];
+}
+
+- (void)loadView
+{
+    UIView *root = [[UIView alloc] init];
+    root.backgroundColor = [UIColor clearColor];
+    self.view = root;
+
+    UIView *fieldsContainer = [[UIView alloc] init];
+    fieldsContainer.translatesAutoresizingMaskIntoConstraints = NO;
+    [root addSubview:fieldsContainer];
+
+    UILayoutGuide *contentGuide = [[UILayoutGuide alloc] init];
+    [fieldsContainer addLayoutGuide:contentGuide];
+
+    UITextField *urlField = [[UITextField alloc] init];
+    urlField.translatesAutoresizingMaskIntoConstraints = NO;
+    urlField.font = [UIFont preferredFontForTextStyle:UIFontTextStyleTitle3];
+    urlField.adjustsFontForContentSizeCategory = YES;
+    urlField.textAlignment = NSTextAlignmentNatural;
+    urlField.clearButtonMode = UITextFieldViewModeNever;
+    urlField.autocorrectionType = UITextAutocorrectionTypeNo;
+    urlField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    urlField.keyboardAppearance = UIKeyboardAppearanceAlert;
+    urlField.layer.cornerRadius = 10.0;
+    urlField.layer.borderWidth = 1.0;
+    [urlField addTarget:self action:@selector(updateFieldAccessories) forControlEvents:UIControlEventEditingChanged | UIControlEventEditingDidBegin | UIControlEventEditingDidEnd];
+    [fieldsContainer addSubview:urlField];
+    self.urlField = urlField;
+
+    UIButton *privateToggleButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightMedium];
+        [privateToggleButton setImage:[UIImage systemImageNamed:@"eye.slash" withConfiguration:cfg] forState:UIControlStateNormal];
+    }
+    privateToggleButton.accessibilityLabel = NSLocalizedString(@"PRIVATE_PLAYBACK_TOGGLE", nil);
+    [privateToggleButton addTarget:self action:@selector(privatePlaybackToggled:) forControlEvents:UIControlEventTouchUpInside];
+    privateToggleButton.frame = CGRectMake(10, 0, 30, 30);
+    self.privateToggleButton = privateToggleButton;
+
+    UIView *leftContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 10 + 30 + 4, 30)];
+    [leftContainer addSubview:privateToggleButton];
+    urlField.leftView = leftContainer;
+    urlField.leftViewMode = UITextFieldViewModeAlways;
+
+    UIButton *openButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightSemibold];
+        [openButton setImage:[UIImage systemImageNamed:@"arrow.right" withConfiguration:cfg] forState:UIControlStateNormal];
+    }
+    [openButton addTarget:self action:@selector(openButtonAction:) forControlEvents:UIControlEventTouchUpInside];
+    openButton.frame = CGRectMake(0, 0, 38, 38);
+    openButton.layer.cornerRadius = 8.0;
+    self.openButton = openButton;
+
+    UIButton *fieldClearButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    if (@available(iOS 13.0, *)) {
+        [fieldClearButton setImage:[UIImage systemImageNamed:@"xmark.circle.fill"] forState:UIControlStateNormal];
+    }
+    fieldClearButton.accessibilityLabel = NSLocalizedString(@"BUTTON_RESET", nil);
+    [fieldClearButton addTarget:self action:@selector(clearURLField) forControlEvents:UIControlEventTouchUpInside];
+    fieldClearButton.frame = CGRectMake(0, 4, 30, 30);
+    fieldClearButton.hidden = YES;
+    self.fieldClearButton = fieldClearButton;
+
+    UIView *openContainer = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 38 + 7, 38)];
+    [openContainer addSubview:fieldClearButton];
+    [openContainer addSubview:openButton];
+    urlField.rightView = openContainer;
+    urlField.rightViewMode = UITextFieldViewModeAlways;
+
+    UILabel *recentsHeaderLabel = [[UILabel alloc] init];
+    recentsHeaderLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    UIFontDescriptor *headerDescriptor = [[UIFontDescriptor preferredFontDescriptorWithTextStyle:UIFontTextStyleTitle2]
+                                          fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitBold];
+    recentsHeaderLabel.font = [UIFont fontWithDescriptor:headerDescriptor size:0];
+    recentsHeaderLabel.adjustsFontForContentSizeCategory = YES;
+    recentsHeaderLabel.text = NSLocalizedString(@"RECENT_STREAMS", nil);
+    [root addSubview:recentsHeaderLabel];
+    self.recentsHeaderLabel = recentsHeaderLabel;
+
+    UIButton *clearButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    clearButton.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        UIImage *icon = [UIImage systemImageNamed:@"xmark.bin"] ?: [UIImage systemImageNamed:@"trash"];
+        [clearButton setImage:icon forState:UIControlStateNormal];
+    } else {
+        [clearButton setImage:[UIImage imageNamed:@"trash"] forState:UIControlStateNormal];
+    }
+    clearButton.accessibilityLabel = NSLocalizedString(@"BUTTON_RESET", nil);
+    [clearButton addTarget:self action:@selector(emptyListAction:) forControlEvents:UIControlEventTouchUpInside];
+    [root addSubview:clearButton];
+    self.clearButton = clearButton;
+
+    UIButton *shareButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    shareButton.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        [shareButton setImage:[UIImage systemImageNamed:@"square.and.arrow.up"] forState:UIControlStateNormal];
+    } else {
+        [shareButton setImage:[UIImage imageNamed:@"share"] forState:UIControlStateNormal];
+    }
+    shareButton.accessibilityLabel = NSLocalizedString(@"SHARE_LABEL", nil);
+    [shareButton addTarget:self action:@selector(shareAction:) forControlEvents:UIControlEventTouchUpInside];
+    [root addSubview:shareButton];
+    self.shareButton = shareButton;
+
+    UITableView *historyTableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    historyTableView.translatesAutoresizingMaskIntoConstraints = NO;
+    historyTableView.alwaysBounceVertical = YES;
+    historyTableView.showsHorizontalScrollIndicator = NO;
+    historyTableView.indicatorStyle = UIScrollViewIndicatorStyleWhite;
+    historyTableView.separatorStyle = UITableViewCellSeparatorStyleNone;
+    historyTableView.dataSource = self;
+    historyTableView.delegate = self;
+    [root addSubview:historyTableView];
+    self.historyTableView = historyTableView;
+
+    UILayoutGuide *safe = root.safeAreaLayoutGuide;
+
+    NSLayoutConstraint *contentGuidePreferredWidth = [contentGuide.widthAnchor constraintEqualToConstant:480];
+    contentGuidePreferredWidth.priority = UILayoutPriorityDefaultHigh;
+
+    [NSLayoutConstraint activateConstraints:@[
+        [fieldsContainer.topAnchor constraintEqualToAnchor:safe.topAnchor],
+        [fieldsContainer.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
+        [fieldsContainer.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+
+        [contentGuide.centerXAnchor constraintEqualToAnchor:fieldsContainer.centerXAnchor],
+        [contentGuide.leadingAnchor constraintGreaterThanOrEqualToAnchor:fieldsContainer.leadingAnchor constant:20],
+        [contentGuide.trailingAnchor constraintLessThanOrEqualToAnchor:fieldsContainer.trailingAnchor constant:-20],
+        contentGuidePreferredWidth,
+
+        [urlField.topAnchor constraintEqualToAnchor:fieldsContainer.topAnchor constant:14],
+        [urlField.leadingAnchor constraintEqualToAnchor:contentGuide.leadingAnchor],
+        [urlField.trailingAnchor constraintEqualToAnchor:contentGuide.trailingAnchor],
+        [urlField.heightAnchor constraintGreaterThanOrEqualToConstant:50],
+        [fieldsContainer.bottomAnchor constraintEqualToAnchor:urlField.bottomAnchor constant:14],
+
+        [recentsHeaderLabel.topAnchor constraintEqualToAnchor:fieldsContainer.bottomAnchor constant:20],
+        [recentsHeaderLabel.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:20],
+        [recentsHeaderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:clearButton.leadingAnchor constant:-8],
+
+        [shareButton.lastBaselineAnchor constraintEqualToAnchor:recentsHeaderLabel.lastBaselineAnchor],
+        [shareButton.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-20],
+        [shareButton.widthAnchor constraintGreaterThanOrEqualToConstant:44],
+        [shareButton.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+
+        [clearButton.lastBaselineAnchor constraintEqualToAnchor:shareButton.lastBaselineAnchor],
+        [clearButton.heightAnchor constraintEqualToAnchor:shareButton.heightAnchor],
+        [clearButton.trailingAnchor constraintEqualToAnchor:shareButton.leadingAnchor constant:-24],
+        [clearButton.widthAnchor constraintGreaterThanOrEqualToConstant:44],
+
+        [historyTableView.topAnchor constraintEqualToAnchor:shareButton.bottomAnchor constant:10],
+        [historyTableView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
+        [historyTableView.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+        [historyTableView.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+    ]];
 }
 
 - (void)viewDidLoad
@@ -113,20 +285,10 @@
                                name:UIApplicationDidBecomeActiveNotification
                              object:[UIApplication sharedApplication]];
 
-    self.whatToOpenHelpLabel.backgroundColor = [UIColor clearColor];
-    [self.openButton setTitle:NSLocalizedString(@"OPEN_NETWORK", nil) forState:UIControlStateNormal];
+    self.openButton.accessibilityLabel = NSLocalizedString(@"BUTTON_OPEN", nil);
     [self.openButton setAccessibilityIdentifier:@"Open Network Stream"];
-    self.openButton.layer.cornerRadius = 4.0;
-    [self.privateModeLabel setText:NSLocalizedString(@"PRIVATE_PLAYBACK_TOGGLE", nil)];
-    [self.scanSubModeLabel setText:NSLocalizedString(@"SCAN_SUBTITLE_TOGGLE", nil)];
     self.title = NSLocalizedString(@"OPEN_NETWORK", comment: "");
 
-    [self.privateToggleButton setImage:[UIImage imageNamed:@"iconCheckbox-checked"] forState:UIControlStateSelected];
-    [self.privateToggleButton setImage:[UIImage imageNamed:@"iconCheckbox-empty"] forState:UIControlStateNormal];
-    [self.scanSubToggleButton setImage:[UIImage imageNamed:@"iconCheckbox-checked"] forState:UIControlStateSelected];
-    [self.scanSubToggleButton setImage:[UIImage imageNamed:@"iconCheckbox-empty"] forState:UIControlStateNormal];
-
-    [self.whatToOpenHelpLabel setText:NSLocalizedString(@"OPEN_NETWORK_HELP", nil)];
     self.urlField.delegate = self;
     self.urlField.keyboardType = UIKeyboardTypeURL;
     if (@available(iOS 10.0, *)) {
@@ -150,13 +312,7 @@
 
     self.historyTableView.rowHeight = [VLCStreamingHistoryCell heightOfCell];
 
-    UIBarButtonItem *editButton = [[UIBarButtonItem alloc]
-                                   initWithTitle:NSLocalizedString(@"BUTTON_EDIT", nil)
-                                   style:UIBarButtonItemStylePlain
-                                   target:self
-                                   action:@selector(editTableView:)];
-
-    self.navigationItem.rightBarButtonItems = @[editButton];
+    [self _setRightBarButtonItemsEditing:NO];
 }
 
 - (void)updateForTheme
@@ -165,19 +321,20 @@
     self.historyTableView.backgroundColor = colors.background;
     self.view.backgroundColor = colors.background;
     NSMutableParagraphStyle *placeholderParagraphStyle = [[NSMutableParagraphStyle alloc] init];
-    placeholderParagraphStyle.alignment = NSTextAlignmentCenter;
+    placeholderParagraphStyle.alignment = NSTextAlignmentNatural;
     NSAttributedString *coloredAttributedPlaceholder = [[NSAttributedString alloc] initWithString:NSLocalizedString(@"http://myserver.com/file.mkv", nil)
                                                                                        attributes:@{NSForegroundColorAttributeName: colors.textfieldPlaceholderColor, NSParagraphStyleAttributeName: placeholderParagraphStyle}];
     self.urlField.attributedPlaceholder = coloredAttributedPlaceholder;
-    self.urlField.backgroundColor = colors.mediaCategorySeparatorColor;
+    self.urlField.backgroundColor = colors.cellBackgroundB;
     self.urlField.textColor = colors.cellTextColor;
-    self.urlBorder.backgroundColor = colors.textfieldBorderColor;
-    self.privateModeLabel.textColor = colors.lightTextColor;
-    self.scanSubModeLabel.textColor = colors.lightTextColor;
-    self.whatToOpenHelpLabel.textColor = colors.lightTextColor;
+    self.urlField.layer.borderColor = colors.textfieldBorderColor.CGColor;
+    self.recentsHeaderLabel.textColor = colors.lightTextColor;
     self.openButton.backgroundColor = colors.orangeUI;
-    self.privateToggleButton.tintColor = colors.orangeUI;
-    self.scanSubToggleButton.tintColor = colors.orangeUI;
+    self.openButton.tintColor = [UIColor whiteColor];
+    self.fieldClearButton.tintColor = colors.textfieldPlaceholderColor;
+    [self updatePrivateToggleColor];
+    self.shareButton.tintColor = colors.orangeUI;
+    self.clearButton.tintColor = colors.orangeUI;
     for (UIBarButtonItem *item in self.navigationItem.rightBarButtonItems) {
         item.tintColor = colors.orangeUI;
     }
@@ -204,13 +361,10 @@
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     self.privateToggleButton.selected = [defaults boolForKey:kVLCPrivateWebStreaming];
-    self.scanSubToggleButton.selected = [defaults boolForKey:kVLChttpScanSubtitle];
+    [self updatePrivateToggleColor];
 
     self.historyTableView.editing = NO;
-    UIBarButtonItem *editButtonItem = self.navigationItem.rightBarButtonItems.firstObject;
-    editButtonItem.title = NSLocalizedString(@"BUTTON_EDIT", nil);
-    editButtonItem.style = UIBarButtonItemStylePlain;
-    self.navigationItem.rightBarButtonItems = @[editButtonItem];
+    [self _setRightBarButtonItemsEditing:NO];
 
     [self updateEditButtonState];
     [super viewWillAppear:animated];
@@ -224,7 +378,6 @@
 
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     [defaults setBool:self.privateToggleButton.selected forKey:kVLCPrivateWebStreaming];
-    [defaults setBool:self.scanSubToggleButton.selected forKey:kVLChttpScanSubtitle];
     [self.view endEditing:YES];
 
     /* force update before we leave */
@@ -248,12 +401,45 @@
 }
 #endif
 
-- (IBAction)toggleButtonAction:(UIButton *)sender
+- (void)privatePlaybackToggled:(UIButton *)sender
 {
     sender.selected = !sender.selected;
+    [self updatePrivateToggleColor];
 }
 
-- (IBAction)openButtonAction:(id)sender
+- (void)updatePrivateToggleColor
+{
+    ColorPalette *colors = PresentationTheme.current.colors;
+    self.privateToggleButton.tintColor = self.privateToggleButton.selected ? colors.orangeUI : colors.lightTextColor;
+}
+
+- (void)clearURLField
+{
+    self.urlField.text = @"";
+    [self updateFieldAccessories];
+}
+
+- (void)updateFieldAccessories
+{
+    BOOL showClear = self.urlField.isEditing && self.urlField.text.length > 0;
+    if (showClear == !self.fieldClearButton.hidden) {
+        return;
+    }
+    self.fieldClearButton.hidden = !showClear;
+
+    const CGFloat openSize = 38, clearSize = 30, gap = 6, trailingPad = 7;
+    UIView *container = self.openButton.superview;
+    if (showClear) {
+        self.openButton.frame = CGRectMake(clearSize + gap, 0, openSize, openSize);
+        container.frame = CGRectMake(0, 0, clearSize + gap + openSize + trailingPad, openSize);
+    } else {
+        self.openButton.frame = CGRectMake(0, 0, openSize, openSize);
+        container.frame = CGRectMake(0, 0, openSize + trailingPad, openSize);
+    }
+    self.urlField.rightView = container;
+}
+
+- (void)openButtonAction:(id)sender
 {
     if (self.urlField.text.length == 0 && ![self.urlField isFirstResponder]) {
         [self.urlField becomeFirstResponder];
@@ -262,19 +448,17 @@
             return;
         }
 
-        UIView *highlightView = self.urlBorder ?: self.urlField;
         ColorPalette *colors = PresentationTheme.current.colors;
-        UIColor *originalColor = colors.mediaCategorySeparatorColor;
-        UIColor *highlightColor = colors.orangeUI;
+        self.urlField.layer.borderColor = colors.orangeUI.CGColor;
 
         [UIView animateWithDuration:0.12 animations:^{
-            highlightView.backgroundColor = highlightColor;
             self.urlField.transform = CGAffineTransformMakeScale(1.02, 1.02);
         } completion:^(BOOL finished) {
             [UIView animateWithDuration:0.20 delay:0.05 options:UIViewAnimationOptionCurveEaseInOut animations:^{
-                highlightView.backgroundColor = originalColor;
                 self.urlField.transform = CGAffineTransformIdentity;
-            } completion:nil];
+            } completion:^(BOOL done) {
+                self.urlField.layer.borderColor = colors.textfieldBorderColor.CGColor;
+            }];
         }];
 
         return;
@@ -291,10 +475,14 @@
         NSURL *url = [NSURL URLWithString:urlString];
 
         if (url && url.scheme && url.host) {
-            if ([_recentURLs indexOfObject:urlString] != NSNotFound)
-                [_recentURLs removeObject:urlString];
-
-            [_recentURLs addObject:urlString];
+            NSUInteger oldIndex = [_recentURLs indexOfObject:urlString];
+            if (oldIndex != NSNotFound) {
+                [_recentURLs removeObjectAtIndex:oldIndex];
+                [_recentURLs addObject:urlString];
+                [self _shiftTitleKeysForMoveFrom:oldIndex to:_recentURLs.count - 1];
+            } else {
+                [_recentURLs addObject:urlString];
+            }
             [self _saveData];
 
             [self.historyTableView reloadData];
@@ -307,27 +495,9 @@
 
 - (void)editTableView:(id)sender
 {
-    BOOL editing = self.historyTableView.editing;
-    [self.historyTableView setEditing:!editing animated:YES];
-
-    // Find current edit button and construct/reset right buttons
-    UIBarButtonItem *editButtonItem = self.navigationItem.rightBarButtonItems.firstObject;
-    if (!editButtonItem) { return; }
-
-    if (editing) {
-        // Leaving editing: set title back to Edit and remove trash button
-        editButtonItem.title = NSLocalizedString(@"BUTTON_EDIT", nil);
-        editButtonItem.style = UIBarButtonItemStylePlain;
-        self.navigationItem.rightBarButtonItems = @[editButtonItem];
-    } else {
-        // Entering editing: set title to Done and add trash button
-        editButtonItem.title = NSLocalizedString(@"BUTTON_DONE", nil);
-        editButtonItem.style = UIBarButtonItemStyleDone;
-
-        UIBarButtonItem *resetButton = [self _resetBarButtonItem];
-
-        self.navigationItem.rightBarButtonItems = @[editButtonItem, resetButton];
-    }
+    BOOL wasEditing = self.historyTableView.editing;
+    [self.historyTableView setEditing:!wasEditing animated:YES];
+    [self _setRightBarButtonItemsEditing:!wasEditing];
 }
 
 - (void)emptyListAction:(id)sender
@@ -339,13 +509,11 @@
     UIAlertAction *deleteAction = [UIAlertAction actionWithTitle:NSLocalizedString(@"BUTTON_RESET", nil)
                                                            style:UIAlertActionStyleDestructive
                                                          handler:^(UIAlertAction *action){
-        @synchronized (self->_recentURLs) {
-            self->_recentURLs = [NSMutableArray array];
-            self->_recentURLTitles = [NSMutableDictionary dictionary];
-            [self _saveData];
-            [self.historyTableView reloadData];
-            [self updateEditButtonState];
-        }
+        self->_recentURLs = [NSMutableArray array];
+        self->_recentURLTitles = [NSMutableDictionary dictionary];
+        [self _saveData];
+        [self.historyTableView reloadData];
+        [self updateEditButtonState];
     }];
     [alertController addAction:deleteAction];
 
@@ -494,8 +662,19 @@
 - (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath
 {
     if (editingStyle == UITableViewCellEditingStyleDelete) {
-        [_recentURLs removeObjectAtIndex:indexPath.row];
-        [_recentURLTitles removeObjectForKey:[@(indexPath.row) stringValue]];
+        NSInteger deletedRow = indexPath.row;
+        [_recentURLs removeObjectAtIndex:deletedRow];
+
+        NSMutableDictionary *shiftedTitles = [NSMutableDictionary dictionaryWithCapacity:_recentURLTitles.count];
+        [_recentURLTitles enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *title, BOOL *stop) {
+            NSInteger row = key.integerValue;
+            if (row < deletedRow) {
+                shiftedTitles[key] = title;
+            } else if (row > deletedRow) {
+                shiftedTitles[@(row - 1).stringValue] = title;
+            }
+        }];
+        _recentURLTitles = shiftedTitles;
 
         [self _saveData];
 
@@ -540,6 +719,78 @@ forRowAtIndexPath:(NSIndexPath *)indexPath
     return YES;
 }
 
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
+trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    UIContextualAction *deleteAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
+                                                                               title:NSLocalizedString(@"BUTTON_DELETE", nil)
+                                                                             handler:^(UIContextualAction *action, UIView *sourceView, void (^completionHandler)(BOOL)) {
+        [self tableView:tableView commitEditingStyle:UITableViewCellEditingStyleDelete forRowAtIndexPath:indexPath];
+        completionHandler(YES);
+    }];
+    if (@available(iOS 13.0, *)) {
+        deleteAction.image = [UIImage systemImageNamed:@"trash"];
+    }
+
+    UIContextualAction *renameAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal
+                                                                               title:NSLocalizedString(@"BUTTON_RENAME", nil)
+                                                                             handler:^(UIContextualAction *action, UIView *sourceView, void (^completionHandler)(BOOL)) {
+        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+        if (cell != nil) {
+            [self renameStreamFromCell:cell];
+        }
+        completionHandler(YES);
+    }];
+    renameAction.backgroundColor = PresentationTheme.current.colors.lightTextColor;
+    if (@available(iOS 13.0, *)) {
+        renameAction.image = [UIImage systemImageNamed:@"pencil"];
+    }
+
+    return [UISwipeActionsConfiguration configurationWithActions:@[deleteAction, renameAction]];
+}
+
+- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView
+contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath
+                                    point:(CGPoint)point API_AVAILABLE(ios(13.0))
+{
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil
+                                                    previewProvider:nil
+                                                     actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggestedActions) {
+        UIAction *copy = [UIAction actionWithTitle:NSLocalizedString(@"BUTTON_COPY", nil)
+                                              image:[UIImage systemImageNamed:@"doc.on.doc"]
+                                         identifier:nil
+                                            handler:^(__kindof UIAction *action) {
+            [UIPasteboard generalPasteboard].string = self->_recentURLs[indexPath.row];
+        }];
+        UIAction *rename = [UIAction actionWithTitle:NSLocalizedString(@"BUTTON_RENAME", nil)
+                                                image:[UIImage systemImageNamed:@"pencil"]
+                                           identifier:nil
+                                              handler:^(__kindof UIAction *action) {
+            UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+            if (cell != nil) {
+                [self renameStreamFromCell:cell];
+            }
+        }];
+        UIAction *editURL = [UIAction actionWithTitle:NSLocalizedString(@"BUTTON_EDIT", nil)
+                                                 image:[UIImage systemImageNamed:@"link"]
+                                            identifier:nil
+                                               handler:^(__kindof UIAction *action) {
+            UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+            if (cell != nil) {
+                [self editURLFromCell:cell];
+            }
+        }];
+        UIAction *del = [UIAction actionWithTitle:NSLocalizedString(@"BUTTON_DELETE", nil)
+                                              image:[UIImage systemImageNamed:@"trash"]
+                                         identifier:nil
+                                            handler:^(__kindof UIAction *action) {
+            [self tableView:tableView commitEditingStyle:UITableViewCellEditingStyleDelete forRowAtIndexPath:indexPath];
+        }];
+        del.attributes = UIMenuElementAttributesDestructive;
+        return [UIMenu menuWithTitle:@"" children:@[copy, rename, editURL, del]];
+    }];
+}
+
 - (BOOL)tableView:(UITableView *)tableView canMoveRowAtIndexPath:(NSIndexPath *)indexPath
 {
     return YES;
@@ -548,51 +799,105 @@ forRowAtIndexPath:(NSIndexPath *)indexPath
 - (void)tableView:(UITableView *)tableView moveRowAtIndexPath:(NSIndexPath *)sourceIndexPath toIndexPath:(NSIndexPath *)destinationIndexPath
 {
     NSString *stringURL = _recentURLs[sourceIndexPath.row];
-    NSString *titleKey = [@(sourceIndexPath.row) stringValue];
-    NSString *title = _recentURLTitles[titleKey];
     [_recentURLs removeObjectAtIndex:sourceIndexPath.row];
     [_recentURLs insertObject:stringURL atIndex:destinationIndexPath.row];
-    if (title) {
-        [_recentURLTitles removeObjectForKey:titleKey];
-        [_recentURLTitles setObject:title forKey:[@(destinationIndexPath.row) stringValue]];
-    }
+    [self _shiftTitleKeysForMoveFrom:sourceIndexPath.row to:destinationIndexPath.row];
     [self _saveData];
+}
+
+- (void)_shiftTitleKeysForMoveFrom:(NSInteger)source to:(NSInteger)destination
+{
+    if (source == destination) return;
+    NSInteger delta = source < destination ? -1 : 1;
+    NSInteger lo = MIN(source, destination);
+    NSInteger hi = MAX(source, destination);
+    NSMutableDictionary *shifted = [NSMutableDictionary dictionaryWithCapacity:_recentURLTitles.count];
+    [_recentURLTitles enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *title, BOOL *stop) {
+        NSInteger row = key.integerValue;
+        if (row == source) {
+            row = destination;
+        } else if (row >= lo && row <= hi) {
+            row += delta;
+        }
+        shifted[@(row).stringValue] = title;
+    }];
+    _recentURLTitles = shifted;
 }
 
 #pragma mark - internals
 
-- (UIBarButtonItem *)_resetBarButtonItem
+- (void)_setRightBarButtonItemsEditing:(BOOL)editing
 {
-    UIImage *resetImage = nil;
-    if (@available(iOS 13.0, *)) {
-        resetImage = [UIImage systemImageNamed:@"trash"];
+    NSString *title = editing ? NSLocalizedString(@"BUTTON_DONE", nil) : NSLocalizedString(@"BUTTON_EDIT", nil);
+    UIBarButtonItemStyle style = editing ? UIBarButtonItemStyleDone : UIBarButtonItemStylePlain;
+    UIBarButtonItem *toggleItem = [[UIBarButtonItem alloc] initWithTitle:title
+                                                                   style:style
+                                                                  target:self
+                                                                  action:@selector(editTableView:)];
+    toggleItem.tintColor = PresentationTheme.current.colors.orangeUI;
+    self.navigationItem.rightBarButtonItems = @[toggleItem];
+    self.shareButton.hidden = editing;
+    self.clearButton.hidden = editing;
+}
+
+- (void)shareAction:(id)sender
+{
+    if (_recentURLs.count == 0) {
+        return;
     }
-    if (!resetImage) {
-        resetImage = [UIImage imageNamed:@"trash"];
+
+    VLCMediaList *mediaList = [[VLCMediaList alloc] init];
+    NSInteger count = _recentURLs.count;
+    for (NSInteger i = 0; i < count; i++) {
+        NSString *urlString = _recentURLs[i];
+        NSURL *url = [NSURL URLWithString:urlString];
+        if (url == nil) {
+            continue;
+        }
+        VLCMedia *media = [VLCMedia mediaWithURL:url];
+        NSString *renamedTitle = _recentURLTitles[@(i).stringValue];
+        if (renamedTitle.length > 0) {
+            media.metaData.title = renamedTitle;
+        }
+        [mediaList addMedia:media];
     }
-    UIBarButtonItem *resetButton = [[UIBarButtonItem alloc] initWithImage:resetImage
-                                                                     style:UIBarButtonItemStylePlain
-                                                                    target:self
-                                                                    action:@selector(emptyListAction:)];
-    resetButton.accessibilityLabel = NSLocalizedString(@"BUTTON_RESET", nil);
-    return resetButton;
+
+    NSString *fileName = [NSLocalizedString(@"RECENT_STREAMS", nil) stringByAppendingPathExtension:@"m3u"];
+    NSURL *tempURL = [[NSURL fileURLWithPath:NSTemporaryDirectory()] URLByAppendingPathComponent:fileName];
+    // we might have crashed in the past and left a file over, remove it
+    [[NSFileManager defaultManager] removeItemAtURL:tempURL error:nil];
+
+    NSError *error = nil;
+    if (![mediaList writeM3UToURL:tempURL error:&error]) {
+        APLog(@"Failed to write M3U for sharing: %@", error);
+        return;
+    }
+
+    UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:@[tempURL]
+                                                                             applicationActivities:nil];
+    UIView *anchor = self.shareButton;
+    activityVC.popoverPresentationController.sourceView = anchor;
+    activityVC.popoverPresentationController.sourceRect = anchor.bounds;
+    activityVC.completionWithItemsHandler = ^(UIActivityType activityType, BOOL completed, NSArray *returnedItems, NSError *activityError) {
+        [[NSFileManager defaultManager] removeItemAtURL:tempURL error:nil];
+    };
+    [self presentViewController:activityVC animated:YES completion:nil];
 }
 
 - (void)updateEditButtonState
 {
     BOOL hasItems = _recentURLs.count > 0;
+    if (!hasItems && self.historyTableView.editing) {
+        [self.historyTableView setEditing:NO animated:YES];
+        [self _setRightBarButtonItemsEditing:NO];
+    }
     for (UIBarButtonItem *item in self.navigationItem.rightBarButtonItems) {
         item.enabled = hasItems;
     }
-    if (!hasItems && self.historyTableView.editing) {
-        [self.historyTableView setEditing:NO animated:YES];
-        UIBarButtonItem *editButtonItem = self.navigationItem.rightBarButtonItems.firstObject;
-        editButtonItem.title = NSLocalizedString(@"BUTTON_EDIT", nil);
-        editButtonItem.style = UIBarButtonItemStylePlain;
-        self.navigationItem.rightBarButtonItems = @[editButtonItem];
-    }
+    self.shareButton.enabled = hasItems;
+    self.clearButton.enabled = hasItems;
 }
-	
+
 - (void)_openURLStringAndDismiss:(NSString *)url
 {
     [[ParentalControlCoordinator sharedInstance] authorizeIfParentalControlIsEnabledWithAction:^{
@@ -611,10 +916,6 @@ forRowAtIndexPath:(NSIndexPath *)indexPath
         VLCMediaList *medialist = [[VLCMediaList alloc] init];
         [medialist addMedia:media];
         [[VLCPlaybackService sharedInstance] playMediaList:medialist firstIndex:0 subtitlesFilePath:nil];
-
-        if (self.scanSubToggleButton.selected) {
-            [VLCOpenNetworkSubtitlesFinder tryToFindSubtitleOnServerForURL:playbackURL];
-        }
     } fail:nil];
 }
 
