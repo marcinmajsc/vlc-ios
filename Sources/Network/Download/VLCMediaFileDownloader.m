@@ -13,7 +13,6 @@
 #import "VLCMediaFileDownloader.h"
 #import "NSString+SupportedMedia.h"
 #import "VLCActivityManager.h"
-#import "VLCMediaFileDiscoverer.h"
 #import "VLC-Swift.h"
 
 NSString *VLCMediaFileDownloaderBackgroundTaskName = @"VLCMediaFileDownloaderBackgroundTaskName";
@@ -137,9 +136,12 @@ NSString *VLCMediaFileDownloaderBackgroundTaskName = @"VLCMediaFileDownloaderBac
 
 - (void)_downloadFailed
 {
+    /* remove the partial dump file so observers don't surface it as completed */
+    [_fileManager removeItemAtURL:[NSURL fileURLWithPath:_demuxDumpFilePath] error:nil];
+
     if ([self.delegate respondsToSelector:@selector(downloadFailedWithErrorDescription:forDownloader:)]) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self.delegate downloadFailedWithErrorDescription:@"libvlc failure" forDownloader:self];
+            [self.delegate downloadFailedWithErrorDescription:NSLocalizedString(@"DOWNLOAD_FAILED", nil) forDownloader:self];
         });
     }
     [self _downloadEnded];
@@ -165,7 +167,6 @@ NSString *VLCMediaFileDownloaderBackgroundTaskName = @"VLCMediaFileDownloaderBac
     [activityManager networkActivityStopped];
     [activityManager activateIdleTimer];
 
-    [[VLCMediaFileDiscoverer sharedInstance] performSelectorOnMainThread:@selector(updateMediaList) withObject:nil waitUntilDone:NO];
 #if TARGET_OS_IOS
     dispatch_async(dispatch_get_main_queue(), ^{
         // FIXME: Replace notifications by cleaner observers

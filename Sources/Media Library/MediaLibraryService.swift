@@ -146,7 +146,6 @@ class MediaLibraryService: NSObject {
     private static let didForceRescan: String = "MediaLibraryDidForceRescan"
     private var initRecoveryAttempt = 0
 
-    private var didFinishDiscovery = false
     private var didStartMediaDiscovery = false
 
     private var desiredThumbnailWidth = UInt(320)
@@ -397,6 +396,13 @@ private extension MediaLibraryService {
             return nil //Happens when we have a URL or there is no currently playing file
         }
         return medialib.media(withMrl: mrl)
+    }
+
+    @objc func fetchOrCreateMedia(with mrl: URL?) -> VLCMLMedia? {
+        guard let mrl = mrl else {
+            return nil
+        }
+        return medialib.media(withMrl: mrl) ?? medialib.addExternalMedia(withMrl: mrl)
     }
 
     @objc func media(for identifier: VLCMLIdentifier) -> VLCMLMedia? {
@@ -801,23 +807,6 @@ extension MediaLibraryService {
         observable.notifyObservers {
             $0.medialibrary?(self, didDeleteMediaGroupsWithIds: mediaGroupsIds)
         }
-    }
-}
-
-// MARK: - VLCMediaLibraryDelegate - Discovery
-
-extension MediaLibraryService {
-    func medialibrary(_ medialibrary: VLCMediaLibrary, didStartDiscovery entryPoint: String) {
-    }
-
-    func medialibrary(_ medialibrary: VLCMediaLibrary, didCompleteDiscovery entryPoint: String) {
-        didFinishDiscovery = true
-    }
-
-    func medialibrary(_ medialibrary: VLCMediaLibrary, didProgressDiscovery entryPoint: String) {
-    }
-
-    func medialibrary(_ medialibrary: VLCMediaLibrary, didUpdateParsingStatsWithPercent percent: UInt32) {
     }
 }
 

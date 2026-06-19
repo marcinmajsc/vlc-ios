@@ -174,12 +174,12 @@
 			<key>Key</key>
 			<string>deinterlace</string>
 			<key>DefaultValue</key>
-			<string>-1</string>
+			<integer>-1</integer>
 			<key>Values</key>
 			<array>
-				<string>1</string>
-				<string>0</string>
-				<string>-1</string>
+				<integer>1</integer>
+				<integer>0</integer>
+				<integer>-1</integer>
 			</array>
 			<key>Titles</key>
 			<array>
@@ -611,6 +611,16 @@
 			<string>wifi-sharing-ipv6</string>
 			<key>Title</key>
 			<string>SETTINGS_WIFISHARING_IPv6</string>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+		</dict>
+		<dict>
+			<key>DefaultValue</key>
+			<true/>
+			<key>Key</key>
+			<string>PlayUploadsWhileReceiving</string>
+			<key>Title</key>
+			<string>SETTINGS_PLAY_UPLOADS_WHILE_RECEIVING</string>
 			<key>Type</key>
 			<string>PSToggleSwitchSpecifier</string>
 		</dict>

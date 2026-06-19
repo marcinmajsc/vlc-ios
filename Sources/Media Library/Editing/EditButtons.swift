@@ -20,6 +20,16 @@
     case playNextInQueue
     case appendToQueue
     case playAsAudio
+    case markAsSeen
+    case markAsUnseen
+
+    // For testing, remove later
+    case updateAppContext
+    case sendMessage
+    case sendMessageData
+    case transferFile
+    case transferUserInfo
+    case transferComplicationUserInfo
 }
 
 class EditButton {
@@ -37,9 +47,16 @@ class EditButton {
         self.accessibilityHint = accessibilityHint
     }
 
+    private var resolvedImage: UIImage? {
+        if #available(iOS 13.0, *) {
+            return UIImage(named: image) ?? UIImage(systemName: image)
+        }
+        return UIImage(named: image)
+    }
+
     func button(_ target: Any?, _ selector: Selector) -> UIButton {
         let generatedButton = UIButton(type: .system)
-        generatedButton.setImage(UIImage(named: image), for: .normal)
+        generatedButton.setImage(resolvedImage, for: .normal)
         generatedButton.addTarget(target, action: selector, for: .touchUpInside)
         generatedButton.widthAnchor.constraint(equalToConstant: 44).isActive = true
         generatedButton.tintColor = .orange
@@ -51,7 +68,7 @@ class EditButton {
     @available(iOS 13.0, *)
     func action(_ handler: @escaping (UIAction) -> Void) -> UIAction {
         let generatedAction = UIAction(title: title,
-                                       image: UIImage(named: image)?.withTintColor(PresentationTheme.current.colors.orangeUI),
+                                       image: resolvedImage?.withTintColor(PresentationTheme.current.colors.orangeUI, renderingMode: .alwaysOriginal),
                                        identifier: UIAction.Identifier(rawValue: image),
                                        handler: handler)
         generatedAction.accessibilityLabel = accessibilityLabel
@@ -82,6 +99,15 @@ class EditButtonsFactory {
         }
         actionList.append(.delete)
         actionList.append(.share)
+
+        // For testing
+//        actionList.append(.updateAppContext)
+//        actionList.append(.sendMessage)
+//        actionList.append(.sendMessageData)
+        actionList.append(.transferFile)
+//        actionList.append(.transferUserInfo)
+//        actionList.append(.transferComplicationUserInfo)
+
         return actionList
     }
 
@@ -152,6 +178,54 @@ class EditButtonsFactory {
                                                   image: "Audio",
                                                   accessibilityLabel: NSLocalizedString("PLAY_AS_AUDIO", comment: ""),
                                                   accessibilityHint: NSLocalizedString("PLAY_AS_AUDIO_HINT", comment: "")))
+                case .markAsSeen:
+                    editButtons.append(EditButton(identifier: button,
+                                                  title: NSLocalizedString("MARK_AS_PLAYED", comment: ""),
+                                                  image: "eye.fill",
+                                                  accessibilityLabel: NSLocalizedString("MARK_AS_PLAYED", comment: ""),
+                                                  accessibilityHint: NSLocalizedString("MARK_AS_PLAYED_HINT", comment: "")))
+                case .markAsUnseen:
+                    editButtons.append(EditButton(identifier: button,
+                                                  title: NSLocalizedString("MARK_AS_UNPLAYED", comment: ""),
+                                                  image: "eye.slash.fill",
+                                                  accessibilityLabel: NSLocalizedString("MARK_AS_UNPLAYED", comment: ""),
+                                                  accessibilityHint: NSLocalizedString("MARK_AS_UNPLAYED_HINT", comment: "")))
+                case .updateAppContext:
+                editButtons.append(EditButton(identifier: button,
+                                              title: "Update App Context",
+                                              image: "addToPlaylist",
+                                              accessibilityLabel: NSLocalizedString("PLAY_AS_AUDIO", comment: ""),
+                                              accessibilityHint: NSLocalizedString("PLAY_AS_AUDIO_HINT", comment: "")))
+                case .sendMessage:
+                editButtons.append(EditButton(identifier: button,
+                                              title: "Send message",
+                                              image: "MiniPlay",
+                                              accessibilityLabel: NSLocalizedString("PLAY_AS_AUDIO", comment: ""),
+                                              accessibilityHint: NSLocalizedString("PLAY_AS_AUDIO_HINT", comment: "")))
+                case .sendMessageData:
+                editButtons.append(EditButton(identifier: button,
+                                              title: "Send message data",
+                                              image: "addToMediaGroup",
+                                              accessibilityLabel: NSLocalizedString("PLAY_AS_AUDIO", comment: ""),
+                                              accessibilityHint: NSLocalizedString("PLAY_AS_AUDIO_HINT", comment: "")))
+                case .transferFile:
+                editButtons.append(EditButton(identifier: button,
+                                              title: "Transfer File",
+                                              image: "playNextInQueue",
+                                              accessibilityLabel: NSLocalizedString("PLAY_AS_AUDIO", comment: ""),
+                                              accessibilityHint: NSLocalizedString("PLAY_AS_AUDIO_HINT", comment: "")))
+                case .transferUserInfo:
+                editButtons.append(EditButton(identifier: button,
+                                              title: "Transfer User Info",
+                                              image: "share",
+                                              accessibilityLabel: NSLocalizedString("PLAY_AS_AUDIO", comment: ""),
+                                              accessibilityHint: NSLocalizedString("PLAY_AS_AUDIO_HINT", comment: "")))
+                case .transferComplicationUserInfo:
+                editButtons.append(EditButton(identifier: button,
+                                              title: "Transfer Complication User Info",
+                                              image: "delete",
+                                              accessibilityLabel: NSLocalizedString("PLAY_AS_AUDIO", comment: ""),
+                                              accessibilityHint: NSLocalizedString("PLAY_AS_AUDIO_HINT", comment: "")))
             }
         }
         return editButtons

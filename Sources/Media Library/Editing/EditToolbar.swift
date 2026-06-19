@@ -137,7 +137,11 @@ class EditToolbar: UIView {
             case .play,
                  .playNextInQueue,
                  .appendToQueue,
-                 .playAsAudio:
+                 .playAsAudio,
+                 .markAsSeen,
+                 .markAsUnseen:
+                break
+            case .updateAppContext, .sendMessage, .sendMessageData, .transferFile, .transferUserInfo, .transferComplicationUserInfo:
                 break
             }
         }
@@ -169,7 +173,11 @@ class EditToolbar: UIView {
             case .play,
                  .playNextInQueue,
                  .appendToQueue,
-                 .playAsAudio:
+                 .playAsAudio,
+                 .markAsSeen,
+                 .markAsUnseen:
+                break
+            case .updateAppContext, .sendMessage, .sendMessageData, .transferFile, .transferUserInfo, .transferComplicationUserInfo:
                 break
             }
         }

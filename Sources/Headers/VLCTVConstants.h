@@ -96,12 +96,15 @@
 #define kVLCSettingLastUsedSubtitlesSearchLanguage @"kVLCSettingLastUsedSubtitlesSearchLanguage"
 #define kVLCSettingWiFiSharingIPv6 @"wifi-sharing-ipv6"
 #define kVLCSettingWiFiSharingIPv6DefaultValue @(NO)
+#define kVLCSettingPlayUploadsWhileReceiving @"PlayUploadsWhileReceiving"
+#define kVLCSettingPlayUploadsWhileReceivingDefaultValue @(YES)
 
 #define kVLCfortvOSMovieDBKey @""
 
 #define kVLCStoredServerList @"kVLCStoredServerList"
 
 #define kVLCHTTPUploadDirectory @"Upload"
+#define kVLCHTTPUploadInFlightDirectory @"In-Flight"
 
 #define kVLCSettingCastingAudioPassthrough @"sout-chromecast-audio-passthrough"
 #define kVLCSettingCastingConversionQuality @"sout-chromecast-conversion-quality"

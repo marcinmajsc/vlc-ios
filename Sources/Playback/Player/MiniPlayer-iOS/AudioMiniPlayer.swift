@@ -42,6 +42,7 @@ struct MiniPlayerPosition {
 @objc(VLCAudioMiniPlayer)
 class AudioMiniPlayer: UIView, MiniPlayer, QueueViewControllerDelegate {
     @objc static let height: Float = 72.0
+    private static let extraControlsMinWidth: CGFloat = 500.0
     var visible: Bool = false
     var contentHeight: Float {
         return AudioMiniPlayer.height
@@ -92,6 +93,17 @@ class AudioMiniPlayer: UIView, MiniPlayer, QueueViewControllerDelegate {
 
     required init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let hasRoomForExtraControls = bounds.width >= AudioMiniPlayer.extraControlsMinWidth
+        if repeatButton.isHidden == hasRoomForExtraControls {
+            repeatButton.isHidden = !hasRoomForExtraControls
+        }
+        if shuffleButton.isHidden == hasRoomForExtraControls {
+            shuffleButton.isHidden = !hasRoomForExtraControls
+        }
     }
 
     func updatePlayPauseButton() {
@@ -542,7 +554,9 @@ private extension AudioMiniPlayer {
             playbackService.playAsAudio {
             // Only update the artwork image when the media is being played
             if playbackService.isPlaying {
-                artworkImageView.image = metadata.artworkImage ?? UIImage(named: "no-artwork")
+                let placeholder = PresentationTheme.current.isDark ? UIImage(named: "song-placeholder-dark")
+                                                                   : UIImage(named: "song-placeholder-white")
+                artworkImageView.image = metadata.artworkImage ?? placeholder
                 artworkBlurImageView.image = metadata.artworkImage
                 artworkBlurView.isHidden = false
             }
@@ -572,9 +586,9 @@ extension AudioMiniPlayer: UIContextMenuInteractionDelegate {
         var actions: [UIMenuElement] = []
         let defaultButtonColor: UIColor = PresentationTheme.current.colors.cellTextColor
 
-        if shuffleButton.isHidden {
+        do {
             let shuffleState: UIMenuElement.State = playbackService.isShuffleMode ? .on : .off
-            let shuffleIconTint: UIColor = shuffleButton.tintColor
+            let shuffleIconTint: UIColor = playbackService.isShuffleMode ? PresentationTheme.current.colors.orangeUI : defaultButtonColor
             let shuffleIcon = shuffleButton.image(for: .normal)?.withTintColor(shuffleIconTint, renderingMode: .alwaysOriginal)
             actions.append(
                 UIAction(title: shuffleButton.currentTitle ?? NSLocalizedString("SHUFFLE", comment: ""),
@@ -585,7 +599,7 @@ extension AudioMiniPlayer: UIContextMenuInteractionDelegate {
             )
         }
 
-        if repeatButton.isHidden {
+        do {
             let repeatMode = playbackService.repeatMode
             var repeatActions: [UIMenuElement] = []
 

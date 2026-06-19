@@ -79,7 +79,7 @@ PODS:
 
 DEPENDENCIES:
   - ADAL (from `https://code.videolan.org/fkuehne/azure-activedirectory-library-for-objc.git`, commit `348e94df`)
-  - AFNetworking (from `https://code.videolan.org/fkuehne/AFNetworking.git`, commit `ee51009a`)
+  - AFNetworking (from `https://code.videolan.org/fkuehne/AFNetworking.git`, commit `80323fce`)
   - box-ios-sdk-v2 (from `https://github.com/fkuehne/box-ios-sdk-v2.git`, commit `08161e74`)
   - CocoaHTTPServer (from `https://code.videolan.org/fkuehne/CocoaHTTPServer.git`, commit `08f9b818`)
   - GoogleAPIClientForREST/Drive (~> 1.2.1)
@@ -120,7 +120,7 @@ EXTERNAL SOURCES:
     :commit: 348e94df
     :git: https://code.videolan.org/fkuehne/azure-activedirectory-library-for-objc.git
   AFNetworking:
-    :commit: ee51009a
+    :commit: 80323fce
     :git: https://code.videolan.org/fkuehne/AFNetworking.git
   box-ios-sdk-v2:
     :commit: '08161e74'
@@ -151,7 +151,7 @@ CHECKOUT OPTIONS:
     :commit: 348e94df
     :git: https://code.videolan.org/fkuehne/azure-activedirectory-library-for-objc.git
   AFNetworking:
-    :commit: ee51009a
+    :commit: 80323fce
     :git: https://code.videolan.org/fkuehne/AFNetworking.git
   box-ios-sdk-v2:
     :commit: '08161e74'
@@ -203,6 +203,6 @@ SPEC CHECKSUMS:
   VLCMediaLibraryKit: 0789bf7f3e5c153328c360edb908bcdfee9569e2
   XKKeychain: 160ce5bfeff49e9fef091f7fc2b2fe5a5aa08e08
 
-PODFILE CHECKSUM: c3c3257b9bd0d3b19c737e7340ec5c9bc4867ef6
+PODFILE CHECKSUM: 67fb94168ccce1a88bd4e9fe6ef70c4832ab6bb2
 
 COCOAPODS: 1.16.2

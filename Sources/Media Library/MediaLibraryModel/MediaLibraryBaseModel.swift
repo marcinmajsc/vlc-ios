@@ -29,7 +29,6 @@ protocol MediaLibraryBaseModel {
     #if !os(tvOS) && !os(watchOS)
     var cellType: BaseCollectionViewCell.Type { get }
     #endif
-    func anyAppend(_ item: VLCMLObject)
     func anyDelete(_ items: [VLCMLObject])
     func sort(by criteria: VLCMLSortingCriteria, desc: Bool)
 
@@ -72,13 +71,6 @@ extension MLBaseModel {
         fileArrayLock.lock()
         defer { fileArrayLock.unlock() }
         return files
-    }
-
-    func anyAppend(_ item: VLCMLObject) {
-        guard let item = item as? MLType else {
-            preconditionFailure("MLBaseModel: Wrong underlying ML type.")
-        }
-        append(item)
     }
 
     func anyDelete(_ items: [VLCMLObject]) {
@@ -126,6 +118,24 @@ extension MLBaseModel {
         currentPage = 0
         hasMorePages = true
         isLoading = false
+    }
+
+    /// Fetches the complete list of items from the media library, independent of how many
+    /// pages are currently loaded for display. Required when handing the collection to
+    /// playback (e.g. shuffle) so the whole library is considered, not just loaded pages.
+    func fetchAllItems() -> [MLType] {
+        let pageSize = Int(kVLCDefaultPageSize)
+        var result = [MLType]()
+        var offset = 0
+        while true {
+            let page = fetchPage(offset: offset, limit: pageSize)
+            result.append(contentsOf: page)
+            if page.count < pageSize {
+                break
+            }
+            offset += pageSize
+        }
+        return result
     }
 }
 
