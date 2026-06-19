@@ -26,7 +26,6 @@ enum PasscodeAction {
 
 class PasscodeLockController: UIViewController {
     // MARK: - Properties
-    private let userDefaults = UserDefaults.standard
     private let notificationCenter = NotificationCenter.default
 
     let action: PasscodeAction
@@ -83,6 +82,8 @@ class PasscodeLockController: UIViewController {
 
         label.text = NSLocalizedString("Passcodes did not match. Try again.", comment: "")
         label.textColor = .systemRed
+        label.numberOfLines = 0
+        label.textAlignment = .center
 
         label.isHidden = true
 
@@ -210,6 +211,8 @@ class PasscodeLockController: UIViewController {
             // Put failedLabel bottom of passcodeField
             passcodeField.bottomAnchor.constraint(equalTo: failedLabel.topAnchor, constant: -30),
             passcodeField.centerXAnchor.constraint(equalTo: failedLabel.centerXAnchor),
+            failedLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.layoutMarginsGuide.leadingAnchor),
+            failedLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.layoutMarginsGuide.trailingAnchor),
             // Center passcodeField
             view.centerXAnchor.constraint(equalTo: passcodeField.centerXAnchor),
             passcodeFieldCenterYConstraint,

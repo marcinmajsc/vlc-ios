@@ -25,7 +25,7 @@ class AddBookmarksView: UIView {
 
     private var bookmarksTableView: UITableView = UITableView()
 
-    weak var delegate: BookmarksView?
+    weak var delegate: AddBookmarksViewDelegate?
 
     init(frame: CGRect, tableView: UITableView) {
         super.init(frame: frame)
@@ -62,6 +62,7 @@ class AddBookmarksView: UIView {
 
     private func setupTable() {
         addSubview(bookmarksTableView)
+        bookmarksTableView.tableFooterView = UIView()
         bookmarksTableView.reloadData()
         setNeedsLayout()
         layoutIfNeeded()
@@ -100,6 +101,7 @@ class AddBookmarksView: UIView {
 
     private func setupTheme() {
         let colors = PresentationTheme.currentExcludingWhite.colors
+        backgroundColor = colors.background
         closeButton.tintColor = colors.cellTextColor
         addButton.tintColor = colors.orangeUI
         titleLabel.textColor = colors.cellTextColor

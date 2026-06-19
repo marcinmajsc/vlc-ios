@@ -755,7 +755,7 @@ class PlayerViewController: UIViewController {
         if isHorizontalSwipe && playerController.isSwipeSeekGestureEnabled {
             panType = .seek
         } else if !isHorizontalSwipe {
-            if location.x < windowWidth / 2 && playerController.isBrightnessGestureEnabled {
+            if location.x < windowWidth / 2 && playerController.isBrightnessGestureEnabled && isBrightnessControlAvailable {
                 panType = .brightness
             } else if location.x > windowWidth / 2 && playerController.isVolumeGestureEnabled {
                 panType = .volume
@@ -1165,6 +1165,8 @@ class PlayerViewController: UIViewController {
     }
 
     @objc private func handleMinimizeGesture(_ gesture: UIPanGestureRecognizer) {
+        guard !playerController.isInterfaceLocked else { return }
+
         let translation = gesture.translation(in: view)
 
         switch gesture.state {
@@ -1269,7 +1271,7 @@ extension PlayerViewController: MediaNavigationBarDelegate {
 
 extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
     func mediaMoreOptionsActionSheetDidToggleInterfaceLock(state: Bool) {
-        // DISABLE GESTURES
+        minimizeGestureRecognizer.isEnabled = !state
     }
 
     func mediaMoreOptionsActionSheetShowIcon(for option: OptionsNavigationBarIdentifier) {
@@ -1489,9 +1491,9 @@ extension PlayerViewController: OptionsNavigationBarDelegate {
     func optionsNavigationBarDisplayAlert(title: String, message: String, button: UIButton) {
         let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
 
-        let cancelButton = UIAlertAction(title: "Cancel", style: .cancel)
+        let cancelButton = UIAlertAction(title: NSLocalizedString("BUTTON_CANCEL", comment: ""), style: .cancel)
 
-        let resetButton = UIAlertAction(title: "Reset", style: .destructive) { _ in
+        let resetButton = UIAlertAction(title: NSLocalizedString("BUTTON_RESET", comment: ""), style: .destructive) { _ in
             self.handleReset(button: button)
         }
 

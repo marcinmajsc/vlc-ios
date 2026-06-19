@@ -32,6 +32,10 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     private var secondModel: MediaLibraryBaseModel
     private var mediaLibraryService: MediaLibraryService
 
+    #if (os(iOS) || os(watchOS)) && !NO_WATCH
+    private var watchService = VLCWatchConnectivityService()
+    #endif
+
     var searchBar = UISearchBar(frame: .zero)
     private var currentDataSet: [VLCMLObject] {
         if let model = model as? FolderModel {
@@ -140,7 +144,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         var header: ActionSheetSortSectionHeader
         var isVideoModel: Bool = false
         var collectionModelName: String = ""
-        var secondSortModel: SortModel? = nil
 
         if let model = model as? CollectionModel {
             if model.mediaCollection is VLCMLMediaGroup || model.mediaCollection is VideoModel {
@@ -153,13 +156,11 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         } else if let model = model as? VideoModel {
             isVideoModel = true
             collectionModelName = secondModel.name
-            secondSortModel = model.sortModel
         } else {
             collectionModelName = model.name
         }
 
         header = ActionSheetSortSectionHeader(model: model.sortModel,
-                                              secondModel: secondSortModel,
                                               isVideoModel: isVideoModel,
                                               currentModelType: collectionModelName)
 
@@ -301,7 +302,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         self.mediaLibraryService = mediaLibraryService
 
         let videoModel = VideoModel(medialibrary: mediaLibraryService)
-        videoModel.secondName = model.name
 
         if model is MediaGroupViewModel {
             self.model = userDefaults.bool(forKey: kVLCSettingsDisableGrouping) ? videoModel : model
@@ -1174,8 +1174,15 @@ private extension MediaCategoryViewController {
         return isSectioned ? currentDataSetGroupedByTitle.objectAtIndex(index: indexPath.section)?.items.objectAtIndex(index: indexPath.row) : currentDataSet.objectAtIndex(index: indexPath.row)
     }
 
-    private func getFlattenedIndexPath(for item: VLCMLObject) -> IndexPath {
-        let row = currentDataSet.firstIndex { $0 == item }!
+    private func getFlattenedIndexPath(for item: VLCMLObject) -> IndexPath? {
+        let row = currentDataSet.firstIndex {
+            $0 == item
+        }
+
+        guard let row = row else {
+            return nil
+        }
+
         return IndexPath(row: row, section: 0)
     }
 
@@ -1308,9 +1315,15 @@ extension MediaCategoryViewController {
 
         if #available(iOS 14.0, *) {
             let menu = delegate?.generateMenu(for: self)
-            rightBarButtonItems.append(UIBarButtonItem(image:
-                                                        UIImage(systemName: "ellipsis.circle"),
-                                                       menu: menu))
+            if #available(iOS 26.0, *) {
+                rightBarButtonItems.append(UIBarButtonItem(image:
+                                                            UIImage(systemName: "ellipsis"),
+                                                           menu: menu))
+            } else {
+                rightBarButtonItems.append(UIBarButtonItem(image:
+                                                            UIImage(systemName: "ellipsis.circle"),
+                                                           menu: menu))
+            }
         } else {
             rightBarButtonItems.append(editBarButton)
             // Sort is not available for Playlists
@@ -1592,6 +1605,21 @@ private extension MediaCategoryViewController {
             }
         }
 
+        // Mark as seen/unseen applies to individual media only (incl. single-video groups)
+        let markableMedia: VLCMLMedia?
+        if let media = modelContent as? VLCMLMedia {
+            markableMedia = media
+        } else if let group = modelContent as? VLCMLMediaGroup,
+                  group.nbTotalMedia() == 1, !group.userInteracted() {
+            markableMedia = group.media(of: .unknown)?.first
+        } else {
+            markableMedia = nil
+        }
+
+        if let markableMedia = markableMedia {
+            actionList.append(markableMedia.isNew ? .markAsSeen : .markAsUnseen)
+        }
+
         let actions = EditButtonsFactory.generate(buttons: actionList)
 
         return UIMenu(title: "", image: nil, identifier: nil, children: actions.map {
@@ -1670,6 +1698,112 @@ private extension MediaCategoryViewController {
                     _ in
                     self.generatePlayAction(for: modelContent, type: .playAsAudio)
                 })
+            case .markAsSeen:
+                return $0.action({
+                    [weak self] _ in
+                    if let markableMedia = markableMedia {
+                        self?.editController.editActions.objects = [markableMedia]
+                        self?.editController.editActions.markAsSeen() {
+                            [weak self] state in
+                            if state == .success {
+                                self?.reloadData()
+                            }
+                        }
+                    }
+                })
+            case .markAsUnseen:
+                return $0.action({
+                    [weak self] _ in
+                    if let markableMedia = markableMedia {
+                        self?.editController.editActions.objects = [markableMedia]
+                        self?.editController.editActions.markAsUnseen() {
+                            [weak self] state in
+                            if state == .success {
+                                self?.reloadData()
+                            }
+                        }
+                    }
+                })
+            case .updateAppContext:
+                return $0.action({
+                    [weak self] _ in
+                    guard let self,
+                          let modelContent,
+                          let media = modelContent as? VLCMLMedia
+                    else { return }
+
+                    #if (os(iOS) || os(watchOS)) && !NO_WATCH
+                    // For testing
+                    watchService.updateAppContext(TestDataProvider.timedColor())
+                    #endif
+                })
+            case .sendMessage:
+                return $0.action({
+                    [weak self] _ in
+                    guard let self,
+                          let modelContent,
+                          let media = modelContent as? VLCMLMedia
+                    else { return }
+
+                    #if (os(iOS) || os(watchOS)) && !NO_WATCH
+                    // For testing
+                    watchService.sendMessage(TestDataProvider.message())
+                    #endif
+                })
+            case .sendMessageData:
+                return $0.action({
+                    [weak self] _ in
+                    guard let self,
+                          let modelContent,
+                          let media = modelContent as? VLCMLMedia
+                    else { return }
+                    #if (os(iOS) || os(watchOS)) && !NO_WATCH
+                    // For testing
+                    watchService.sendMessageData(TestDataProvider.messageData())
+                    #endif
+                })
+            case .transferFile:
+                return $0.action({
+                    [weak self] _ in
+                    guard let self,
+                          let modelContent,
+                          let media = modelContent as? VLCMLMedia,
+                          let mrl = media.mainFile()?.mrl
+                    else { return }
+
+                    #if (os(iOS) || os(watchOS)) && !NO_WATCH
+                    print("Transferring file to watch: \(media.title)")
+                    print("File mrl: \(mrl)")
+                    watchService.transferFile(mrl, metadata: TestDataProvider.fileMetaData())
+                    // watchServie.transferFile(TestDataProvider.file(), metadata: TestDataProvider.fileMetaData())
+                    #endif
+                })
+            case .transferUserInfo:
+                return $0.action({
+                    [weak self] _ in
+                    guard let self,
+                          let modelContent,
+                          let media = modelContent as? VLCMLMedia
+                    else { return }
+
+                    #if (os(iOS) || os(watchOS)) && !NO_WATCH
+                    // For testing
+                    watchService.transferUserInfo(TestDataProvider.userInfo())
+                    #endif
+                })
+            case .transferComplicationUserInfo:
+                return $0.action({
+                    [weak self] _ in
+                    guard let self,
+                          let modelContent,
+                          let media = modelContent as? VLCMLMedia
+                    else { return }
+
+                    #if (os(iOS) || os(watchOS)) && !NO_WATCH
+                    // For testing
+                    watchService.transferCurrentComplicationUserInfo(TestDataProvider.currentComplicationInfo())
+                    #endif
+                })
             }
         })
     }
@@ -1695,9 +1829,11 @@ extension MediaCategoryViewController {
     private func selectedItem(at indexPath: IndexPath) {
         let modelContent = getObject(at: indexPath)
         var indexPath = indexPath
-        if isSectioned, let modelContent {
-            indexPath = getFlattenedIndexPath(for: modelContent)
-            collectionSelectedIndex = getFlattenedIndexPath(for: modelContent)
+        if isSectioned,
+           let modelContent,
+           let flattenedIndexPath = getFlattenedIndexPath(for: modelContent) {
+            indexPath = flattenedIndexPath
+            collectionSelectedIndex = flattenedIndexPath
         } else {
             collectionSelectedIndex = indexPath
         }
@@ -1774,7 +1910,20 @@ extension MediaCategoryViewController {
         } else if let cell = cell as? MediaGridCollectionCell {
             thumbnail = cell.thumbnailView.image
         }
+        let videoMedia: VLCMLMedia?
+        if let media = modelContent as? VLCMLMedia, media.type() == .video {
+            videoMedia = media
+        } else if let group = modelContent as? VLCMLMediaGroup,
+                  let first = group.media(of: .video)?.first {
+            videoMedia = first
+        } else {
+            videoMedia = nil
+        }
+
         let configuration = UIContextMenuConfiguration(identifier: indexPath as NSCopying, previewProvider: {
+            if let videoMedia = videoMedia {
+                return VideoPreviewController(media: videoMedia, thumbnail: thumbnail)
+            }
             guard let thumbnail = thumbnail else {
                 return nil
             }
@@ -1788,12 +1937,15 @@ extension MediaCategoryViewController {
 
     @available(iOS 13.0, *)
     override func collectionView(_ collectionView: UICollectionView, willPerformPreviewActionForMenuWith configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionCommitAnimating) {
-        if let indexPath = configuration.identifier as? IndexPath {
-            if let cell = collectionView.cellForItem(at: indexPath) as? BaseCollectionViewCell {
-                if !(cell.media is VLCMLMedia) {
-                    self.selectedItem(at: indexPath)
-                }
-            }
+        guard let indexPath = configuration.identifier as? IndexPath else { return }
+
+        if animator.previewViewController is VideoPreviewController {
+            selectedItem(at: indexPath)
+            return
+        }
+
+        if let modelContent = getObject(at: indexPath), !(modelContent is VLCMLMedia) {
+            selectedItem(at: indexPath)
         }
     }
 
@@ -2152,16 +2304,6 @@ extension MediaCategoryViewController: ActionSheetSortSectionHeaderDelegate {
 // MARK: - EditControllerDelegate
 
 extension MediaCategoryViewController: EditControllerDelegate {
-    func editController(editController: EditController, cellforItemAt indexPath: IndexPath) -> BaseCollectionViewCell? {
-        return collectionView.cellForItem(at: indexPath) as? BaseCollectionViewCell
-    }
-
-    func editController(editController: EditController,
-                        present viewController: UIViewController) {
-        let newNavigationController = UINavigationController(rootViewController: viewController)
-        navigationController?.present(newNavigationController, animated: true, completion: nil)
-    }
-
     func enableEditToolBarActions(_ enable: Bool) {
         activeEditToolbar().enableEditActions(enable)
     }
@@ -2203,39 +2345,6 @@ extension MediaCategoryViewController: EditControllerDelegate {
 
     func editControllerGetAlbumHeaderSize(with width: CGFloat) -> CGSize {
         return albumFlowLayout.getHeaderSize(with: width)
-    }
-
-    func editControllerUpdateNavigationBar(offset: CGFloat) {
-        if let model = model as? CollectionModel,
-           model.mediaCollection is VLCMLAlbum {
-
-            let backgroundColor: UIColor
-            if offset >= 50 {
-                backgroundColor = PresentationTheme.current.colors.background.withAlphaComponent(0.4 * (offset / 100))
-            } else {
-                backgroundColor = .clear
-            }
-
-            if #available(iOS 13.0, *) {
-                let standardAppearance = navigationItem.standardAppearance
-                let scrollEdgeAppearance = navigationItem.scrollEdgeAppearance
-                standardAppearance?.backgroundColor = backgroundColor
-                scrollEdgeAppearance?.backgroundColor = backgroundColor
-            }
-
-            if let albumHeader = albumHeader,
-               let navBar = navigationController?.navigationBar {
-                let padding = statusBarView.frame.maxY + navBar.frame.maxY
-                let hideNavigationBarTitle: Bool
-                if offset >= albumHeader.frame.maxY - padding {
-                    hideNavigationBarTitle = false
-                } else {
-                    hideNavigationBarTitle = true
-                }
-
-                navigationItem.titleView?.isHidden = hideNavigationBarTitle
-            }
-        }
     }
 
     func editControllerSetNavigationItemTitle(with title: String?) {
@@ -2405,7 +2514,9 @@ extension MediaCategoryViewController {
                    let dataSet = currentDataSet as? [VLCMLMediaGroup] {
                     singleGroup = dataSet
                 } else {
-                    singleGroup = mediaGroupModel.files
+                    // The model is paginated, so its loaded `files` only cover a prefix of the
+                    // library. Fetch all groups so playback (incl. shuffle) considers everything.
+                    singleGroup = mediaGroupModel.fetchAllItems()
                 }
 
                 // Filter single groups
@@ -2429,6 +2540,11 @@ extension MediaCategoryViewController {
             tracks = model.folderMediaFiles
             index = index - model.files.count
             model.fileArrayLock.unlock()
+        } else if !searchDataSource.isSearching, let mediaModel = model as? (any MediaModel) {
+            // The model is paginated, so its loaded `files` only cover a prefix of the
+            // library. Fetch the complete list so playback (incl. shuffle) considers all media.
+            tracks = mediaModel.fetchAllItems()
+            index = tracks.firstIndex(where: { $0.identifier() == media.identifier() }) ?? index
         } else {
             tracks = currentDataSet as? [VLCMLMedia] ?? []
         }
@@ -2514,7 +2630,9 @@ extension MediaCategoryViewController: MediaCollectionViewCellDelegate {
         editController.editActions.objects = [modelContent]
         editController.editActions.delete() { [weak self] state in
             if state == .success {
-                guard let flattenedIndexPath = self?.getFlattenedIndexPath(for: modelContent) else { return }
+                guard let flattenedIndexPath = self?.getFlattenedIndexPath(for: modelContent) else {
+                    return
+                }
                 self?.searchDataSource.deleteInSearch(index: flattenedIndexPath.row)
 
                 // If the media deleted is in the media list, the play queue should also be updated
@@ -2585,8 +2703,8 @@ extension MediaCategoryViewController {
     }
 
     private func addContinueWatchingButton() {
-        guard let keyWindow = UIApplication.shared.delegate?.window else { return }
-        keyWindow?.addSubview(continueWatchingButton)
+        guard let containerView = tabBarController?.view else { return }
+        containerView.addSubview(continueWatchingButton)
 
         setContinueWatchingButtonConstraints()
         handleContinueWatchingButtonVisibility()
@@ -2620,12 +2738,7 @@ extension MediaCategoryViewController {
     }
 
     private func setContinueWatchingButtonConstraints() {
-        guard let keywindow = UIApplication.shared.delegate?.window else { return }
-        guard var layoutGuide = keywindow?.layoutMarginsGuide else { return }
-
-        if #available(iOS 11.0, *) {
-            layoutGuide = keywindow!.safeAreaLayoutGuide
-        }
+        guard let layoutGuide = tabBarController?.view.safeAreaLayoutGuide else { return }
 
         var tabBarHeight: CGFloat = 0.0
         if let tabBarController = tabBarController as? BottomTabBarController,

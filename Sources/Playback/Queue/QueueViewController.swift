@@ -49,15 +49,11 @@ class QueueViewController: UIViewController {
     private var scrolledCellIndex: IndexPath = IndexPath()
     private var grabbedCellIndex: IndexPath?
 
-    private let cellHeight: CGFloat = 56
-
     private let sidePadding: CGFloat = 10
     private let topPadding: CGFloat = 8
     private let bottomPadding: CGFloat = 8
 
     private let darkOverlayAlpha: CGFloat = 0.6
-
-    private var originY: CGFloat = 0
 
     private var playbackService: PlaybackService {
         get {
@@ -287,8 +283,6 @@ class QueueViewController: UIViewController {
 
     @IBAction func didDrag(_ sender: UIPanGestureRecognizer) {
         switch sender.state {
-        case .began:
-            dragDidBegin(sender)
         case .changed:
             dragStateDidChange(sender)
         case .ended:
@@ -296,10 +290,6 @@ class QueueViewController: UIViewController {
         default:
             break
         }
-    }
-
-    func dragDidBegin(_ sender: UIPanGestureRecognizer) {
-        originY = view.frame.origin.y
     }
 
     func dragStateDidChange(_ sender: UIPanGestureRecognizer) {
@@ -670,7 +660,7 @@ extension QueueViewController: UICollectionViewDataSource {
 
         var media: VLCMedia?
 
-        cell.thumbnailWidth.constant = cell.getDefaultConstant()
+        cell.thumbnailWidth.constant = MediaCollectionViewCell.getDefaultConstant()
 
         cell.ignoreThemeDidChange = true
         cell.setTheme(to: PresentationTheme.darkTheme)
@@ -688,9 +678,7 @@ extension QueueViewController: UICollectionViewDataSource {
             assertionFailure("QueueViewController: cellForItemAt: Failed to fetch media url")
             return cell
         }
-        if let media = medialibraryService.fetchMedia(with: safeURL) {
-            cell.media = media
-        } else if let media = medialibraryService.medialib.addExternalMedia(withMrl: safeURL) {
+        if let media = medialibraryService.fetchOrCreateMedia(with: safeURL) {
             cell.media = media
         }
         cell.newLabel.isHidden = true

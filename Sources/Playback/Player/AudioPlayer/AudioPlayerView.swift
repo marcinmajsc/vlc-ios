@@ -30,7 +30,17 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var backgroundView: UIView = UIView()
 
+    private lazy var backgroundImageView: UIImageView = {
+        let backgroundImageView = UIImageView()
+        backgroundImageView.translatesAutoresizingMaskIntoConstraints = false
+        backgroundImageView.contentMode = .scaleAspectFill
+        backgroundImageView.clipsToBounds = true
+        return backgroundImageView
+    }()
+
     private lazy var overlayView: UIView = UIView()
+
+    private lazy var blurView: UIVisualEffectView = UIVisualEffectView()
 
     lazy var navigationBarView: UIView = UIView()
 
@@ -39,13 +49,19 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     lazy var thumbnailImageView: UIImageView = {
         let thumbnailImageView = UIImageView()
         thumbnailImageView.contentMode = .scaleAspectFit
+        // The artwork size is driven by layout constraints, never by the
+        // bitmap's intrinsic size.
+        thumbnailImageView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        thumbnailImageView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        thumbnailImageView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        thumbnailImageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return thumbnailImageView
     }()
 
     private lazy var titleLabel: UILabel = {
         let titleLabel = UILabel()
         titleLabel.textAlignment = .center
-        titleLabel.font = .boldSystemFont(ofSize: 17.0)
+        titleLabel.font = .boldSystemFont(ofSize: 20.0)
         titleLabel.accessibilityLabel = NSLocalizedString("TITLE", comment: "")
         return titleLabel
     }()
@@ -53,9 +69,18 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     private lazy var artistLabel: UILabel = {
         let artistLabel = UILabel()
         artistLabel.textAlignment = .center
-        artistLabel.font = .systemFont(ofSize: 16.0)
+        artistLabel.font = .systemFont(ofSize: 18.0)
         artistLabel.accessibilityLabel = NSLocalizedString("ARTIST", comment: "")
         return artistLabel
+    }()
+
+    private lazy var albumLabel: UILabel = {
+        let albumLabel = UILabel()
+        albumLabel.textAlignment = .center
+        albumLabel.font = .systemFont(ofSize: 15.0)
+        albumLabel.numberOfLines = 3
+        albumLabel.accessibilityLabel = NSLocalizedString("ALBUM", comment: "")
+        return albumLabel
     }()
 
     lazy var playqueueView: UIView = UIView()
@@ -65,7 +90,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var shuffleButton: UIButton = {
         let shuffleButton = UIButton(type: .system)
-        shuffleButton.setImage(UIImage(named: "iconShuffleLarge"), for: .normal)
+        shuffleButton.setImage(controlImage(symbol: "shuffle", fallback: "iconShuffleLarge", pointSize: 16), for: .normal)
         shuffleButton.contentMode = .scaleAspectFit
         shuffleButton.imageView?.contentMode = .scaleAspectFit
         shuffleButton.tintColor = .white
@@ -77,7 +102,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var backwardButton: UIButton = {
         let backwardButton = UIButton(type: .system)
-        backwardButton.setImage(UIImage(named: "iconSkipBack"), for: .normal)
+        backwardButton.setImage(controlImage(symbol: "gobackward", fallback: "iconSkipBack", pointSize: 18), for: .normal)
         backwardButton.contentMode = .scaleAspectFit
         backwardButton.imageView?.contentMode = .scaleAspectFit
         backwardButton.tintColor = .white
@@ -90,7 +115,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var previousButton: UIButton = {
         let previousButton = UIButton(type: .system)
-        previousButton.setImage(UIImage(named: "previous-media"), for: .normal)
+        previousButton.setImage(controlImage(symbol: "backward.end.fill", fallback: "previous-media", pointSize: 19), for: .normal)
         previousButton.contentMode = .scaleAspectFit
         previousButton.imageView?.contentMode = .scaleAspectFit
         previousButton.tintColor = .white
@@ -117,7 +142,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var playButton: UIButton = {
         let playButton = UIButton(type: .system)
-        playButton.setImage(UIImage(named: "iconPlay"), for: .normal)
+        playButton.setImage(controlImage(symbol: "play.fill", fallback: "iconPlay", pointSize: 26), for: .normal)
         playButton.contentMode = .scaleAspectFit
         playButton.imageView?.contentMode = .scaleAspectFit
         playButton.tintColor = .white
@@ -129,7 +154,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var nextButton: UIButton = {
         let nextButton = UIButton(type: .system)
-        nextButton.setImage(UIImage(named: "next-media"), for: .normal)
+        nextButton.setImage(controlImage(symbol: "forward.end.fill", fallback: "next-media", pointSize: 19), for: .normal)
         nextButton.contentMode = .scaleAspectFit
         nextButton.imageView?.contentMode = .scaleAspectFit
         nextButton.tintColor = .white
@@ -141,7 +166,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var forwardButton: UIButton = {
         let forwardButton = UIButton(type: .system)
-        forwardButton.setImage(UIImage(named: "iconSkipForward"), for: .normal)
+        forwardButton.setImage(controlImage(symbol: "goforward", fallback: "iconSkipForward", pointSize: 18), for: .normal)
         forwardButton.contentMode = .scaleAspectFit
         forwardButton.imageView?.contentMode = .scaleAspectFit
         forwardButton.tintColor = .white
@@ -154,7 +179,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var repeatButton: UIButton = {
         let repeatButton = UIButton(type: .system)
-        repeatButton.setImage(UIImage(named: "iconRepeatLarge"), for: .normal)
+        repeatButton.setImage(controlImage(symbol: "repeat", fallback: "iconRepeatLarge", pointSize: 16), for: .normal)
         repeatButton.contentMode = .scaleAspectFit
         repeatButton.imageView?.contentMode = .scaleAspectFit
         repeatButton.tintColor = .white
@@ -166,25 +191,53 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     lazy var progressionView: UIView = UIView()
 
-    private var thumbnailImageViewWidthConstant: CGFloat = 270.0
-
-    private lazy var progressionViewBottomConstant: CGFloat = {
-#if os(iOS)
-        let isSmallerScreen: Bool = UIScreen.main.bounds.width <= DeviceDimensions.iPhone4sPortrait.rawValue
-        return isSmallerScreen ? 40 : 60
-#else
-        return 60
-#endif
-    }()
-
-    private lazy var progressionViewBottomConstraint: NSLayoutConstraint = progressionView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -progressionViewBottomConstant)
-
     private lazy var progressionViewHeightConstraint: NSLayoutConstraint = progressionView.heightAnchor.constraint(equalToConstant: 70)
 
-    private lazy var thumbnailViewTopConstraint: NSLayoutConstraint = thumbnailView.topAnchor.constraint(equalTo: navigationBarView.bottomAnchor, constant: 35)
+    private lazy var albumLabelHeightConstraint: NSLayoutConstraint = albumLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: albumLabel.font.lineHeight)
+
+    private lazy var secondaryControlStackViewHeightConstraint: NSLayoutConstraint = secondaryControlStackView.heightAnchor.constraint(equalToConstant: 30.0)
 
     private lazy var controlsStackViewMinSpacing: CGFloat = 25.0
-    private lazy var controlsStackViewMaxSpacing: CGFloat = 50.0
+
+    private var isPad: Bool {
+        return UIDevice.current.userInterfaceIdiom == .pad
+    }
+
+    private var isCompactScreen: Bool {
+#if os(iOS)
+        return UIScreen.main.bounds.width <= DeviceDimensions.iPhone4sPortrait.rawValue
+#else
+        return false
+#endif
+    }
+
+    // Portrait keeps a wide, iPad-like border on all regular-sized devices so
+    // the artwork and slider line up with generous margins to the edges.
+    private var portraitContentInset: CGFloat {
+        return isCompactScreen ? 24.0 : 60.0
+    }
+
+    // Landscape margin: wide on iPad, tighter on the narrower iPhone panes.
+    private lazy var horizontalContentInset: CGFloat = {
+        if isPad {
+            return 60.0
+        }
+        return isCompactScreen ? 10.0 : 24.0
+    }()
+
+    private lazy var thumbnailViewCenterYConstraint: NSLayoutConstraint = {
+        let constraint = thumbnailView.centerYAnchor.constraint(equalTo: safeAreaLayoutGuide.centerYAnchor)
+        constraint.priority = .defaultHigh
+        return constraint
+    }()
+
+    private lazy var landscapeRightLayoutGuide: UILayoutGuide = UILayoutGuide()
+
+    private lazy var landscapeRightContentLayoutGuide: UILayoutGuide = UILayoutGuide()
+
+    private var sharedConstraints: [NSLayoutConstraint] = []
+    private var portraitConstraints: [NSLayoutConstraint] = []
+    private var landscapeConstraints: [NSLayoutConstraint] = []
 
     weak var delegate: AudioPlayerViewDelegate?
 
@@ -194,6 +247,8 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         super.init(frame: frame)
         setupViews()
         setupLabels()
+        NotificationCenter.default.addObserver(self, selector: #selector(themeDidChange),
+                                               name: .VLCThemeDidChangeNotification, object: nil)
     }
 
     required init?(coder: NSCoder) {
@@ -206,10 +261,14 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         setupBackgroundView()
         setupOverlayView()
         setupNavigationBarView()
+        setupLandscapeLayoutGuide()
         setupThumbnailView()
         setupPlayqueueView()
         setupControlsStackView()
         setupProgressionView()
+
+        NSLayoutConstraint.activate(sharedConstraints)
+        NSLayoutConstraint.activate(portraitConstraints)
     }
 
     func setupNavigationBar(with view: MediaNavigationBar) {
@@ -231,27 +290,21 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     
     func setupPlaybackSpeed() {
         let defaultPlaybackSpeed = delegate?.audioPlayerViewDelegateGetPlaybackSpeed(self)
-        playbackSpeedButton.setTitle(String(format: "%.2fx", defaultPlaybackSpeed ?? 1.00), for: .normal)
+        playbackSpeedButton.setTitle(PlaybackSpeedFormatter.string(forSpeed: defaultPlaybackSpeed ?? 1.00), for: .normal)
     }
 
     func setupBackgroundColor() {
-        backgroundView.backgroundColor = thumbnailImageView.image?.averageColor()
+        if #available(iOS 26.0, *) {
+            backgroundImageView.image = thumbnailImageView.image
+        } else {
+            backgroundView.backgroundColor = thumbnailImageView.image?.averageColor()
+        }
     }
 
     func setupLabels() {
         titleLabel.textColor = .white
         artistLabel.textColor = .white
-    }
-
-    func setupPlayqueueView(with qvc: UIView) {
-        playqueueView.addSubview(qvc)
-        playqueueView.bringSubviewToFront(qvc)
-        NSLayoutConstraint.activate([
-            qvc.topAnchor.constraint(equalTo: playqueueView.topAnchor),
-            qvc.leadingAnchor.constraint(equalTo: playqueueView.leadingAnchor),
-            qvc.trailingAnchor.constraint(equalTo: playqueueView.trailingAnchor),
-            qvc.bottomAnchor.constraint(equalTo: playqueueView.bottomAnchor)
-        ])
+        albumLabel.textColor = .white
     }
 
     func setupProgressView(with view: MediaScrubProgressBar) {
@@ -290,7 +343,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         ])
     }
 
-    func updateLabels(title: String?, artist: String?, isQueueHidden: Bool) {
+    func updateLabels(title: String?, artist: String?, album: String?, isQueueHidden: Bool) {
         if isQueueHidden {
             titleLabel.isHidden = false
             artistLabel.isHidden = false
@@ -299,21 +352,83 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
             titleLabel.accessibilityValue = title
             artistLabel.text = artist
             artistLabel.accessibilityValue = artist
+
+            let hasAlbum: Bool = !(album?.isEmpty ?? true)
+            albumLabel.isHidden = !hasAlbum
+            albumLabel.text = album
+            albumLabel.accessibilityValue = album
+            updateAlbumLabelHeight()
         } else {
             titleLabel.isHidden = true
             artistLabel.isHidden = true
+            albumLabel.isHidden = true
         }
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateAlbumLabelHeight()
+    }
+
+    private func updateAlbumLabelHeight() {
+        guard !albumLabel.isHidden, let text = albumLabel.text, !text.isEmpty,
+              let font = albumLabel.font else {
+            if albumLabelHeightConstraint.constant != 0 {
+                albumLabelHeightConstraint.constant = 0
+            }
+            return
+        }
+
+        let width = albumLabel.bounds.width
+        let target: CGFloat
+        if width > 0 {
+            let bounding = (text as NSString).boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                                                           options: [.usesLineFragmentOrigin, .usesFontLeading],
+                                                           attributes: [.font: font], context: nil)
+            target = min(ceil(bounding.height), ceil(font.lineHeight * 3))
+        } else {
+            target = font.lineHeight
+        }
+
+        if abs(albumLabelHeightConstraint.constant - target) > 0.5 {
+            albumLabelHeightConstraint.constant = target
+            setNeedsLayout()
+        }
+    }
+
+    private func controlImage(symbol: String, fallback: String, pointSize: CGFloat) -> UIImage? {
+        if #available(iOS 26.0, *) {
+            let configuration = UIImage.SymbolConfiguration(pointSize: pointSize)
+            return UIImage(systemName: symbol, withConfiguration: configuration)
+        }
+        return UIImage(named: fallback)
+    }
+
     func updatePlayButton(isPlaying: Bool) {
-        let icon: UIImage? = isPlaying ? UIImage(named: "iconPause") : UIImage(named: "iconPlay")
+        let icon = controlImage(symbol: isPlaying ? "pause.fill" : "play.fill",
+                                fallback: isPlaying ? "iconPause" : "iconPlay",
+                                pointSize: 26)
         playButton.setImage(icon, for: .normal)
+        updateArtworkScale(isPlaying: isPlaying)
+    }
+
+    private func updateArtworkScale(isPlaying: Bool) {
+        let targetTransform: CGAffineTransform = isPlaying ? .identity : CGAffineTransform(scaleX: 0.8, y: 0.8)
+        guard thumbnailImageView.transform != targetTransform else { return }
+
+        UIView.animate(withDuration: 0.4, delay: 0,
+                       usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5,
+                       options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.thumbnailImageView.transform = targetTransform
+        }
     }
 
     func updateShuffleRepeatState(shuffleEnabled: Bool, repeatMode: VLCRepeatMode) {
         var color = PresentationTheme.current.colors.orangeUI
 
-        let shuffleIcon = shuffleEnabled ? UIImage(named: "iconShuffleOnLarge") : UIImage(named: "iconShuffleLarge")
+        let shuffleIcon = controlImage(symbol: "shuffle",
+                                       fallback: shuffleEnabled ? "iconShuffleOnLarge" : "iconShuffleLarge",
+                                       pointSize: 16)
         shuffleButton.setImage(shuffleIcon, for: .normal)
         shuffleButton.tintColor = shuffleEnabled ? color : .white
         shuffleButton.accessibilityLabel = shuffleEnabled ? NSLocalizedString("SHUFFLE", comment: "") : NSLocalizedString("SHUFFLE_DISABLED", comment: "")
@@ -324,16 +439,16 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         var accessibilityHint: String
         switch repeatMode {
         case .doNotRepeat:
-            icon = UIImage(named: "iconRepeatLarge")
+            icon = controlImage(symbol: "repeat", fallback: "iconRepeatLarge", pointSize: 16)
             color = .white
             accessibilityLabel = NSLocalizedString("MENU_REPEAT_DISABLED", comment: "")
             accessibilityHint = NSLocalizedString("DO_NOT_REPEAT_HINT", comment: "")
         case .repeatCurrentItem:
-            icon = UIImage(named: "iconRepeatOneOnLarge")
+            icon = controlImage(symbol: "repeat.1", fallback: "iconRepeatOneOnLarge", pointSize: 16)
             accessibilityLabel = NSLocalizedString("MENU_REPEAT_SINGLE", comment: "")
             accessibilityHint = NSLocalizedString("REPEAT_HINT", comment: "")
         case .repeatAllItems:
-            icon = UIImage(named: "iconRepeatOnLarge")
+            icon = controlImage(symbol: "repeat", fallback: "iconRepeatOnLarge", pointSize: 16)
             accessibilityLabel = NSLocalizedString("MENU_REPEAT_ALL", comment: "")
             accessibilityHint = NSLocalizedString("REPEAT_ALL_HINT", comment: "")
         @unknown default:
@@ -351,6 +466,9 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         shuffleButton.isEnabled = enabled
         shuffleButton.alpha = enabled ? 1.0 : 0.5
 
+        backwardButton.isEnabled = enabled
+        backwardButton.alpha = enabled ? 1.0 : 0.5
+
         previousButton.isEnabled = enabled
         previousButton.alpha = enabled ? 1.0 : 0.5
 
@@ -359,6 +477,9 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
         nextButton.isEnabled = enabled
         nextButton.alpha = enabled ? 1.0 : 0.5
+
+        forwardButton.isEnabled = enabled
+        forwardButton.alpha = enabled ? 1.0 : 0.5
 
         repeatButton.isEnabled = enabled
         repeatButton.alpha = enabled ? 1.0 : 0.5
@@ -379,27 +500,16 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         nextButton.isHidden = enabled
     }
 
-    func updateConstraints(for orientation: UIDeviceOrientation) {
-        let isPad: Bool = UIDevice.current.userInterfaceIdiom == .pad
-
-#if os(iOS)
-        if orientation.isLandscape {
-            thumbnailViewTopConstraint.constant = 5
-            progressionViewBottomConstraint.constant = -5.0
+    func updateLayout(isLandscape: Bool) {
+        if isLandscape {
+            NSLayoutConstraint.deactivate(portraitConstraints)
+            NSLayoutConstraint.activate(landscapeConstraints)
             progressionViewHeightConstraint.constant = 30
-            controlsStackView.spacing = isPad ? controlsStackViewMaxSpacing * 2 : controlsStackViewMaxSpacing
         } else {
-            thumbnailViewTopConstraint.constant = 35
-            progressionViewBottomConstraint.constant = -progressionViewBottomConstant
+            NSLayoutConstraint.deactivate(landscapeConstraints)
+            NSLayoutConstraint.activate(portraitConstraints)
             progressionViewHeightConstraint.constant = 70
-            controlsStackView.spacing = isPad ? controlsStackViewMinSpacing * 2 : controlsStackViewMinSpacing
         }
-#else
-        thumbnailViewTopConstraint.constant = 5
-        progressionViewBottomConstraint.constant = -5.0
-        progressionViewHeightConstraint.constant = 30
-        controlsStackView.spacing = controlsStackViewMaxSpacing * 2
-#endif
 
         setNeedsLayout()
         layoutIfNeeded()
@@ -414,6 +524,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     func shouldDisplaySecondaryStackView(_ display: Bool) {
         secondaryControlStackView.isHidden = !display
+        secondaryControlStackViewHeightConstraint.constant = display ? 30 : 0
     }
 
     func applyCornerRadius() {
@@ -463,6 +574,31 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+
+        if #available(iOS 26.0, *) {
+            blurView.translatesAutoresizingMaskIntoConstraints = false
+            themeDidChange()
+
+            backgroundView.addSubview(backgroundImageView)
+            backgroundView.addSubview(blurView)
+            NSLayoutConstraint.activate([
+                backgroundImageView.leadingAnchor.constraint(equalTo: backgroundView.leadingAnchor),
+                backgroundImageView.topAnchor.constraint(equalTo: backgroundView.topAnchor),
+                backgroundImageView.trailingAnchor.constraint(equalTo: backgroundView.trailingAnchor),
+                backgroundImageView.bottomAnchor.constraint(equalTo: backgroundView.bottomAnchor),
+                blurView.leadingAnchor.constraint(equalTo: backgroundView.leadingAnchor),
+                blurView.topAnchor.constraint(equalTo: backgroundView.topAnchor),
+                blurView.trailingAnchor.constraint(equalTo: backgroundView.trailingAnchor),
+                blurView.bottomAnchor.constraint(equalTo: backgroundView.bottomAnchor),
+            ])
+        }
+    }
+
+    @objc private func themeDidChange() {
+        if #available(iOS 26.0, *) {
+            let style: UIBlurEffect.Style = PresentationTheme.current.isDark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight
+            blurView.effect = UIBlurEffect(style: style)
+        }
     }
 
     private func setupOverlayView() {
@@ -490,14 +626,35 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         ])
     }
 
+    private func setupLandscapeLayoutGuide() {
+        addLayoutGuide(landscapeRightLayoutGuide)
+        addLayoutGuide(landscapeRightContentLayoutGuide)
+
+        landscapeConstraints.append(contentsOf: [
+            landscapeRightLayoutGuide.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor, constant: 8),
+            landscapeRightLayoutGuide.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            landscapeRightLayoutGuide.topAnchor.constraint(equalTo: navigationBarView.bottomAnchor),
+            landscapeRightLayoutGuide.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+        ])
+    }
+
     private func setupThumbnailView() {
         thumbnailView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(thumbnailView)
-        NSLayoutConstraint.activate([
-            thumbnailView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
-            thumbnailViewTopConstraint,
+
+        sharedConstraints.append(thumbnailView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor))
+
+        portraitConstraints.append(contentsOf: [
+            thumbnailView.topAnchor.constraint(equalTo: navigationBarView.bottomAnchor, constant: 16),
             thumbnailView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+        ])
+
+        landscapeConstraints.append(contentsOf: [
+            thumbnailView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor, constant: -8),
+            thumbnailView.topAnchor.constraint(greaterThanOrEqualTo: navigationBarView.bottomAnchor, constant: 10),
+            thumbnailView.bottomAnchor.constraint(lessThanOrEqualTo: safeAreaLayoutGuide.bottomAnchor, constant: -10),
+            thumbnailViewCenterYConstraint,
         ])
 
         setupThumbnailSubviews()
@@ -505,38 +662,91 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private func setupThumbnailSubviews() {
         let padding: CGFloat = 20.0
-        let thumbnailImageViewEdgesPadding: CGFloat = 40.0
+        let thumbnailImageViewEdgesPadding: CGFloat = portraitContentInset
+        let labelSpacing: CGFloat = 8.0
 
         thumbnailImageView.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         artistLabel.translatesAutoresizingMaskIntoConstraints = false
+        albumLabel.translatesAutoresizingMaskIntoConstraints = false
 
         thumbnailView.addSubview(thumbnailImageView)
-        thumbnailView.addSubview(titleLabel)
-        thumbnailView.addSubview(artistLabel)
+        addSubview(titleLabel)
+        addSubview(artistLabel)
+        addSubview(albumLabel)
 
-        let thumbnailViewHeightConstraint = thumbnailView.heightAnchor.constraint(equalToConstant: thumbnailImageView.frame.height + titleLabel.font.lineHeight + artistLabel.font.lineHeight)
-        thumbnailViewHeightConstraint.priority = .defaultLow
+        // Landscape: the artwork is a centered square matching the slider's
+        // width. iPad has the room for it, so the match is required there;
+        // iPhone keeps it high-priority so it yields on short panes.
+        let landscapeThumbnailWidthConstraint = thumbnailImageView.widthAnchor.constraint(equalTo: progressionView.widthAnchor)
+        landscapeThumbnailWidthConstraint.priority = isPad ? .required : .defaultHigh
 
-        NSLayoutConstraint.activate([
-            thumbnailImageView.topAnchor.constraint(equalTo: thumbnailView.topAnchor, constant: padding),
-            thumbnailImageView.leadingAnchor.constraint(equalTo: thumbnailView.leadingAnchor, constant: thumbnailImageViewEdgesPadding),
-            thumbnailImageView.trailingAnchor.constraint(equalTo: thumbnailView.trailingAnchor, constant: -thumbnailImageViewEdgesPadding),
+        // Portrait: the artwork is a square that fills the content width.
+        // Regular screens have the vertical room, so the size is required;
+        // compact screens keep it high-priority so it yields when too short.
+        let portraitThumbnailWidthConstraint = thumbnailImageView.widthAnchor.constraint(equalTo: thumbnailView.widthAnchor, constant: -2 * thumbnailImageViewEdgesPadding)
+        portraitThumbnailWidthConstraint.priority = isCompactScreen ? .defaultHigh : .required
 
-            titleLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            titleLabel.topAnchor.constraint(equalTo: thumbnailImageView.bottomAnchor, constant: padding),
-            titleLabel.leadingAnchor.constraint(equalTo: thumbnailView.leadingAnchor, constant: padding),
-            titleLabel.trailingAnchor.constraint(equalTo: thumbnailView.trailingAnchor, constant: -padding),
+        let landscapeTitleLeading = titleLabel.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor)
+        let landscapeTitleTrailing = titleLabel.trailingAnchor.constraint(equalTo: progressionView.trailingAnchor)
+        let landscapeArtistLeading = artistLabel.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor)
+        let landscapeArtistTrailing = artistLabel.trailingAnchor.constraint(equalTo: progressionView.trailingAnchor)
+        let landscapeAlbumLeading = albumLabel.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor)
+        let landscapeAlbumTrailing = albumLabel.trailingAnchor.constraint(equalTo: progressionView.trailingAnchor)
+        let landscapeAlbumBottom = albumLabel.bottomAnchor.constraint(equalTo: controlsStackView.topAnchor, constant: -padding)
+
+        sharedConstraints.append(contentsOf: [
             titleLabel.heightAnchor.constraint(equalToConstant: titleLabel.font.lineHeight),
-
-            artistLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            artistLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor),
-            artistLabel.leadingAnchor.constraint(equalTo: thumbnailView.leadingAnchor, constant: padding),
-            artistLabel.trailingAnchor.constraint(equalTo: thumbnailView.trailingAnchor, constant: -padding),
-            artistLabel.bottomAnchor.constraint(equalTo: thumbnailView.bottomAnchor, constant: -padding),
             artistLabel.heightAnchor.constraint(equalToConstant: artistLabel.font.lineHeight),
+            artistLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: labelSpacing),
+            albumLabel.topAnchor.constraint(equalTo: artistLabel.bottomAnchor, constant: labelSpacing),
+            albumLabelHeightConstraint,
+        ])
 
-            thumbnailViewHeightConstraint
+        portraitConstraints.append(contentsOf: [
+            thumbnailImageView.topAnchor.constraint(equalTo: thumbnailView.topAnchor, constant: padding),
+            thumbnailImageView.centerXAnchor.constraint(equalTo: thumbnailView.centerXAnchor),
+            thumbnailImageView.leadingAnchor.constraint(greaterThanOrEqualTo: thumbnailView.leadingAnchor, constant: thumbnailImageViewEdgesPadding),
+            thumbnailImageView.trailingAnchor.constraint(lessThanOrEqualTo: thumbnailView.trailingAnchor, constant: -thumbnailImageViewEdgesPadding),
+            thumbnailImageView.heightAnchor.constraint(equalTo: thumbnailImageView.widthAnchor),
+            portraitThumbnailWidthConstraint,
+
+            titleLabel.topAnchor.constraint(equalTo: thumbnailImageView.bottomAnchor, constant: padding),
+            titleLabel.centerXAnchor.constraint(equalTo: thumbnailView.centerXAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor),
+            titleLabel.trailingAnchor.constraint(equalTo: progressionView.trailingAnchor),
+
+            artistLabel.centerXAnchor.constraint(equalTo: thumbnailView.centerXAnchor),
+            artistLabel.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor),
+            artistLabel.trailingAnchor.constraint(equalTo: progressionView.trailingAnchor),
+
+            albumLabel.centerXAnchor.constraint(equalTo: thumbnailView.centerXAnchor),
+            albumLabel.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor),
+            albumLabel.trailingAnchor.constraint(equalTo: progressionView.trailingAnchor),
+            albumLabel.bottomAnchor.constraint(equalTo: thumbnailView.bottomAnchor, constant: -padding),
+        ])
+
+        landscapeConstraints.append(contentsOf: [
+            thumbnailImageView.centerXAnchor.constraint(equalTo: thumbnailView.centerXAnchor),
+            thumbnailImageView.centerYAnchor.constraint(equalTo: thumbnailView.centerYAnchor),
+            thumbnailImageView.leadingAnchor.constraint(greaterThanOrEqualTo: thumbnailView.leadingAnchor, constant: padding),
+            thumbnailImageView.topAnchor.constraint(greaterThanOrEqualTo: thumbnailView.topAnchor, constant: padding),
+            thumbnailImageView.heightAnchor.constraint(equalTo: thumbnailImageView.widthAnchor),
+            landscapeThumbnailWidthConstraint,
+
+            landscapeRightContentLayoutGuide.topAnchor.constraint(equalTo: titleLabel.topAnchor),
+            landscapeRightContentLayoutGuide.bottomAnchor.constraint(equalTo: progressionView.bottomAnchor),
+            landscapeRightContentLayoutGuide.centerYAnchor.constraint(equalTo: thumbnailImageView.centerYAnchor),
+            titleLabel.centerXAnchor.constraint(equalTo: landscapeRightLayoutGuide.centerXAnchor),
+            artistLabel.centerXAnchor.constraint(equalTo: landscapeRightLayoutGuide.centerXAnchor),
+            albumLabel.centerXAnchor.constraint(equalTo: landscapeRightLayoutGuide.centerXAnchor),
+            landscapeAlbumBottom,
+            landscapeTitleLeading,
+            landscapeTitleTrailing,
+            landscapeArtistLeading,
+            landscapeArtistTrailing,
+            landscapeAlbumLeading,
+            landscapeAlbumTrailing,
         ])
     }
 
@@ -560,20 +770,44 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
             $0.translatesAutoresizingMaskIntoConstraints = false
             $0.alignment = .fill
             $0.distribution = .equalCentering
-            
+
             addSubview($0)
         }
-        
-        NSLayoutConstraint.activate([
-            controlsStackView.topAnchor.constraint(equalTo: thumbnailView.bottomAnchor, constant: topPadding),
-            controlsStackView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            controlsStackView.heightAnchor.constraint(equalToConstant: 50.0)
-        ])
-        
-        NSLayoutConstraint.activate([
+
+        controlsStackView.spacing = controlsStackViewMinSpacing
+
+        let controlsStackViewLeading = controlsStackView.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor)
+        controlsStackViewLeading.priority = .defaultHigh
+        let controlsStackViewTrailing = controlsStackView.trailingAnchor.constraint(equalTo: progressionView.trailingAnchor)
+        controlsStackViewTrailing.priority = .defaultHigh
+
+        sharedConstraints.append(contentsOf: [
+            controlsStackView.heightAnchor.constraint(equalToConstant: 50.0),
+            controlsStackViewLeading,
+            controlsStackViewTrailing,
             secondaryControlStackView.topAnchor.constraint(equalTo: controlsStackView.bottomAnchor, constant: topPadding/4),
+            secondaryControlStackViewHeightConstraint
+        ])
+
+        let portraitSecondaryControlBottom = secondaryControlStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -16)
+        portraitSecondaryControlBottom.priority = .defaultHigh
+
+        portraitConstraints.append(contentsOf: [
+            controlsStackView.topAnchor.constraint(equalTo: progressionView.bottomAnchor, constant: topPadding),
             secondaryControlStackView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            secondaryControlStackView.heightAnchor.constraint(equalToConstant: 30.0)
+            portraitSecondaryControlBottom,
+        ])
+
+        if isPad {
+            let controlsWidth = controlsStackView.widthAnchor.constraint(equalTo: safeAreaLayoutGuide.widthAnchor, multiplier: 0.5)
+            portraitConstraints.append(contentsOf: [
+                controlsStackView.centerXAnchor.constraint(equalTo: progressionView.centerXAnchor),
+                controlsWidth,
+            ])
+        }
+
+        landscapeConstraints.append(contentsOf: [
+            secondaryControlStackView.centerXAnchor.constraint(equalTo: landscapeRightLayoutGuide.centerXAnchor),
         ])
 
         controlsStackView.addArrangedSubview(shuffleButton)
@@ -588,25 +822,30 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
         let displaySecondaryStackView: Bool = UserDefaults.standard.bool(forKey: kVLCPlayerShowPlaybackSpeedShortcut)
         secondaryControlStackView.isHidden = !displaySecondaryStackView
+        secondaryControlStackViewHeightConstraint.constant = displaySecondaryStackView ? 30 : 0
     }
 
     private func setupProgressionView() {
-#if os(iOS)
-        let isSmallerScreen: Bool = UIScreen.main.bounds.width <= DeviceDimensions.iPhone4sPortrait.rawValue
-        let padding: CGFloat = isSmallerScreen ? 10.0 : 25.0
-#else
-        let padding: CGFloat = 25.0
-#endif
-
         progressionView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(progressionView)
-        NSLayoutConstraint.activate([
-            progressionView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: padding),
-            progressionView.topAnchor.constraint(equalTo: secondaryControlStackView.bottomAnchor, constant: padding),
-            progressionView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -padding),
-            progressionViewBottomConstraint,
-            progressionViewHeightConstraint
+
+        sharedConstraints.append(progressionViewHeightConstraint)
+
+        portraitConstraints.append(contentsOf: [
+            progressionView.topAnchor.constraint(greaterThanOrEqualTo: thumbnailView.bottomAnchor, constant: 16),
+            progressionView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: portraitContentInset),
+            progressionView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -portraitContentInset),
+        ])
+
+        let landscapeProgressionBottomConstraint = progressionView.bottomAnchor.constraint(lessThanOrEqualTo: landscapeRightLayoutGuide.bottomAnchor, constant: -horizontalContentInset)
+        landscapeProgressionBottomConstraint.priority = .defaultHigh
+
+        landscapeConstraints.append(contentsOf: [
+            progressionView.topAnchor.constraint(equalTo: secondaryControlStackView.bottomAnchor, constant: horizontalContentInset),
+            progressionView.leadingAnchor.constraint(equalTo: landscapeRightLayoutGuide.leadingAnchor, constant: horizontalContentInset),
+            progressionView.trailingAnchor.constraint(equalTo: landscapeRightLayoutGuide.trailingAnchor, constant: -horizontalContentInset),
+            landscapeProgressionBottomConstraint,
         ])
     }
 

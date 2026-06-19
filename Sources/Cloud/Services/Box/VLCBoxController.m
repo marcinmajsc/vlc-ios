@@ -2,7 +2,7 @@
  * VLCBoxController.m
  * VLC for iOS
  *****************************************************************************
- * Copyright (c) 2014 VideoLAN. All rights reserved.
+ * Copyright (c) 2014, 2026 VideoLAN. All rights reserved.
  * $Id$
  *
  * Authors: Carola Nitz <nitz.carola # googlemail.com>
@@ -13,7 +13,6 @@
 #import "VLCBoxController.h"
 #import "NSString+SupportedMedia.h"
 #import "VLCPlaybackService.h"
-#import "VLCMediaFileDiscoverer.h"
 #import <XKKeychain/XKKeychainGenericPasswordItem.h>
 #import "VLC-Swift.h"
 
@@ -327,6 +326,42 @@
     [[BoxSDK sharedSDK].filesManager downloadFileWithID:file.modelID outputStream:outputStream requestBuilder:nil success:successBlock failure:failureBlock progress:progressBlock];
 }
 
+- (void)loadThumbnailForFileID:(NSString *)fileID completion:(void (^)(UIImage * _Nullable))completion
+{
+    if (!completion) {
+        return;
+    }
+    if (!fileID || ![self isAuthorized]) {
+        completion(nil);
+        return;
+    }
+
+    NSOutputStream *outputStream = [NSOutputStream outputStreamToMemory];
+    [outputStream open];
+
+    BoxDownloadSuccessBlock successBlock = ^(NSString *downloadedFileID, long long expectedContentLength) {
+        NSData *data = [outputStream propertyForKey:NSStreamDataWrittenToMemoryStreamKey];
+        [outputStream close];
+        UIImage *image = data ? [UIImage imageWithData:data] : nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion(image);
+        });
+    };
+
+    BoxDownloadFailureBlock failureBlock = ^(NSURLRequest *request, NSHTTPURLResponse *response, NSError *error) {
+        [outputStream close];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion(nil);
+        });
+    };
+
+    [[BoxSDK sharedSDK].filesManager thumbnailForFileWithID:fileID
+                                               outputStream:outputStream
+                                              thumbnailSize:BoxThumbnailSize128
+                                                    success:successBlock
+                                                    failure:failureBlock];
+}
+
 - (void)showAlert:(NSString *)title message:(NSString *)message
 {
     [VLCAlertViewController alertViewManagerWithTitle:title
@@ -361,7 +396,6 @@
     /* update library now that we got a file */
     APLog(@"BoxFile download was successful");
     UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, NSLocalizedString(@"GDRIVE_DOWNLOAD_SUCCESSFUL", nil));
-    [[VLCMediaFileDiscoverer sharedInstance] performSelectorOnMainThread:@selector(updateMediaList) withObject:nil waitUntilDone:NO];
     // FIXME: Replace notifications by cleaner observers
     [[NSNotificationCenter defaultCenter] postNotificationName:NSNotification.VLCNewFileAddedNotification
                                                         object:self];

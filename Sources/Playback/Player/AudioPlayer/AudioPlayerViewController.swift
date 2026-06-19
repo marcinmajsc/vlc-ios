@@ -126,13 +126,9 @@ class AudioPlayerViewController: PlayerViewController {
             changeOutputView(to: externalOutputView.displayView)
         }
 
-#if os(iOS)
-        let orientation = getDeviceOrientation()
-        audioPlayerView.updateConstraints(for: orientation)
-        mediaScrubProgressBar.shouldHideScrubLabels = orientation.isLandscape ? true : false
-#else
-        mediaScrubProgressBar.shouldHideScrubLabels = false
-#endif
+        let isLandscape = view.bounds.width > view.bounds.height
+        audioPlayerView.updateLayout(isLandscape: isLandscape)
+        mediaScrubProgressBar.shouldHideScrubLabels = isLandscape
 
         let displayShortcutView: Bool = UserDefaults.standard.bool(forKey: kVLCPlayerShowPlaybackSpeedShortcut)
         audioPlayerView.shouldDisplaySecondaryStackView(displayShortcutView)
@@ -145,20 +141,24 @@ class AudioPlayerViewController: PlayerViewController {
     }
 
     override func viewWillDisappear(_ animated: Bool) {
-        playerController.isInterfaceLocked = false
+        if playerController.isInterfaceLocked {
+            setPlayerInterfaceEnabled(true)
+        }
         queueViewController?.hide()
         numberOfGestureSeek = 0
         totalSeekDuration = 0
         previousSeekState = .default
     }
 
-#if os(iOS)
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
-        let orientation = getDeviceOrientation()
-        audioPlayerView.updateConstraints(for: orientation)
-        mediaScrubProgressBar.shouldHideScrubLabels = orientation.isLandscape ? true : false
+        super.viewWillTransition(to: size, with: coordinator)
+
+        let isLandscape = size.width > size.height
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            self?.audioPlayerView.updateLayout(isLandscape: isLandscape)
+            self?.mediaScrubProgressBar.shouldHideScrubLabels = isLandscape
+        })
     }
-#endif
 
     // MARK: Public methods
 
@@ -351,35 +351,10 @@ class AudioPlayerViewController: PlayerViewController {
         audioPlayerView.setControlsEnabled(enabled)
 
         shouldDisableGestures(!enabled)
+        minimizeGestureRecognizer.isEnabled = enabled
 
         playerController.isInterfaceLocked = !enabled
     }
-
-#if os(iOS)
-    private func getDeviceOrientation() -> UIDeviceOrientation {
-        // Return the correct device orientation even if it is detected
-        // as flat.
-        let orientation = UIDevice.current.orientation
-
-        if orientation.isFlat {
-            let statusBarOrientation = UIApplication.shared.statusBarOrientation
-            switch statusBarOrientation {
-            case .portrait:
-                return .portrait
-            case .landscapeLeft:
-                return .landscapeLeft
-            case .landscapeRight:
-                return .landscapeRight
-            case .portraitUpsideDown:
-                return .portraitUpsideDown
-            default:
-                return .unknown
-            }
-        }
-
-        return orientation
-    }
-#endif
 
     @objc override func updatePlayerControls() {
         audioPlayerView.shouldEnableSeekButtons(playbackService.mediaList.count == 1)
@@ -471,7 +446,7 @@ extension AudioPlayerViewController {
         audioPlayerView.updateShuffleRepeatState(shuffleEnabled: playbackService.isShuffleMode, repeatMode: playbackService.repeatMode)
 
         let metadata = playbackService.metadata
-        audioPlayerView.updateLabels(title: metadata.title, artist: metadata.artist, isQueueHidden: isQueueHidden)
+        audioPlayerView.updateLabels(title: metadata.title, artist: metadata.artist, album: metadata.albumName, isQueueHidden: isQueueHidden)
         updateNavigationBar(with: isQueueHidden ? nil : metadata.title)
 
         if let qvc = queueViewController, !isQueueHidden {
@@ -521,7 +496,7 @@ extension AudioPlayerViewController {
     }
 
     func displayMetadata(for playbackService: PlaybackService, metadata: VLCMetaData) {
-        audioPlayerView.updateLabels(title: metadata.title, artist: metadata.artist, isQueueHidden: isQueueHidden)
+        audioPlayerView.updateLabels(title: metadata.title, artist: metadata.artist, album: metadata.albumName, isQueueHidden: isQueueHidden)
         updateNavigationBar(with: isQueueHidden ? nil : metadata.title)
 
         if metadata.artworkImage != audioPlayerView.thumbnailImageView.image {
@@ -586,7 +561,7 @@ extension AudioPlayerViewController {
 
     func mediaNavigationBarDidToggleQueueView(_ mediaNavigationBar: MediaNavigationBar) {
         let metadata = playbackService.metadata
-        audioPlayerView.updateLabels(title: metadata.title, artist: metadata.artist, isQueueHidden: !isQueueHidden)
+        audioPlayerView.updateLabels(title: metadata.title, artist: metadata.artist, album: metadata.albumName, isQueueHidden: !isQueueHidden)
         updateNavigationBar(with: !isQueueHidden ? nil : metadata.title)
 
         audioPlayerView.thumbnailView.isHidden = playbackService.isPlayingOnExternalScreen()

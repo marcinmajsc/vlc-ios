@@ -12,7 +12,6 @@
  *****************************************************************************/
 
 import UIKit
-import MobileCoreServices
 
 enum RemoteNetworkCellType: Int {
     @available(iOS 11.0, *)
@@ -24,6 +23,9 @@ enum RemoteNetworkCellType: Int {
     case download
     case wifi
     case favorite
+#if os(iOS)
+    case photos
+#endif
     static let first: Int = {
         if let _ = RemoteNetworkCellType(rawValue: 0) {
             return 0
@@ -34,20 +36,27 @@ enum RemoteNetworkCellType: Int {
     static let count: Int = {
         var max: Int = first
         while let _ = RemoteNetworkCellType(rawValue: max) { max += 1 }
-        return max - first
+        var total = max - first
+#if os(iOS)
+        if #unavailable(iOS 14.0) {
+            total -= 1
+        }
+#endif
+        return total
     }()
 }
 
 @objc(VLCRemoteNetworkDataSourceDelegate)
 protocol RemoteNetworkDataSourceDelegate {
     func showViewController(_ viewController: UIViewController)
-    func showDocumentPickerViewController(_ viewController: UIDocumentPickerViewController)
+    func showLocalFilesPicker()
     func reloadRemoteTableView()
 }
 
 @objc(VLCRemoteNetworkDataSourceAndDelegate)
 class RemoteNetworkDataSource: NSObject, UITableViewDataSource, UITableViewDelegate {
     @objc weak var delegate: RemoteNetworkDataSourceDelegate?
+    private var photoLibraryController: NSObject?
 
     // MARK: - DataSource
 
@@ -108,6 +117,17 @@ class RemoteNetworkDataSource: NSObject, UITableViewDataSource, UITableViewDeleg
                 favoriteCell.accessibilityIdentifier = VLCAccessibilityIdentifier.favorite
                 return favoriteCell
             }
+#if os(iOS)
+        case .photos:
+            if #available(iOS 14.0, *),
+               let photoCell = tableView.dequeueReusableCell(withIdentifier: RemoteNetworkCell.cellIdentifier) {
+                photoCell.textLabel?.text = NSLocalizedString("PHOTO_LIBRARY_CELL_TITLE", comment: "")
+                photoCell.detailTextLabel?.text = NSLocalizedString("PHOTO_LIBRARY_CELL_SUBTITLE", comment: "")
+                photoCell.imageView?.image = UIImage(systemName: "photo.on.rectangle")?.withRenderingMode(.alwaysTemplate)
+                photoCell.accessibilityIdentifier = VLCAccessibilityIdentifier.photos
+                return photoCell
+            }
+#endif
         }
         assertionFailure("Cell is nil, did you forget to register the identifier?")
         return UITableViewCell()
@@ -118,13 +138,20 @@ class RemoteNetworkDataSource: NSObject, UITableViewDataSource, UITableViewDeleg
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         ParentalControlCoordinator.shared.authorizeIfParentalControlIsEnabled {
-            if let vc = self.viewController(indexPath: indexPath) {
-                if let vc = vc as? UIDocumentPickerViewController {
-                    self.delegate?.showDocumentPickerViewController(vc)
-                } else {
-                    self.delegate?.showViewController(vc)
-                }
-            } else if RemoteNetworkCellType(rawValue: indexPath.row + RemoteNetworkCellType.first) == .wifi {
+            let cellType = RemoteNetworkCellType(rawValue: indexPath.row + RemoteNetworkCellType.first)
+#if os(iOS)
+            if #available(iOS 14.0, *), cellType == .photos {
+                let controller = VLCPhotoLibraryController()
+                self.photoLibraryController = controller
+                controller.showPhotoLibraryPicker(tableView.cellForRow(at: indexPath))
+                return
+            }
+#endif
+            if cellType == .local {
+                self.delegate?.showLocalFilesPicker()
+            } else if let vc = self.viewController(indexPath: indexPath) {
+                self.delegate?.showViewController(vc)
+            } else if cellType == .wifi {
                 if tableView.cellForRow(at: indexPath)?.selectionStyle == .default {
                     if VLCAppCoordinator.sharedInstance().httpUploaderController.isReachable {
                         UIPasteboard.general.string = VLCAppCoordinator.sharedInstance().httpUploaderController.addressToCopy()
@@ -143,23 +170,23 @@ class RemoteNetworkDataSource: NSObject, UITableViewDataSource, UITableViewDeleg
         }
         switch cellType {
         case .local:
-            if #available(iOS 14.0, *) {
-                return UIDocumentPickerViewController(forOpeningContentTypes: [.item, .folder], asCopy: false)
-            } else {
-                return UIDocumentPickerViewController(documentTypes: ["public.item", "public.folder"], in: .open)
-            }
+            return nil
 #if os(iOS)
         case .cloud:
             return VLCCloudServicesTableViewController(nibName: "VLCCloudServicesTableViewController", bundle: Bundle.main)
 #endif
         case .streaming:
-            return VLCOpenNetworkStreamViewController(nibName: "VLCOpenNetworkStreamViewController", bundle: Bundle.main)
+            return VLCOpenNetworkStreamViewController()
         case .download:
-            return VLCDownloadViewController(nibName: "VLCDownloadViewController", bundle: Bundle.main)
+            return VLCTransferViewController()
         case .wifi:
             return nil
         case .favorite:
             return FavoriteListViewController()
+#if os(iOS)
+        case .photos:
+            return nil
+#endif
         }
     }
 

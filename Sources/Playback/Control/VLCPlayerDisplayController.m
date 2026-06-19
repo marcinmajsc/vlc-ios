@@ -19,6 +19,8 @@
 #import "VLCFullscreenMovieTVViewController.h"
 #else
 #import "UIStackView+Orientation.h"
+#import "VLCTransferViewController.h"
+#import "VLCTransferStatusBannerController.h"
 #endif
 
 static NSString *const VLCPlayerDisplayControllerDisplayModeKey = @"VLCPlayerDisplayControllerDisplayMode";
@@ -48,6 +50,11 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
 @property (nonatomic, strong) UIViewController<VLCPlaybackServiceDelegate> *audioPlayerViewController;
 @end
 
+@interface VLCPlayerDisplayController () <VLCTransferStatusBannerControllerDelegate>
+@property (nonatomic, strong, nullable) VLCTransferStatusBannerController *transferBannerController;
+@property (nonatomic, weak, nullable) UINavigationController *downloadsNavigationController;
+@end
+
 @implementation VLCPlayerDisplayController
 
 - (instancetype)init
@@ -70,6 +77,8 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
     self.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 
     [[VLCPlaybackService sharedInstance] setPlayerDisplayController:self];
+
+    self.transferBannerController = [[VLCTransferStatusBannerController alloc] initWithContainerView:self.view delegate:self];
 
     [super viewDidLoad];
 }
@@ -281,7 +290,9 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
 - (void)closeAudioPlayer
 {
     UIViewController *presentingController = [self _presentingControllerForPlaybackController:self.audioPlayerViewController];
-    [presentingController dismissViewControllerAnimated:[self shouldAnimate] completion:nil];
+    // Dismiss from the level above so any sub-menu presented on top of the player is torn down with it.
+    UIViewController *dismisser = presentingController.presentingViewController ?: presentingController;
+    [dismisser dismissViewControllerAnimated:[self shouldAnimate] completion:nil];
     self.displayMode = VLCPlayerDisplayControllerDisplayModeMiniplayer;
     [self _showHideMiniPlaybackView];
 }
@@ -379,7 +390,9 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
     dispatch_async(dispatch_get_main_queue(), ^{
         BOOL animated = [self shouldAnimate];
         UIViewController *presentingController = [self _presentingControllerForPlaybackController:self.movieViewController];
-        [presentingController dismissViewControllerAnimated:animated completion:^{
+        // Dismiss from the level above so any sub-menu presented on top of the player is torn down with it.
+        UIViewController *dismisser = presentingController.presentingViewController ?: presentingController;
+        [dismisser dismissViewControllerAnimated:animated completion:^{
             [self _updateInterfaceOrientation];
         }];
         [self _showHideMiniPlaybackView];
@@ -565,6 +578,7 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
 
         [self addPlayqueueToMiniPlayer];
         miniPlaybackView.visible = YES;
+        [self.transferBannerController refreshBottomAnchor];
         [[NSNotificationCenter defaultCenter]
          postNotificationName:VLCPlayerDisplayControllerDisplayMiniPlayer object:self];
     } else if (needsHide) {
@@ -577,6 +591,7 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
                 [[NSNotificationCenter defaultCenter]
                  postNotificationName:VLCPlayerDisplayControllerHideMiniPlayer object:self];
             }
+            [self.transferBannerController refreshBottomAnchor];
             [self->_queueViewController hide];
             [self->_queueViewController removeFromParentViewController];
         };
@@ -631,6 +646,9 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
                  postNotificationName:VLCPlayerDisplayControllerHideMiniPlayer object:self];
             }
 
+#if !TARGET_OS_TV
+            [self.transferBannerController refreshBottomAnchor];
+#endif
             [self resignFirstResponder];
         };
 
@@ -658,6 +676,50 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
     [_queueViewController didMoveToParentViewController:self];
     [((VLCAudioMiniPlayer*)_miniPlaybackView) setupQueueViewControllerWith:_queueViewController];
     [self becomeFirstResponder];
+}
+
+#pragma mark - Download status banner
+
+- (void)transferStatusBannerWasTapped:(VLCTransferStatusBannerController *)controller
+{
+    [self _presentDownloadsViewController];
+}
+
+- (NSLayoutYAxisAnchor *)bottomAnchorForTransferStatusBanner:(VLCTransferStatusBannerController *)controller
+{
+    if (self.miniPlaybackView && ((id<VLCMiniPlaybackViewInterface>)self.miniPlaybackView).visible) {
+        return self.miniPlaybackView.topAnchor;
+    }
+    if (self.realBottomAnchor) {
+        return self.realBottomAnchor;
+    }
+    return nil;
+}
+
+- (void)_presentDownloadsViewController
+{
+    VLCTransferViewController *dlVC = [[VLCTransferViewController alloc] init];
+    UINavigationController *navCon = [[UINavigationController alloc] initWithRootViewController:dlVC];
+
+    UIBarButtonItem *doneBtn = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone
+                                                                              target:self
+                                                                              action:@selector(_dismissDownloadsViewController)];
+    dlVC.navigationItem.leftBarButtonItem = doneBtn;
+
+    UIWindow *window = [[[UIApplication sharedApplication] delegate] window];
+    UIViewController *root = window.rootViewController;
+    UIViewController *top = root;
+    while (top.presentedViewController) {
+        top = top.presentedViewController;
+    }
+    self.downloadsNavigationController = navCon;
+    [top presentViewController:navCon animated:YES completion:nil];
+}
+
+- (void)_dismissDownloadsViewController
+{
+    [self.downloadsNavigationController dismissViewControllerAnimated:YES completion:nil];
+    self.downloadsNavigationController = nil;
 }
 
 #pragma mark - QueueViewController

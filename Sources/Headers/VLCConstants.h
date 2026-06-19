@@ -114,11 +114,17 @@
 
 #define kVLCForceSMBV1 @"smb-force-v1"
 
+#define kVLCAudioLibraryGridLayoutALBUMS @"kVLCAudioLibraryGridLayoutALBUMS"
+#define kVLCAudioLibraryGridLayoutARTISTS @"kVLCAudioLibraryGridLayoutARTISTS"
+#define kVLCAudioLibraryGridLayoutGENRES @"kVLCAudioLibraryGridLayoutGENRES"
+#define kVLCVideoLibraryGridLayoutALL_VIDEOS @"kVLCVideoLibraryGridLayoutALL_VIDEOS"
+#define kVLCVideoLibraryGridLayoutVIDEO_GROUPS @"kVLCVideoLibraryGridLayoutVIDEO_GROUPS"
+#define kVLCVideoLibraryGridLayoutVLCMLMediaGroupCollections @"kVLCVideoLibraryGridLayoutVLCMLMediaGroupCollections"
+
 #define kVLCShowRemainingTime @"show-remaining-time"
 #define kVLCRecentURLs @"recent-urls"
 #define kVLCRecentURLTitles @"recent-url-titles"
 #define kVLCPrivateWebStreaming @"private-streaming"
-#define kVLChttpScanSubtitle @"http-scan-subtitle"
 #define kVLCHTTPUploadDirectory @"Upload"
 #define kVLCAudioLibraryGridLayout @"kVLCAudioLibraryGridLayout"
 #define kVLCAudioLibraryHideFeatArtists @"kVLCAudioLibraryHideFeatArtists"
@@ -202,3 +208,5 @@
 
 #define kVLCDefaultPageSize 500
 #define kVLCPrefetchDistance 100
+
+#define kVLCAudioTabIndex @"kVLCAudioTabIndex"

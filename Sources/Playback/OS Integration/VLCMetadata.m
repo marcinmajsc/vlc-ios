@@ -16,9 +16,7 @@
 #import <MediaPlayer/MediaPlayer.h>
 #import "VLCPlaybackService.h"
 
-#if TARGET_OS_IOS || TARGET_OS_VISION || TARGET_OS_WATCH
 #import "VLC-Swift.h"
-#endif
 
 @implementation VLCMetaData
 
@@ -37,20 +35,15 @@
     }
     return self;
 }
-#if TARGET_OS_TV
-- (void)updateMetadataFromMediaPlayer:(VLCMediaPlayer *)mediaPlayer;
-{
-    [self updateMetadataFromMediaPlayerFortvOS:mediaPlayer];
-}
-#endif
-
-#if TARGET_OS_IOS || TARGET_OS_VISION || TARGET_OS_WATCH
-- (void)updateMetadataFromMedia:(VLCMLMedia *)media mediaPlayer:(VLCMediaPlayer*)mediaPlayer
+- (void)updateMetadataFromMedia:(nullable VLCMLMedia *)media mediaPlayer:(VLCMediaPlayer*)mediaPlayer
 {
     if (media && !media.isExternalMedia) {
         self.title = media.title;
         self.artist = media.artist.name;
+        self.genre = media.genre.name;
         self.trackNumber = @(media.trackNumber);
+        self.albumTrackCount = @(media.album.numberOfTracks);
+        self.discNumber = @(media.discNumber);
         self.albumName = media.album.title;
         self.artworkImage = [media thumbnailImage];
         self.isAudioOnly = ([media subtype] == VLCMLMediaSubtypeAlbumTrack || media.videoTracks.count == 0) ? YES : NO;
@@ -83,28 +76,13 @@
     }
     [self updatePlaybackRate:mediaPlayer];
 
-#if !TARGET_OS_WATCH
+#if !TARGET_OS_WATCH && !TARGET_OS_TV
     //Down here because we still need to populate the miniplayer
     if ([[VLCKeychainCoordinator passcodeService] hasSecret]) return;
 #endif
 
     [self populateInfoCenterFromMetadata];
 }
-#else
-
-- (void)updateMetadataFromMediaPlayerFortvOS:(VLCMediaPlayer *)mediaPlayer
-{
-    [self fillFromMetaDict:mediaPlayer];
-    [self checkIsAudioOnly:mediaPlayer];
-
-    if (self.isAudioOnly) {
-        if (self.title.length < 1)
-            self.title = [[mediaPlayer.media url] lastPathComponent];
-    }
-    [self updatePlaybackRate:mediaPlayer];
-    [self populateInfoCenterFromMetadata];
-}
-#endif
 
 - (void)updateExposedTimingFromMediaPlayer:(VLCMediaPlayer*)mediaPlayer
 {
@@ -119,6 +97,7 @@
 - (void)updatePlaybackRate:(VLCMediaPlayer *)mediaPlayer
 {
     self.playbackDuration = @(mediaPlayer.media.length.intValue / 1000.);
+    self.isLiveStream = self.playbackDuration.intValue <= 0;
     self.playbackRate = @(mediaPlayer.rate);
     VLCTime *elapsedPlaybackTime = mediaPlayer.time;
     if (elapsedPlaybackTime) {
@@ -148,11 +127,14 @@
         }
         self.artist = metadata.artist;
         self.albumName = metadata.album;
+        self.genre = metadata.genre;
         self.trackNumber = @(metadata.trackNumber);
-        self.artworkImage = nil;
+        self.albumTrackCount = @(metadata.trackTotal);
+        self.discNumber = @(metadata.discNumber);
+        self.artworkImage = metadata.artwork;
 
         NSURL *artworkURL = metadata.artworkURL;
-        if (artworkURL) {
+        if (!self.artworkImage && artworkURL) {
             dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
                 NSData *imageData = [NSData dataWithContentsOfURL:artworkURL];
                 if (imageData) {
@@ -175,17 +157,21 @@
 - (void)populateInfoCenterFromMetadata
 {
     NSMutableDictionary *currentlyPlayingTrackInfo = [NSMutableDictionary dictionary];
+    VLCPlaybackService *playbackService = [VLCPlaybackService sharedInstance];
     NSNumber *duration = self.playbackDuration;
     currentlyPlayingTrackInfo[MPMediaItemPropertyPlaybackDuration] = duration;
-    if (@available(iOS 10.0, *)) {
-        currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyIsLiveStream] = @(duration.intValue <= 0);
-        self.isLiveStream = duration.intValue <= 0;
-        currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyMediaType] = _isAudioOnly ? @(MPNowPlayingInfoMediaTypeAudio) : @(MPNowPlayingInfoMediaTypeVideo);
-        currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyPlaybackProgress] = self.position;
-        currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyExternalContentIdentifier] = self.identifier;
-    }
+    BOOL isLiveStream = duration.intValue <= 0;
+    currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyIsLiveStream] = @(isLiveStream);
+    self.isLiveStream = isLiveStream;
+    currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyMediaType] = _isAudioOnly ? @(MPNowPlayingInfoMediaTypeAudio) : @(MPNowPlayingInfoMediaTypeVideo);
+    currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyPlaybackProgress] = self.position;
+    currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyExternalContentIdentifier] = self.identifier;
+    if (isLiveStream)
+        currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyCurrentPlaybackDate] = [NSDate date];
     currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = self.elapsedPlaybackTime;
     currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyPlaybackRate] = self.playbackRate;
+    CGFloat configuredDefaultRate = playbackService.defaultPlaybackRate;
+    currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] = @(configuredDefaultRate > 0 ? configuredDefaultRate : 1.0);
 
     currentlyPlayingTrackInfo[MPMediaItemPropertyTitle] = self.title;
     currentlyPlayingTrackInfo[MPMediaItemPropertyArtist] = self.artist;
@@ -194,24 +180,32 @@
     if ([self.trackNumber intValue] > 0)
         currentlyPlayingTrackInfo[MPMediaItemPropertyAlbumTrackNumber] = self.trackNumber;
 
-#if TARGET_OS_IOS || TARGET_OS_VISION
+    if (self.genre.length > 0)
+        currentlyPlayingTrackInfo[MPMediaItemPropertyGenre] = self.genre;
+
+    if ([self.albumTrackCount intValue] > 0)
+        currentlyPlayingTrackInfo[MPMediaItemPropertyAlbumTrackCount] = self.albumTrackCount;
+
+    if ([self.discNumber intValue] > 0)
+        currentlyPlayingTrackInfo[MPMediaItemPropertyDiscNumber] = self.discNumber;
+
+    NSInteger chapterCount = playbackService.numberOfChaptersForCurrentTitle;
+    if (chapterCount > 1) {
+        currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyChapterCount] = @(chapterCount);
+        currentlyPlayingTrackInfo[MPNowPlayingInfoPropertyChapterNumber] = @(MAX(0, playbackService.indexOfCurrentChapter));
+    }
+
     if (self.artworkImage) {
-        MPMediaItemArtwork *mpartwork;
-        if (@available(iOS 10.0 VISIONOS_AVAILABLE, *)) {
-            mpartwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:self.artworkImage.size
-                                                        requestHandler:^UIImage * _Nonnull(CGSize size) {
-                return self.artworkImage;
-            }];
-        } else {
-            mpartwork = [[MPMediaItemArtwork alloc] initWithImage:self.artworkImage];
-        }
+        MPMediaItemArtwork *mpartwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:self.artworkImage.size
+                                                                        requestHandler:^UIImage * _Nonnull(CGSize size) {
+            return self.artworkImage;
+        }];
         @try {
             currentlyPlayingTrackInfo[MPMediaItemPropertyArtwork] = mpartwork;
         } @catch (NSException *exception) {
             currentlyPlayingTrackInfo[MPMediaItemPropertyArtwork] = nil;
         }
     }
-#endif
 
     [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = currentlyPlayingTrackInfo;
 }

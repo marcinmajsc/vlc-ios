@@ -13,7 +13,6 @@
 
 #import "VLCHTTPFileDownloader.h"
 #import "VLCActivityManager.h"
-#import "VLCMediaFileDiscoverer.h"
 #import "VLC-Swift.h"
 #import "NSURLSessionConfiguration+default.h"
 
@@ -61,6 +60,8 @@
     [theRequest addValue:[NSString stringWithFormat:@"Mozilla/5.0 (%@; CPU OS 7_0 like Mac OS X) AppleWebKit/537.51.1 (KHTML, like Gecko) Version/%@ Safari/9537.53 VLC for iOS/%@",
 #if TARGET_OS_IOS
                           UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad ? @"iPad" : @"iPhone",
+#elif TARGET_OS_TV
+                          @"Apple TV",
 #else
                           @"vision Pro",
 #endif
@@ -218,7 +219,7 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 
             if ([self.delegate respondsToSelector:@selector(downloadFailedWithErrorDescription:forDownloader:)]) {
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    [self.delegate downloadFailedWithErrorDescription:error.description
+                    [self.delegate downloadFailedWithErrorDescription:error.localizedDescription
                                                         forDownloader:self];
                 });
             }
@@ -257,7 +258,6 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 
     NSFileManager *fileManager = [NSFileManager defaultManager];
     if ([fileManager fileExistsAtPath:[_fileURL path]]) {
-        [[VLCMediaFileDiscoverer sharedInstance] performSelectorOnMainThread:@selector(updateMediaList) withObject:nil waitUntilDone:NO];
 #if TARGET_OS_IOS
         dispatch_async(dispatch_get_main_queue(), ^{
             // FIXME: Replace notifications by cleaner observers

@@ -13,7 +13,7 @@
 class PlaylistModel: NSObject, MLBaseModel {
     typealias MLType = VLCMLPlaylist
 
-    var sortModel = SortModel([.alpha, .duration])
+    var sortModel = SortModel([.alpha, .duration, .insertionDate, .lastModificationDate])
 
     var observable = VLCObservable<MediaLibraryBaseModelObserver>()
 
@@ -77,18 +77,6 @@ class PlaylistModel: NSObject, MLBaseModel {
         // Update directly the UI without waiting the delegate to avoid showing 'ghost' items
         fileArrayLock.lock()
         filterFilesFromDeletion(of: items)
-        observable.notifyObservers {
-            $0.mediaLibraryBaseModelReloadView()
-        }
-    }
-
-    // Creates a VLCMLPlaylist appending it and updates linked view
-    func create(name: String) {
-        guard let playlist = medialibrary.createPlaylist(with: name) else {
-            assertionFailure("PlaylistModel: create: Failed to create a playlist.")
-            return
-        }
-        append(playlist)
         observable.notifyObservers {
             $0.mediaLibraryBaseModelReloadView()
         }

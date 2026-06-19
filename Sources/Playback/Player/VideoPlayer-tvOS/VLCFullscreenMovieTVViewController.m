@@ -1,7 +1,7 @@
 /*****************************************************************************
  * VLC for iOS
  *****************************************************************************
- * Copyright (c) 2015-2023 VideoLAN. All rights reserved.
+ * Copyright (c) 2015-2026 VideoLAN. All rights reserved.
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne # videolan.org>
@@ -10,8 +10,8 @@
  *****************************************************************************/
 
 #import "VLCFullscreenMovieTVViewController.h"
-#import "VLCPlaybackInfoTVViewController.h"
-#import "VLCPlaybackInfoTVAnimators.h"
+#import "VLCPlaybackControlsFocusView.h"
+#import "VLCPlayerControlsBar.h"
 #import "VLCIRTVTapGestureRecognizer.h"
 #import "VLCHTTPUploaderController.h"
 #import "VLCSiriRemoteGestureRecognizer.h"
@@ -27,15 +27,17 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
     VLCPlayerScanStateForward4,
 };
 
-@interface VLCFullscreenMovieTVViewController (UIViewControllerTransitioningDelegate) <UIViewControllerTransitioningDelegate, UIGestureRecognizerDelegate>
-@end
-
-@interface VLCFullscreenMovieTVViewController ()
+@interface VLCFullscreenMovieTVViewController () <UIGestureRecognizerDelegate>
+{
+    VLCPlayerControlsBar *_controlsBar;
+    UIView *_scrimView;
+    BOOL _controlsRowFocused;
+    NSArray<UIGestureRecognizer *> *_transportGestureRecognizers;
+}
 
 @property (nonatomic) CADisplayLink *displayLink;
 @property (nonatomic) NSTimer *audioDescriptionScrollTimer;
 @property (nonatomic) NSTimer *hidePlaybackControlsViewAfterDelayTimer;
-@property (nonatomic) VLCPlaybackInfoTVViewController *infoViewController;
 @property (nonatomic) NSNumber *scanSavedPlaybackRate;
 @property (nonatomic) VLCPlayerScanState scanState;
 @property (nonatomic) NSString *lastArtist;
@@ -52,6 +54,31 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 @property (nonatomic) CGPoint projectionLocation;
 @property (nonatomic) CGFloat yaw;
 @property (nonatomic) CGFloat pitch;
+
+@end
+
+@interface VLCGradientScrimView : UIView
+@end
+
+@implementation VLCGradientScrimView
+
++ (Class)layerClass
+{
+    return [CAGradientLayer class];
+}
+
+- (instancetype)initWithFrame:(CGRect)frame
+{
+    self = [super initWithFrame:frame];
+    if (self) {
+        CAGradientLayer *gradientLayer = (CAGradientLayer *)self.layer;
+        gradientLayer.colors = @[(id)[UIColor colorWithWhite:0.0 alpha:0.0].CGColor,
+                                 (id)[UIColor colorWithWhite:0.0 alpha:0.7].CGColor];
+        gradientLayer.locations = @[@0.0, @1.0];
+        self.userInteractionEnabled = NO;
+    }
+    return self;
+}
 
 @end
 
@@ -121,7 +148,7 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
     upArrowRecognizer.allowedPressTypes = @[@(UIPressTypeUpArrow)];
     [self.view addGestureRecognizer:upArrowRecognizer];
 
-    UITapGestureRecognizer *downArrowRecognizer = [[VLCIRTVTapGestureRecognizer alloc] initWithTarget:self action:@selector(showInfoVCIfNotScrubbing)];
+    UITapGestureRecognizer *downArrowRecognizer = [[VLCIRTVTapGestureRecognizer alloc] initWithTarget:self action:@selector(handleIRPressDown)];
     downArrowRecognizer.allowedPressTypes = @[@(UIPressTypeDownArrow)];
     [self.view addGestureRecognizer:downArrowRecognizer];
 
@@ -149,8 +176,31 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
     [self.view addGestureRecognizer:siriArrowRecognizer];
     [simultaneousGestureRecognizers addObject:siriArrowRecognizer];
 
+    // Reveal / dismiss the controls row
+    UISwipeGestureRecognizer *revealRowRecognizer = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(focusControlsRow)];
+    revealRowRecognizer.direction = UISwipeGestureRecognizerDirectionUp;
+    revealRowRecognizer.delegate = self;
+    [self.view addGestureRecognizer:revealRowRecognizer];
+    [simultaneousGestureRecognizers addObject:revealRowRecognizer];
+
+    UISwipeGestureRecognizer *dismissRowRecognizer = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(unfocusControlsRow)];
+    dismissRowRecognizer.direction = UISwipeGestureRecognizerDirectionDown;
+    dismissRowRecognizer.delegate = self;
+    [self.view addGestureRecognizer:dismissRowRecognizer];
+    [simultaneousGestureRecognizers addObject:dismissRowRecognizer];
+
     self.simultaneousGestureRecognizers = simultaneousGestureRecognizers;
-    
+
+    _transportGestureRecognizers = @[panGestureRecognizer,
+                                     leftArrowRecognizer,
+                                     rightArrowRecognizer,
+                                     rightLongPressGestureRecognizer,
+                                     leftLongPressGestureRecognizer,
+                                     siriArrowRecognizer];
+
+    [self setupScrimGradient];
+    [self setupControlButtonsRow];
+
     self.gameControllerManager.delegate = self;
     [super viewDidLoad];
 }
@@ -158,7 +208,6 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 - (void)didReceiveMemoryWarning
 {
     [super didReceiveMemoryWarning];
-    self.infoViewController = nil;
 }
 
 #pragma mark - view events
@@ -184,8 +233,7 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 
     self.playbackUIShouldHide = [defaults boolForKey:kVLCPlayerUIShouldHide];
     if (self.playbackUIShouldHide) {
-        self.activityIndicator.alpha = 0.;
-        [self.activityIndicator stopAnimating];
+        [self.coneLoadingView stopAnimating];
         self.bufferingLabel.hidden = YES;
         self.audioArtworkImageView.image = nil;
         self.audioLargeBackgroundImageView.image = nil;
@@ -210,6 +258,12 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 
 - (void)viewWillDisappear:(BOOL)animated
 {
+    /* Only tear playback down when we are actually going away. */
+    if (!self.isBeingDismissed && !self.isMovingFromParentViewController) {
+        [super viewWillDisappear:animated];
+        return;
+    }
+
     VLCPlaybackService *vpc = [VLCPlaybackService sharedInstance];
     if (vpc.videoOutputView == self.movieView) {
         vpc.videoOutputView = nil;
@@ -285,19 +339,6 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
             } else {
                 return;
             }
-        } else if (translation.y > 200.0) {
-            if ([[VLCPlaybackService sharedInstance] currentMediaIs360Video]) {
-                if ([VLCPlaybackService sharedInstance].mediaPlayerState == VLCMediaPlayerStatePaused) {
-                    panGestureRecognizer.enabled = NO;
-                    panGestureRecognizer.enabled = YES;
-                    [self showInfoVCIfNotScrubbing];
-                }
-            } else {
-                panGestureRecognizer.enabled = NO;
-                panGestureRecognizer.enabled = YES;
-                [self showInfoVCIfNotScrubbing];
-            }
-            return;
         } else {
             return;
         }
@@ -369,41 +410,26 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
     }
 }
 
-- (void)showInfoVCIfNotScrubbing
-{
-    VLCPlaybackService *vpc = [VLCPlaybackService sharedInstance];
-    VLCMediaPlayerTitleDescription *title = [vpc currentTitleDescription];
-    if (title != nil) {
-        if (title.menu) {
-            [vpc performNavigationAction:VLCMediaPlaybackNavigationActionDown];
-            return;
-        }
-    }
-
-    if (self.transportBar.scrubbing) {
-        return;
-    }
-    // TODO: configure with player info
-    VLCPlaybackInfoTVViewController *infoViewController = self.infoViewController;
-
-    // prevent repeated presentation when users repeatedly and quickly press the arrow button
-    if (infoViewController.isBeingPresented) {
-        return;
-    }
-    infoViewController.transitioningDelegate = self;
-    [self presentViewController:infoViewController animated:YES completion:nil];
-    [self animatePlaybackControlsToVisibility:NO];
-}
-
 - (void)handleIRPressUp
 {
     VLCPlaybackService *vpc = [VLCPlaybackService sharedInstance];
     VLCMediaPlayerTitleDescription *title = [vpc currentTitleDescription];
-    if (title != nil) {
-        if (title.menu) {
-            [vpc performNavigationAction:VLCMediaPlaybackNavigationActionUp];
-        }
+    if (title.menu) {
+        [vpc performNavigationAction:VLCMediaPlaybackNavigationActionUp];
+        return;
     }
+    [self focusControlsRow];
+}
+
+- (void)handleIRPressDown
+{
+    VLCPlaybackService *vpc = [VLCPlaybackService sharedInstance];
+    VLCMediaPlayerTitleDescription *title = [vpc currentTitleDescription];
+    if (title.menu) {
+        [vpc performNavigationAction:VLCMediaPlaybackNavigationActionDown];
+        return;
+    }
+    [self unfocusControlsRow];
 }
 
 - (void)handleIRPressLeft
@@ -622,7 +648,10 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 #pragma mark -
 - (void)jumpForward:(NSInteger)multiplier
 {
-    NSAssert(self.isSeekable, @"Tried to seek while not media is not seekable.");
+    if (!self.seekable) {
+        APLog(@"Tried to seek while not media is not seekable.");
+        return;
+    }
 
     VLCPlaybackService *vpc = [VLCPlaybackService sharedInstance];
     NSInteger jumpInterval = [[NSUserDefaults standardUserDefaults] integerForKey:kVLCSettingPlaybackForwardSkipLength] * multiplier;
@@ -635,7 +664,10 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 }
 - (void)jumpBackward:(NSInteger)multiplier
 {
-    NSAssert(self.isSeekable, @"Tried to seek while not media is not seekable.");
+    if (!self.seekable) {
+        APLog(@"Tried to seek while not media is not seekable.");
+        return;
+    }
 
     VLCPlaybackService *vpc = [VLCPlaybackService sharedInstance];
     NSInteger jumpInterval = [[NSUserDefaults standardUserDefaults] integerForKey:kVLCSettingPlaybackBackwardSkipLength] * multiplier;
@@ -649,7 +681,10 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 
 - (void)jumpInterval:(NSInteger)interval
 {
-    NSAssert(self.isSeekable, @"Tried to seek while not media is not seekable.");
+    if (!self.seekable) {
+        APLog(@"Tried to seek while not media is not seekable.");
+        return;
+    }
 
     NSInteger duration = [VLCPlaybackService sharedInstance].mediaDuration;
     if (duration == 0) {
@@ -667,7 +702,10 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 
 - (void)scrubbingJumpInterval:(NSInteger)interval
 {
-    NSAssert(self.isSeekable, @"Tried to seek while not media is not seekable.");
+    if (!self.seekable) {
+        APLog(@"Tried to seek while not media is not seekable.");
+        return;
+    }
 
     NSInteger duration = [VLCPlaybackService sharedInstance].mediaDuration;
     if (duration==0) {
@@ -684,7 +722,10 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 
 - (void)scanForwardNext
 {
-    NSAssert(self.isSeekable, @"Tried to seek while not media is not seekable.");
+    if (!self.seekable) {
+        APLog(@"Tried to seek while not media is not seekable.");
+        return;
+    }
 
     VLCPlayerScanState nextState = self.scanState;
     switch (self.scanState) {
@@ -704,7 +745,10 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 
 - (void)scanForwardPrevious
 {
-    NSAssert(self.isSeekable, @"Tried to seek while not media is not seekable.");
+    if (!self.seekable) {
+        APLog(@"Tried to seek while not media is not seekable.");
+        return;
+    }
 
     VLCPlayerScanState nextState = self.scanState;
     switch (self.scanState) {
@@ -728,8 +772,10 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
     if (_scanState == scanState) {
         return;
     }
-
-    NSAssert(self.isSeekable || scanState == VLCPlayerScanStateNone, @"Tried to seek while media not seekable.");
+    if (!self.seekable) {
+        APLog(@"Tried to seek while not media is not seekable.");
+        return;
+    }
 
     if (_scanState == VLCPlayerScanStateNone) {
         self.scanSavedPlaybackRate = @([VLCPlaybackService sharedInstance].playbackRate);
@@ -791,7 +837,10 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 
 - (void)startScrubbing
 {
-    NSAssert(self.isSeekable, @"Tried to seek while not media is not seekable.");
+    if (!self.seekable) {
+        APLog(@"Tried to seek while not media is not seekable.");
+        return;
+    }
 
     VLCPlaybackService *vpc = [VLCPlaybackService sharedInstance];
     self.transportBar.scrubbing = YES;
@@ -819,24 +868,17 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
     }
 }
 
-- (void)updateActivityIndicatorForState:(VLCMediaPlayerState)state {
+- (void)updateBufferingAnimationForState:(VLCMediaPlayerState)state {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (self.playbackUIShouldHide) {
             return;
         }
-        UIActivityIndicatorView *indicator = self.activityIndicator;
         switch (state) {
             case VLCMediaPlayerStateBuffering:
-                if (!indicator.isAnimating) {
-                    self.activityIndicator.alpha = 1.0;
-                    [self.activityIndicator startAnimating];
-                }
+                [self.coneLoadingView startAnimating];
                 break;
             default:
-                if (indicator.isAnimating) {
-                    [self.activityIndicator stopAnimating];
-                    self.activityIndicator.alpha = 0.0;
-                }
+                [self.coneLoadingView stopAnimating];
                 break;
         }
     });
@@ -875,6 +917,9 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
 
 - (void)fireHidePlaybackControlsIfNotPlayingTimer:(NSTimer *)timer
 {
+    if (_controlsRowFocused) {
+        return;
+    }
     BOOL playing = [[VLCPlaybackService sharedInstance] isPlaying];
     if (playing) {
         [self animatePlaybackControlsToVisibility:NO];
@@ -917,7 +962,96 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
     [UIView animateWithDuration:duration
                      animations:^{
         self.bottomOverlayView.alpha = alpha;
+        _scrimView.alpha = alpha;
     }];
+}
+
+#pragma mark - controls row
+
+- (void)setupScrimGradient
+{
+    _scrimView = [[VLCGradientScrimView alloc] initWithFrame:CGRectZero];
+    _scrimView.translatesAutoresizingMaskIntoConstraints = NO;
+    _scrimView.alpha = 0.0;
+    [self.view insertSubview:_scrimView belowSubview:self.bottomOverlayView];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_scrimView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [_scrimView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [_scrimView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [_scrimView.heightAnchor constraintEqualToConstant:300.0],
+    ]];
+}
+
+- (void)setupControlButtonsRow
+{
+    _controlsBar = [[VLCPlayerControlsBar alloc] init];
+    _controlsBar.translatesAutoresizingMaskIntoConstraints = NO;
+    _controlsBar.presenter = self;
+    [self.bottomOverlayView addSubview:_controlsBar];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_controlsBar.trailingAnchor constraintEqualToAnchor:self.transportBar.trailingAnchor],
+        [_controlsBar.centerYAnchor constraintEqualToAnchor:self.titleLabel.centerYAnchor],
+        [_controlsBar.heightAnchor constraintEqualToConstant:60.0],
+        [self.titleLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_controlsBar.leadingAnchor constant:-20.0],
+    ]];
+}
+
+- (void)focusControlsRow
+{
+    if (_controlsRowFocused || self.transportBar.scrubbing) {
+        return;
+    }
+    VLCMediaPlayerTitleDescription *title = [[VLCPlaybackService sharedInstance] currentTitleDescription];
+    if (title.menu) {
+        return;
+    }
+
+    [self showPlaybackControlsIfNeededForUserInteraction];
+    [_controlsBar updateContentVisibility];
+
+    _controlsRowFocused = YES;
+    ((VLCPlaybackControlsFocusView *)self.view).preventsFocus = YES;
+    for (UIGestureRecognizer *recognizer in _transportGestureRecognizers) {
+        recognizer.enabled = NO;
+    }
+
+    [self setNeedsFocusUpdate];
+    [self updateFocusIfNeeded];
+}
+
+- (void)unfocusControlsRow
+{
+    if (!_controlsRowFocused) {
+        return;
+    }
+    _controlsRowFocused = NO;
+    ((VLCPlaybackControlsFocusView *)self.view).preventsFocus = NO;
+    for (UIGestureRecognizer *recognizer in _transportGestureRecognizers) {
+        recognizer.enabled = YES;
+    }
+
+    [self setNeedsFocusUpdate];
+    [self updateFocusIfNeeded];
+    [self hidePlaybackControlsIfNeededAfterDelay];
+}
+
+- (NSArray<id<UIFocusEnvironment>> *)preferredFocusEnvironments
+{
+    if (_controlsRowFocused) {
+        return @[_controlsBar];
+    }
+    return @[self.view];
+}
+
+- (void)pressesBegan:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event
+{
+    if (_controlsRowFocused && ((UIPress *)[presses anyObject]).type == UIPressTypeMenu) {
+        [self unfocusControlsRow];
+        return;
+    }
+    [super pressesBegan:presses withEvent:event];
 }
 
 
@@ -926,16 +1060,6 @@ typedef NS_ENUM(NSInteger, VLCPlayerScanState)
     [_hidePlaybackControlsViewAfterDelayTimer invalidate];
     _hidePlaybackControlsViewAfterDelayTimer = hidePlaybackControlsViewAfterDelayTimer;
 }
-
-- (VLCPlaybackInfoTVViewController *)infoViewController
-{
-    if (!_infoViewController) {
-        _infoViewController = [[VLCPlaybackInfoTVViewController alloc] initWithNibName:nil bundle:nil];
-    }
-    return _infoViewController;
-}
-
-
 
 #pragma mark - playback controller delegation
 
@@ -958,7 +1082,7 @@ currentMediaHasTrackToChooseFrom:(BOOL)currentMediaHasTrackToChooseFrom
              forPlaybackService:(VLCPlaybackService *)playbackService
 {
 
-    [self updateActivityIndicatorForState:currentState];
+    [self updateBufferingAnimationForState:currentState];
 
     if (playbackService.isPlaying) {
         // we sometimes don't set the vout correctly if playback stops and restarts without dismising and redisplaying the VC
@@ -1055,7 +1179,7 @@ currentMediaHasTrackToChooseFrom:(BOOL)currentMediaHasTrackToChooseFrom
 - (void)playbackPositionUpdated:(VLCPlaybackService *)controller
 {
     // FIXME: hard coded state since the state in mediaPlayer is incorrectly still buffering
-    [self updateActivityIndicatorForState:VLCMediaPlayerStatePlaying];
+    [self updateBufferingAnimationForState:VLCMediaPlayerStatePlaying];
 
     if (self.bottomOverlayView.alpha != 0.0) {
         [self updateTransportBarPosition];
@@ -1126,18 +1250,6 @@ currentMediaHasTrackToChooseFrom:(BOOL)currentMediaHasTrackToChooseFrom
 
 @end
 
-
-@implementation VLCFullscreenMovieTVViewController (UIViewControllerTransitioningDelegate)
-
-- (id<UIViewControllerAnimatedTransitioning>)animationControllerForPresentedController:(UIViewController *)presented presentingController:(UIViewController *)presenting sourceController:(UIViewController *)source
-{
-    return [[VLCPlaybackInfoTVTransitioningAnimator alloc] init];
-}
-- (id<UIViewControllerAnimatedTransitioning>)animationControllerForDismissedController:(UIViewController *)dismissed
-{
-    return [[VLCPlaybackInfoTVTransitioningAnimator alloc] init];
-}
-@end
 
 // Game controllers already have some default behavior built in to tvOS, don't override those controls
 @implementation VLCFullscreenMovieTVViewController (VLCGameControllerManagerDelegate)
