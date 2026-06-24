@@ -61,5 +61,5 @@ jobs:
           name: VLC-iOS-Release-unsigned-ipa
           path: |
             build/VLC-iOS-Release-unsigned.ipa
-            build/VLC-iOS-Release.xcarchive
+            #build/VLC-iOS-Release.xcarchive
           if-no-files-found: error
