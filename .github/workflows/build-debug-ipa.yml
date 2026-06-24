@@ -61,5 +61,5 @@ jobs:
           name: VLC-iOS-Debug-unsigned-ipa
           path: |
             build/VLC-iOS-Debug-unsigned.ipa
-            build/VLC-iOS-Debug.xcarchive
+            #build/VLC-iOS-Debug.xcarchive
           if-no-files-found: error
