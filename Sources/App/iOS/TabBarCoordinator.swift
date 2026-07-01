@@ -19,8 +19,8 @@ class TabBarCoordinator: NSObject {
     private var tabBarController: BottomTabBarController
     private var mediaLibraryService: MediaLibraryService
 
-    private lazy var editToolbar = EditToolbar()
-    private lazy var sideToolBar = EditToolbar()
+    private var editToolbar: EditToolbar?
+    private var sideToolBar: EditToolbar?
 
     private lazy var videoNavigationController: UINavigationController = {
         let rootViewController = VideoViewController(mediaLibraryService: mediaLibraryService)
@@ -86,7 +86,9 @@ class TabBarCoordinator: NSObject {
     private func setup() {
         tabBarController.delegate = self
         setupViewControllers()
-        setupEditToolbar()
+        tabBarController.editToolbarSetupHandler = { [weak self] in
+            self?.setupEditToolbar()
+        }
         updateTheme()
         tabBarController.title = "VLC  iOS"
 #if os(iOS) && compiler(>=6.0)
@@ -190,14 +192,21 @@ class TabBarCoordinator: NSObject {
 #endif
 
     func setupEditToolbar() {
+        let colors = PresentationTheme.current.colors
+        let editToolbar = EditToolbar()
+        self.editToolbar = editToolbar
         editToolbar.isHidden = true
         editToolbar.translatesAutoresizingMaskIntoConstraints = false
+        editToolbar.backgroundColor = colors.tabBarColor
 
         var useSidebar = false
 #if os(iOS) && compiler(>=6.0)
         if #available(iOS 18.0, *), UIDevice.current.userInterfaceIdiom == .pad {
+            let sideToolBar = EditToolbar()
+            self.sideToolBar = sideToolBar
             sideToolBar.isHidden = true
             sideToolBar.translatesAutoresizingMaskIntoConstraints = false
+            sideToolBar.backgroundColor = colors.tabBarColor
             tabBarController.sidebar.bottomBarView = sideToolBar
             useSidebar = true
         }
@@ -255,8 +264,8 @@ class TabBarCoordinator: NSObject {
             tabBarController.view.backgroundColor = colors.background
         }
 
-        editToolbar.backgroundColor = colors.tabBarColor
-        sideToolBar.backgroundColor = colors.tabBarColor
+        editToolbar?.backgroundColor = colors.tabBarColor
+        sideToolBar?.backgroundColor = colors.tabBarColor
 
         tabBarController.viewControllers?.forEach {
             if let navController = $0 as? UINavigationController, navController.topViewController is SettingsController {

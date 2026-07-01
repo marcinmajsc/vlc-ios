@@ -17,7 +17,7 @@ class MediaViewController: VLCPagingViewController<VLCLabelCell> {
 
     var mediaLibraryService: MediaLibraryService
     #if os(iOS)
-    private var rendererButton: UIButton
+    private lazy var rendererButton: UIButton = VLCAppCoordinator.sharedInstance().rendererDiscovererManager.setupRendererButton()
     #endif
     private(set) lazy var sortButton: UIBarButtonItem = {
         let sortButton = setupSortbutton()
@@ -90,9 +90,6 @@ class MediaViewController: VLCPagingViewController<VLCLabelCell> {
 
     init(mediaLibraryService: MediaLibraryService) {
         self.mediaLibraryService = mediaLibraryService
-        #if os(iOS)
-        rendererButton = VLCAppCoordinator.sharedInstance().rendererDiscovererManager.setupRendererButton()
-        #endif
         super.init(nibName: nil, bundle: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateTheme), name: .VLCThemeDidChangeNotification, object: nil)
     }
@@ -121,6 +118,14 @@ class MediaViewController: VLCPagingViewController<VLCLabelCell> {
             ($0 as? MediaCategoryViewController)?.delegate = self
         }
         setupNavigationBar()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if #available(iOS 14.0, *), menuButton.menu == nil,
+           let viewController = viewControllers[currentIndex] as? MediaCategoryViewController {
+            menuButton.menu = generateMenu(viewController: viewController)
+        }
     }
 
     private func setupSortbutton() -> UIButton {
@@ -168,7 +173,7 @@ class MediaViewController: VLCPagingViewController<VLCLabelCell> {
 
         if #available(iOS 14.0, *) {
             if let viewController = viewController as? MediaCategoryViewController {
-                menuButton.menu = generateMenu(viewController: viewController)
+                menuButton.menu = view.window != nil ? generateMenu(viewController: viewController) : nil
             }
         }
         leftBarButtons = isEditing ? [selectAllButton] : leftBarButtonItems(for: viewController)

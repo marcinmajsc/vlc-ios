@@ -431,7 +431,7 @@ static const NSTimeInterval kVLCLocalNetworkReloadDebounceInterval = 0.1;
 
     VLCNetworkServerLoginInformation *login;
     if ([service respondsToSelector:@selector(loginInformation)]) {
-        login = [service loginInformation];
+        login = (VLCNetworkServerLoginInformation *)[service loginInformation];
     } else {
         APLog(@"%s: no login information, class %@", __func__, NSStringFromClass([service class]));
     }
@@ -594,7 +594,8 @@ static const NSTimeInterval kVLCLocalNetworkReloadDebounceInterval = 0.1;
     _refreshControl.attributedTitle = [[NSAttributedString alloc]initWithString:NSLocalizedString(@"LOCAL_SERVER_REFRESH",nil)];
     //set the date and time of refreshing
     NSDateFormatter *formattedDate = [[NSDateFormatter alloc]init];
-    [formattedDate setDateFormat:@"MMM d, h:mm a"];
+    [formattedDate setDateStyle:NSDateFormatterMediumStyle];
+    [formattedDate setTimeStyle:NSDateFormatterShortStyle];
     NSString *lastupdated = [NSString stringWithFormat:NSLocalizedString(@"LOCAL_SERVER_LAST_UPDATE",nil),[formattedDate stringFromDate:[NSDate date]]];
     NSDictionary *attrsDictionary = [NSDictionary dictionaryWithObject:[UIColor whiteColor] forKey:NSForegroundColorAttributeName];
     _refreshControl.attributedTitle = [[NSAttributedString alloc] initWithString:lastupdated attributes:attrsDictionary];

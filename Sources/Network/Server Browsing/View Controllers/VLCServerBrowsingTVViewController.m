@@ -10,6 +10,7 @@
  *****************************************************************************/
 
 #import "VLCServerBrowsingTVViewController.h"
+#import "VLC-Swift.h"
 #import "VLCRemoteBrowsingTVCell.h"
 #import "VLCPlayerDisplayController.h"
 #import "VLCPlaybackService.h"
@@ -56,7 +57,7 @@
 {
     [super viewDidLoad];
 
-    self.nothingFoundLabel.text = NSLocalizedString(@"FOLDER_EMPTY", nil);
+    self.nothingFoundLabel.text = NSLocalizedString(@"EMPTY_FOLDER", nil);
     [self.nothingFoundLabel sizeToFit];
     self.nothingFoundLabel.hidden = YES;
     self.isAnyCellFocused = NO;
@@ -88,7 +89,7 @@
          _activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhiteLarge];
      }
     _activityIndicator.center = self.view.center;
-    _activityIndicator.color = [UIColor VLCOrangeTintColor];
+    _activityIndicator.color = PresentationTheme.current.colors.orangeUI;
     _activityIndicator.color = [UIColor orangeColor];
     _activityIndicator.autoresizingMask = UIViewAutoresizingFlexibleBottomMargin | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin;
     _activityIndicator.hidesWhenStopped = YES;

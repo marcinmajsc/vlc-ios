@@ -94,6 +94,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     NSMutableArray *_openedLocalURLs;
 
     NSInteger _currentIndex;
+    VLCMLMedia *_currentlyPlayingLibraryMedia;
     NSMutableArray *_shuffledOrder;
 
     BOOL _openInMiniPlayer;
@@ -161,7 +162,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
                               name:AVAudioSessionRouteChangeNotification object:nil];
 
         [defaultCenter addObserver:self selector:@selector(handleInterruption:)
-                              name:AVAudioSessionInterruptionNotification object:[AVAudioSession sharedInstance]];
+                              name:AVAudioSessionInterruptionNotification object:nil];
 
         // appkit because we neeed to know when we go to background in order to stop the video, so that we don't crash
 #if !TARGET_OS_WATCH
@@ -171,13 +172,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
                               name:UIApplicationDidEnterBackgroundNotification object:nil];
         [defaultCenter addObserver:self selector:@selector(applicationWillEnterForeground:)
                               name:UIApplicationWillEnterForegroundNotification object:nil];
-
-        _dialogProvider = [[VLCDialogProvider alloc] initWithLibrary:[VLCLibrary sharedLibrary] customUI:YES];
-
-        _customDialogHandler = [[VLCCustomDialogRendererHandler alloc]
-                                initWithDialogProvider:_dialogProvider];
-
-        _dialogProvider.customRenderer = _customDialogHandler;
 #else
         _swiftUIDialogProvider = [CustomSwiftUIDialogObjCBridge new];
 #endif
@@ -186,11 +180,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         _shuffleMode = NO;
         _shuffledList = nil;
         _shuffledOrder = [[NSMutableArray alloc] init];
-
-        // Initialize a separate media player in order to play silence so that the application can
-        // stay alive in background exclusively for Chromecast.
-        _backgroundDummyPlayer = [[VLCMediaPlayer alloc] initWithOptions:@[@"--demux=rawaud"]];
-        _backgroundDummyPlayer.media = [[VLCMedia alloc] initWithPath:@"/dev/zero"];
 
         _mediaList = [[VLCMediaList alloc] init];
 
@@ -248,6 +237,19 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     return [_mediaPlayer time];
 }
 
+#if !TARGET_OS_WATCH
+- (void)setupDialogProvider
+{
+    if (_dialogProvider) {
+        return;
+    }
+    _dialogProvider = [[VLCDialogProvider alloc] initWithLibrary:[VLCLibrary sharedLibrary] customUI:YES];
+    _customDialogHandler = [[VLCCustomDialogRendererHandler alloc]
+                            initWithDialogProvider:_dialogProvider];
+    _dialogProvider.customRenderer = _customDialogHandler;
+}
+#endif
+
 - (void)startPlayback
 {
     APLog(@"Starting playback");
@@ -255,6 +257,10 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         APLog(@"%s: player is already setup, bailing out", __PRETTY_FUNCTION__);
         return;
     }
+
+#if !TARGET_OS_WATCH
+    [self setupDialogProvider];
+#endif
 
     BOOL ret = [_playbackSessionManagementLock tryLock];
     if (!ret) {
@@ -493,11 +499,13 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
 #if !TARGET_OS_TV
     // Last played VLCMLMedia before the playback stops
-    VLCMLMedia *lastMedia = [VLCMLMedia mediaForPlayingMedia: _mediaPlayer.media];
+    VLCMLMedia *lastMedia = _currentlyPlayingLibraryMedia;
     if (lastMedia) {
         [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackWillStop object: nil userInfo: @{VLCLastPlaylistPlayedMedia: lastMedia}];
     }
 #endif
+
+    _currentlyPlayingLibraryMedia = nil;
 
     if (_playerIsSetup) {
         _isInFillToScreen = NO; // reset _isInFillToScreen after playback is finished
@@ -822,6 +830,16 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     return [[_mediaPlayer textTracks] count] + 3;
 }
 
+- (NSArray<VLCMediaPlayerTrack *> *)audioTracks
+{
+    return [_mediaPlayer audioTracks];
+}
+
+- (NSArray<VLCMediaPlayerTrack *> *)textTracks
+{
+    return [_mediaPlayer textTracks];
+}
+
 - (NSInteger)numberOfTitles
 {
     return  [_mediaPlayer numberOfTitles];
@@ -838,7 +856,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     NSInteger count = textTracks.count;
 
     if (index == count) {
-        return NSLocalizedString(@"SELECT_SUBTITLE_FROM_FILES", nil);
+        return NSLocalizedString(@"LOAD_EXTERNAL", nil);
     } else if (index < count) {
         VLCMediaPlayerTrack *track = textTracks[index];
         return track.trackName;
@@ -852,7 +870,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     NSInteger count = audioTracks.count;
 
     if (index == count) {
-        return NSLocalizedString(@"SELECT_AUDIO_FROM_FILES", nil);
+        return NSLocalizedString(@"LOAD_EXTERNAL", nil);
     } else if (index < count) {
         VLCMediaPlayerTrack *track = audioTracks[index];
         return track.trackName;
@@ -1019,9 +1037,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
             case VLCMediaPlayerStatePaused: {
                 APLog(@"%s: paused", __func__);
-#if !TARGET_OS_TV
                 [self savePlaybackState];
-#endif
                 [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidPause object:self];
             } break;
 
@@ -1035,9 +1051,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
             } break;
             case VLCMediaPlayerStateStopping: {
                 APLog(@"%s: stopping", __func__);
-#if TARGET_OS_IOS || TARGET_OS_WATCH
                 [self savePlaybackState];
-#endif
             } break;
             case VLCMediaPlayerStateStopped: {
                 APLog(@"%s: stopped", __func__);
@@ -1685,6 +1699,11 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     return _mediaPlayer.media;
 }
 
+- (VLCMLMedia *)currentlyPlayingLibraryMedia
+{
+    return _currentlyPlayingLibraryMedia;
+}
+
 #pragma mark - metadata handling
 - (void)performNavigationAction:(VLCMediaPlaybackNavigationAction)action
 {
@@ -1756,6 +1775,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 - (void)setNeedsMetadataUpdate
 {
     VLCMLMedia *media = self->_mediaPlayer.media ? [VLCMLMedia mediaForPlayingMedia:self->_mediaPlayer.media] : nil;
+    _currentlyPlayingLibraryMedia = media;
     [_metadata updateMetadataFromMedia:media mediaPlayer:_mediaPlayer];
 
     [self recoverDisplayedMetadata];
@@ -1939,6 +1959,12 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         [self setVideoTrackEnabled:false];
 
     if (_renderer) {
+        // A separate media player playing silence keeps the application alive in
+        // background exclusively for Chromecast.
+        if (!_backgroundDummyPlayer) {
+            _backgroundDummyPlayer = [[VLCMediaPlayer alloc] initWithOptions:@[@"--demux=rawaud"]];
+            _backgroundDummyPlayer.media = [[VLCMedia alloc] initWithPath:@"/dev/zero"];
+        }
         [_backgroundDummyPlayer play];
     }
 #else
@@ -2060,6 +2086,9 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     if ([_delegate respondsToSelector:@selector(playbackService:nextMedia:)]) {
         [_delegate playbackService:self nextMedia:media];
     }
+
+    VLCMediaList *currentMediaList = _shuffleMode ? _shuffledList : _mediaList;
+    _currentIndex = [currentMediaList indexOfMedia:media];
 
     [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidMoveOnToNextItem
                                                         object:self];
