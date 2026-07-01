@@ -181,8 +181,7 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     BOOL enforceFullscreen = [[defaults objectForKey:kVLCSettingVideoFullscreenPlayback] boolValue];
 
-    VLCMedia *currentMedia = _playbackController.currentlyPlayingMedia;
-    VLCMLMedia *media = [VLCMLMedia mediaForPlayingMedia:currentMedia];
+    VLCMLMedia *media = _playbackController.currentlyPlayingLibraryMedia;
 
     _currentMediaType = [media type];
     _playbackController.fullscreenSessionRequested = _currentMediaType != VLCMLMediaTypeAudio;
@@ -228,8 +227,7 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
 
 - (void)playbackDidMoveToNextMedia:(NSNotification *)notification
 {
-    VLCMedia *currentMedia = _playbackController.currentlyPlayingMedia;
-    VLCMLMedia *media = [VLCMLMedia mediaForPlayingMedia:currentMedia];
+    VLCMLMedia *media = _playbackController.currentlyPlayingLibraryMedia;
 
     VLCMLMediaType mediaType = [media type];
     if (media == nil || mediaType == VLCMLMediaTypeUnknown || [self isMiniPlayerVisible]) {
@@ -632,7 +630,7 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
                                  self.bottomConstraint = [miniPlaybackView.bottomAnchor constraintEqualToAnchor:self.realBottomAnchor];
                              } else {
 #if TARGET_OS_IOS
-                                 self.bottomConstraint = [miniPlaybackView.topAnchor constraintEqualToAnchor:self.bottomLayoutGuide.bottomAnchor];
+                                 self.bottomConstraint = [miniPlaybackView.topAnchor constraintEqualToAnchor:self.view.bottomAnchor];
 #else
                                  self.bottomConstraint = [miniPlaybackView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor];
 #endif
@@ -677,7 +675,7 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
                          animations:^{
             self.bottomConstraint.active = NO;
 #if TARGET_OS_IOS
-            self.bottomConstraint = [miniPlaybackView.topAnchor constraintEqualToAnchor:self.bottomLayoutGuide.bottomAnchor];
+            self.bottomConstraint = [miniPlaybackView.topAnchor constraintEqualToAnchor:self.view.bottomAnchor];
 #else
             self.bottomConstraint = [miniPlaybackView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor];
 #endif

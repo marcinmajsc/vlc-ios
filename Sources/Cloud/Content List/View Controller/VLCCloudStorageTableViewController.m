@@ -170,7 +170,8 @@ typedef NS_ENUM(NSInteger, VLCToolbarStyle) {
     _refreshControl.attributedTitle = [[NSAttributedString alloc] initWithString:NSLocalizedString(@"LOCAL_SERVER_REFRESH",nil)];
     //set the date and time of refreshing
     NSDateFormatter *formattedDate = [[NSDateFormatter alloc]init];
-    [formattedDate setDateFormat:@"MMM d, h:mm a"];
+    [formattedDate setDateStyle:NSDateFormatterMediumStyle];
+    [formattedDate setTimeStyle:NSDateFormatterShortStyle];
     NSString *lastupdated = [NSString stringWithFormat:NSLocalizedString(@"LOCAL_SERVER_LAST_UPDATE",nil),[formattedDate stringFromDate:[NSDate date]]];
     NSDictionary *attrsDictionary = [NSDictionary dictionaryWithObject:[UIColor whiteColor] forKey:NSForegroundColorAttributeName];
     _refreshControl.attributedTitle = [[NSAttributedString alloc] initWithString:lastupdated attributes:attrsDictionary];
@@ -300,7 +301,16 @@ typedef NS_ENUM(NSInteger, VLCToolbarStyle) {
     return self.controller.currentListFiles.count;
 }
 
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    return [UITableViewCell new];
+}
+
 #pragma mark - UITableViewDelegate
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
+{
+}
 
 - (void)goBack
 {

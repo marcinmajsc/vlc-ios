@@ -12,6 +12,7 @@
  *****************************************************************************/
 
 #import "VLCStatusLabel.h"
+#import "VLC-Swift.h"
 
 @interface VLCStatusLabel ()
 {
@@ -45,6 +46,8 @@
     _insets = UIEdgeInsetsMake(5, 10, 5, 10);
     self.backgroundColor = [UIColor clearColor];
     self.textAlignment = NSTextAlignmentCenter;
+    self.numberOfLines = 0;
+    self.lineBreakMode = NSLineBreakByWordWrapping;
 }
 
 #pragma mark -
@@ -52,6 +55,11 @@
 - (void)showStatusMessage:(NSString *)message
 {
     self.text = message;
+
+    CGFloat horizontalMargin = 16.;
+    CGFloat availableWidth = CGRectGetWidth([self superview].bounds) - 2 * horizontalMargin - (_insets.left + _insets.right);
+    self.preferredMaxLayoutWidth = availableWidth > 0 ? availableWidth : 0;
+    [self invalidateIntrinsicContentSize];
 
     /* layout and horizontal center in super view */
     [self sizeToFit];
@@ -115,7 +123,7 @@
 
 - (void)drawRect:(CGRect)rect
 {
-    UIColor *drawingColor = [UIColor VLCTransparentDarkBackgroundColor];
+    UIColor *drawingColor = PresentationTheme.current.colors.transparentDarkBackgroundColor;
     [drawingColor setFill];
 
     UIBezierPath* bezierPath = [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:rect.size.height / 2];

@@ -153,7 +153,22 @@ class MediaLibraryService: NSObject {
 
     private(set) var observable = VLCObservable<MediaLibraryObserver>()
 
-    private(set) lazy var medialib = VLCMediaLibrary()
+    private let mediaLibrarySetupLock = NSLock()
+    private var didSetupMediaLibrary = false
+    private lazy var privateMediaLib = VLCMediaLibrary()
+
+    var medialib: VLCMediaLibrary {
+        ensureMediaLibrarySetup()
+        return privateMediaLib
+    }
+
+    private func ensureMediaLibrarySetup() {
+        mediaLibrarySetupLock.lock()
+        defer { mediaLibrarySetupLock.unlock() }
+        guard !didSetupMediaLibrary else { return }
+        didSetupMediaLibrary = true
+        setupMediaLibrary()
+    }
 
     @objc weak var deviceBackupDelegate: MediaLibraryDeviceBackupDelegate?
     @objc weak var hidingDelegate: MediaLibraryHidingDelegate?
@@ -167,8 +182,6 @@ class MediaLibraryService: NSObject {
 
     override init() {
         super.init()
-        setupMediaLibrary()
-        medialib.delegate = self
         NotificationCenter.default.addObserver(self, selector: #selector(reload),
                                                name: .VLCNewFileAddedNotification, object: nil)
         
@@ -257,15 +270,15 @@ private extension MediaLibraryService {
         hideMediaLibrary(hideML)
 
         if UserDefaults.standard.bool(forKey: MediaLibraryService.didForceRescan) == false {
-            medialib.forceRescan()
+            privateMediaLib.forceRescan()
             UserDefaults.standard.set(true, forKey: MediaLibraryService.didForceRescan)
         }
 
         FileManager.default.createFile(atPath: "\(path)/\(NSLocalizedString("MEDIALIBRARY_FILES_PLACEHOLDER", comment: ""))", contents: nil, attributes: nil)
         try? FileManager.default.removeItem(atPath: "\(path)/\(NSLocalizedString("MEDIALIBRARY_ADDING_PLACEHOLDER", comment: ""))")
 
-        medialib.reload()
-        medialib.discover(onEntryPoint: "file://" + path)
+        privateMediaLib.reload()
+        privateMediaLib.discover(onEntryPoint: "file://" + path)
     }
 
     private func setupMediaLibrary() {
@@ -312,8 +325,10 @@ private extension MediaLibraryService {
             assertionFailure("Failed to create directory: \(error.localizedDescription)")
         }
 
-        let medialibraryStatus = medialib.setupMediaLibrary(databasePath: databasePath,
+        let medialibraryStatus = privateMediaLib.setupMediaLibrary(databasePath: databasePath,
                                                             medialibraryPath: medialibraryPath)
+
+        privateMediaLib.delegate = self
 
         switch medialibraryStatus {
         case .success, .dbReset:
@@ -326,7 +341,7 @@ private extension MediaLibraryService {
                 APLog("MediaLibraryService: Failed to setup medialibrary, retrying with cleared caches (preserving database and journal files for SQLite auto-recovery).")
                 removeMedialibraryCachedArtifacts(thumbnailPath: thumbnailPath,
                                                   medialibraryPath: medialibraryPath)
-                medialib = VLCMediaLibrary()
+                privateMediaLib = VLCMediaLibrary()
                 setupMediaLibrary()
                 return
             } else if initRecoveryAttempt == 1 {
@@ -335,14 +350,14 @@ private extension MediaLibraryService {
                 removeMedialibraryCachedArtifacts(thumbnailPath: thumbnailPath,
                                                   medialibraryPath: medialibraryPath)
                 removeMedialibraryDatabaseFiles(databasePath: databasePath)
-                medialib = VLCMediaLibrary()
+                privateMediaLib = VLCMediaLibrary()
                 setupMediaLibrary()
                 return
             }
             APLog("MediaLibraryService: Permanently failed to setup medialibrary after recovery attempts.")
             assertionFailure("MediaLibraryService: Permanently failed to setup medialibrary.")
         case .dbCorrupted:
-            medialib.clearDatabase(restorePlaylists: true)
+            privateMediaLib.clearDatabase(restorePlaylists: true)
             startMediaLibrary(on: mediaPath)
         @unknown default:
             assertionFailure("MediaLibraryService: unhandled case")
@@ -377,16 +392,16 @@ private extension MediaLibraryService {
     ///
     /// - Parameter type: Type of the media
     /// - Returns: Array of VLCMLMedia
-    func media(ofType type: VLCMLMediaType,
-               sortingCriteria sort: VLCMLSortingCriteria = .alpha,
-               desc: Bool = false) -> [VLCMLMedia] {
+    @objc func media(ofType type: VLCMLMediaType,
+                     sortingCriteria sort: VLCMLSortingCriteria = .alpha,
+                     desc: Bool = false) -> [VLCMLMedia] {
         return type == .video ? medialib.videoFiles(with: sort, desc: desc) ?? []
                               : medialib.audioFiles(with: sort, desc: desc) ?? []
     }
 
     func media(ofType type: VLCMLMediaType,
                sortingCriteria sort: VLCMLSortingCriteria = .alpha,
-               desc: Bool = false , items: UInt32 , offset: UInt32) -> [VLCMLMedia] {
+               desc: Bool = false, items: UInt32, offset: UInt32) -> [VLCMLMedia] {
         return type == .video ? medialib.videoFiles(with: sort, desc: desc, items, offset) ?? []
         : medialib.audioFiles(with: sort, desc: desc, items: items, offset: offset) ?? []
     }
@@ -407,6 +422,11 @@ private extension MediaLibraryService {
 
     @objc func media(for identifier: VLCMLIdentifier) -> VLCMLMedia? {
         return medialib.media(withIdentifier: identifier)
+    }
+
+    // Bridge for Obj-C clients: `observable` is a generic type and not visible from Obj-C.
+    @objc func addObserver(_ observer: MediaLibraryObserver) {
+        observable.addObserver(observer)
     }
 
 
@@ -541,7 +561,7 @@ private extension MediaLibraryService {
     }
 
     func artists(sortingCriteria sort: VLCMLSortingCriteria = .alpha,
-                 desc: Bool = false, listAll all: Bool = true , items: UInt32 , offset: UInt32) -> [VLCMLArtist] {
+                 desc: Bool = false, listAll all: Bool = true, items: UInt32, offset: UInt32) -> [VLCMLArtist] {
         return medialib.artists(with: sort, desc: desc, all: all, items, offset) ?? []
     }
 
@@ -551,8 +571,8 @@ private extension MediaLibraryService {
     }
 
     func albums(sortingCriteria sort: VLCMLSortingCriteria = .alpha,
-                desc: Bool = false, items: UInt32 , offset: UInt32) -> [VLCMLAlbum] {
-        return medialib.albums(with: sort, desc: desc, items , offset) ?? []
+                desc: Bool = false, items: UInt32, offset: UInt32) -> [VLCMLAlbum] {
+        return medialib.albums(with: sort, desc: desc, items, offset) ?? []
     }
 }
 

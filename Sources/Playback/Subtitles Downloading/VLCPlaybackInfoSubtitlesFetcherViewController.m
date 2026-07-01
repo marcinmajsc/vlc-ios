@@ -16,9 +16,7 @@
 #import "VLCPlaybackService.h"
 #import "VLCSearchController.h"
 #import "VLCIRTVTapGestureRecognizer.h"
-#if !TARGET_OS_TV
 #import "VLC-Swift.h"
-#endif
 
 #define SPUDownloadReUseIdentifier @"SPUDownloadReUseIdentifier"
 #define SPUDownloadHeaderReUseIdentifier @"SPUDownloadHeaderReUseIdentifier"
@@ -32,7 +30,11 @@
 @property (strong, nonatomic) NSArray<VLCSubtitleItem *>* searchResults;
 @property (strong, nonatomic) UIActivityIndicatorView *activityIndicatorView;
 @property (strong, nonatomic) UILabel *nothingFoundLabel;
+#if TARGET_OS_TV
 @property (strong, nonatomic) VLCSearchController *searchController;
+#else
+@property (strong, nonatomic) UISearchController *searchController;
+#endif
 @property (nonatomic) BOOL activityCancelled;
 @property (nonatomic) NSNumber *collectionTopContentOffset;
 @end
@@ -285,14 +287,15 @@
 - (void)themeDidChange
 {
 #if TARGET_OS_TV
+    ColorPalette *colors = PresentationTheme.darkTheme.colors;
     if ([UIScreen mainScreen].traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
         self.visualEffectView.effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleDark];
-        self.titleLabel.textColor = [UIColor VLCLightTextColor];
-        self.nothingFoundLabel.textColor = [UIColor VLCLightTextColor];
+        self.titleLabel.textColor = colors.lightTextColor;
+        self.nothingFoundLabel.textColor = colors.lightTextColor;
     } else {
         self.visualEffectView.effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleLight];
-        self.titleLabel.textColor = [UIColor VLCDarkTextColor];
-        self.nothingFoundLabel.textColor = [UIColor VLCDarkTextColor];
+        self.titleLabel.textColor = colors.cellSelectedTextColor;
+        self.nothingFoundLabel.textColor = colors.cellSelectedTextColor;
     }
 #else
     ColorPalette *colors = PresentationTheme.current.colors;

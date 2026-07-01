@@ -2,7 +2,7 @@
  * VLCPlaybackService.h
  * VLC for iOS
  *****************************************************************************
- * Copyright (c) 2013-2025 VLC authors and VideoLAN
+ * Copyright (c) 2013-2026 VLC authors and VideoLAN
  * $Id$
  *
  * Authors: Felix Paul Kühne <fkuehne # videolan.org>
@@ -35,6 +35,7 @@ extern NSString *const VLCLastPlaylistPlayedMedia;
 @class VLCPlaybackServiceAdjustFilter;
 @class VLCMediaPlayerTitleDescription;
 @class VLCMediaPlayerChapterDescription;
+@class VLCMediaPlayerTrack;
 
 @protocol VLCPlaybackServiceDelegate <NSObject>
 @optional
@@ -69,6 +70,7 @@ NS_SWIFT_NAME(PlaybackService)
 /* returns nil if currently playing item is not available,*/
 
 @property (nonatomic, strong, readonly, nullable) VLCMedia *currentlyPlayingMedia;
+@property (nonatomic, strong, readonly, nullable) VLCMLMedia *currentlyPlayingLibraryMedia;
 
 @property (nonatomic, weak) id<VLCPlaybackServiceDelegate> delegate;
 
@@ -103,6 +105,8 @@ NS_SWIFT_NAME(PlaybackService)
 @property (readonly) NSInteger numberOfVideoTracks;
 @property (readonly) NSInteger numberOfAudioTracks;
 @property (readonly) NSInteger numberOfVideoSubtitlesIndexes;
+@property (nonatomic, readonly) NSArray<VLCMediaPlayerTrack *> *audioTracks;
+@property (nonatomic, readonly) NSArray<VLCMediaPlayerTrack *> *textTracks;
 @property (readonly) NSInteger numberOfTitles;
 @property (readonly) NSInteger numberOfChaptersForCurrentTitle;
 @property (assign, readonly) BOOL currentMediaHasTrackToChooseFrom;
