@@ -450,7 +450,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     }
 
     VLCMedia *media = [_mediaList mediaAtIndex:_itemInMediaListToBePlayedFirst];
-    [media parseWithOptions:VLCMediaParseLocal | VLCMediaParseNetwork];
     media.delegate = self;
     // add options to the media
     if (self.mediaOptionsDictionary) {
@@ -468,9 +467,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
     _currentAspectRatio = VLCAspectRatioDefault;
     _mediaPlayer.videoAspectRatio = NULL;
-#if LIBVLC_VERSION_MAJOR == 3
-        _mediaPlayer.videoCropGeometry = NULL;
-#endif
 
     if (_pathToExternalSubtitlesFile) {
         /* this could be a path or an absolute string - let's see */
@@ -576,24 +572,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
             [self setPlaybackRate:speedMetadata.integer / 100.0];
         }
 
-#if LIBVLC_VERSION_MAJOR == 3
-        SInt64 audioIndex = media.audioTrackIndex;
-        NSArray *audioTrackIndexes = _mediaPlayer.audioTrackIndexes;
-        if (audioIndex >= 0 && audioIndex < audioTrackIndexes.count) {
-            // we can cast this cause we won't have more than 2 million audiotracks
-            int actualAudioIndex = [audioTrackIndexes[audioIndex] intValue];
-            // never restore silence
-            if (actualAudioIndex != -1) {
-                _mediaPlayer.currentAudioTrackIndex = actualAudioIndex;
-            }
-        }
-
-        if ([[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingDisableSubtitles]) {
-            _mediaPlayer.currentVideoSubTitleIndex = -1;
-        } else {
-            [self selectPrimaryVideoSubtitleAtIndex:media.subtitleTrackIndex];
-        }
-#else
         BOOL disableSubtitles = [[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingDisableSubtitles];
 
         NSArray *audioTracks = _mediaPlayer.audioTracks;
@@ -601,7 +579,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
             VLCMediaPlayerTrack *track = audioTracks[media.audioTrackIndex];
             track.selectedExclusively = YES;
         }
-        
+
         if (disableSubtitles) {
             _primaryVideoSubtitleTrackIndex = -1;
             _secondaryVideoSubtitleTrackIndex = -1;
@@ -612,7 +590,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
             [self selectPrimaryVideoSubtitleAtIndex:media.primarySubtitleTrackIndex];
             [self selectSecondaryVideoSubtitleAtIndex:media.secondarySubtitleTrackIndex];
         }
-#endif
     }
 }
 
@@ -752,6 +729,16 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 {
     _mediaPlayer.position = position;
     _majorPositionChangeInProgress = 1;
+}
+
+- (void)setABLoopFromPosition:(double)from toPosition:(double)to
+{
+    [_mediaPlayer setABLoopFromPosition:from toPosition:to];
+}
+
+- (void)resetABLoop
+{
+    [_mediaPlayer resetABLoop];
 }
 
 - (void)setSubtitleDelay:(float)subtitleDeleay
@@ -994,14 +981,20 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
 - (void)mediaPlayerStateChanged:(VLCMediaPlayerState)currentState
 {
-    dispatch_async(dispatch_get_main_queue(), ^{
 #if !TARGET_OS_WATCH
-        id<VLCPictureInPictureWindowControlling> pipController = self->_pipController;
-        [pipController invalidatePlaybackState];
+    if (currentState == VLCMediaPlayerStatePlaying ||
+        currentState == VLCMediaPlayerStatePaused) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self->_pipController invalidatePlaybackState];
+        });
+    }
 #endif
 
+    dispatch_async(dispatch_get_main_queue(), ^{
         switch (currentState) {
-            case VLCMediaPlayerStateBuffering: {
+            case VLCMediaPlayerStateOpening: {
+                APLog(@"%s: opening", __func__);
+
                 /* attach delegate */
                 self->_mediaPlayer.media.delegate = self;
 
@@ -1014,13 +1007,11 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
                 [self->_mediaPlayer performSelector:@selector(setTextRendererFontColor:) withObject:[defaults objectForKey:kVLCSettingSubtitlesFontColor]];
                 [self->_mediaPlayer performSelector:@selector(setTextRendererFontForceBold:) withObject:[defaults objectForKey:kVLCSettingSubtitlesBoldFont]];
 #pragma clang diagnostic pop
-            } break;
 
-            case VLCMediaPlayerStateOpening: {
-                APLog(@"%s: opening", __func__);
 #if !TARGET_OS_TV
                 [self _recoverLastPlaybackState];
 #endif
+                [self setNeedsMetadataUpdate];
                 [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidStart object:self userInfo:@{
                     kVLCPlayerOpenInMiniPlayer: @(self->_openInMiniPlayer)
                 }];
@@ -1081,6 +1072,15 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         }
 
         [self setNeedsMetadataUpdate];
+    });
+}
+
+- (void)mediaPlayerBufferingChanged:(float)progress
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if ([self.delegate respondsToSelector:@selector(mediaPlayerBufferingChanged:forPlaybackService:)]) {
+            [self.delegate mediaPlayerBufferingChanged:progress forPlaybackService:self];
+        }
     });
 }
 
@@ -1283,6 +1283,11 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     [_mediaPlayer gotoNextFrame];
 }
 
+- (void)previousFrame
+{
+    [_mediaPlayer gotoPreviousFrame];
+}
+
 #if !TARGET_OS_VISION && !TARGET_OS_WATCH
 - (UIScreen *)currentScreen
 {
@@ -1352,9 +1357,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         case VLCAspectRatioDefault:
             _mediaPlayer.scaleFactor = 0;
             _mediaPlayer.videoAspectRatio = NULL;
-#if LIBVLC_VERSION_MAJOR == 3
-            _mediaPlayer.videoCropGeometry = NULL;
-#endif
             break;
 #if !TARGET_OS_VISION && !TARGET_OS_WATCH
         case VLCAspectRatioFillToScreen:
@@ -1373,33 +1375,12 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         case VLCAspectRatioThirtyNineToOne:
             _mediaPlayer.scaleFactor = 0;
             NSString *aspectRatio = [VLCAspectRatioBridge valueFor:_currentAspectRatio];
-#if LIBVLC_VERSION_MAJOR == 3
-            _mediaPlayer.videoCropGeometry = NULL;
-            _mediaPlayer.videoAspectRatio = (char *)[aspectRatio UTF8String];
-#else
             _mediaPlayer.videoAspectRatio = aspectRatio;
-#endif
     }
 
     if ([self.delegate respondsToSelector:@selector(playbackServiceDidSwitchAspectRatio:)]) {
         [_delegate playbackServiceDidSwitchAspectRatio:_currentAspectRatio];
     }
-}
-
-- (void)setVideoTrackEnabled:(BOOL)enabled
-{
-    // FIXME: check if this hack is still possible with v4
-/*    if (!enabled)
-        _mediaPlayer.currentVideoTrackIndex = -1;
-    else if (_mediaPlayer.currentVideoTrackIndex == -1) {
-        NSArray *videoTrackIndexes = _mediaPlayer.videoTrackIndexes;
-        for (NSNumber *trackId in videoTrackIndexes) {
-            if ([trackId intValue] != -1) {
-                _mediaPlayer.currentVideoTrackIndex = [trackId intValue];
-                break;
-            }
-        }
-    }*/
 }
 
 #if !TARGET_OS_WATCH
@@ -1411,8 +1392,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
                 [self->_actualVideoOutputView removeFromSuperview];
 
             self->_actualVideoOutputView.frame = (CGRect){CGPointZero, videoOutputView.frame.size};
-
-            [self setVideoTrackEnabled:true];
 
             [videoOutputView addSubview:self->_actualVideoOutputView];
             [self->_actualVideoOutputView layoutSubviews];
@@ -1476,20 +1455,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
 - (NSInteger)currentMediaProjection
 {
-#if LIBVLC_VERSION_MAJOR == 3
-    VLCMedia *media = [_mediaPlayer media];
-    NSInteger currentVideoTrackIndex = [_mediaPlayer currentVideoTrackIndex];
-
-    if (media && currentVideoTrackIndex >= 0) {
-        NSArray *tracksInfo = media.tracksInformation;
-
-        for (NSDictionary *track in tracksInfo) {
-            if ([track[VLCMediaTracksInformationType] isEqualToString:VLCMediaTracksInformationTypeVideo]) {
-                return [track[VLCMediaTracksInformationVideoProjection] integerValue];
-            }
-        }
-    }
-#else
     NSArray *videoTracks = _mediaPlayer.videoTracks;
     VLCMediaPlayerTrack *selectedVideoTrack = nil;
     for (VLCMediaPlayerTrack *track in videoTracks) {
@@ -1501,7 +1466,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     if (selectedVideoTrack) {
         return selectedVideoTrack.video.projection;
     }
-#endif
     return -1;
 }
 
@@ -1955,9 +1919,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     _preBackgroundWrapperView = _videoOutputViewWrapper;
 
 #if TARGET_OS_IOS
-    if (!_renderer && _mediaPlayer.audioTracks.count > 0 && [_mediaPlayer isPlaying])
-        [self setVideoTrackEnabled:false];
-
     if (_renderer) {
         // A separate media player playing silence keeps the application alive in
         // background exclusively for Chromecast.
@@ -1967,9 +1928,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         }
         [_backgroundDummyPlayer play];
     }
-#else
-    if ([[_mediaPlayer audioTracks] count] > 0 && [_mediaPlayer isPlaying])
-        [self setVideoTrackEnabled:false];
 #endif
 #endif
 }
@@ -1987,13 +1945,6 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         [_backgroundDummyPlayer stop];
     }
 #endif
-
-    /*
-     // FIXME: fix this hack
-    if (_mediaPlayer.currentVideoTrackIndex == -1) {
-        [self setVideoTrackEnabled:true];
-    }
-     */
 
     if (_shouldResumePlaying) {
         _shouldResumePlaying = NO;
@@ -2079,19 +2030,23 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
 - (void)mediaListPlayer:(VLCMediaListPlayer *)player nextMedia:(VLCMedia *)media
 {
+    dispatch_async(dispatch_get_main_queue(), ^{
 #if !TARGET_OS_TV && !TARGET_OS_WATCH
-    [self _findCachedSubtitlesForMedia:media];
+        [self _findCachedSubtitlesForMedia:media];
 #endif
 
-    if ([_delegate respondsToSelector:@selector(playbackService:nextMedia:)]) {
-        [_delegate playbackService:self nextMedia:media];
-    }
+        if ([self->_delegate respondsToSelector:@selector(playbackService:nextMedia:)]) {
+            [self->_delegate playbackService:self nextMedia:media];
+        }
 
-    VLCMediaList *currentMediaList = _shuffleMode ? _shuffledList : _mediaList;
-    _currentIndex = [currentMediaList indexOfMedia:media];
+        VLCMediaList *currentMediaList = (self->_shuffleMode && self->_shuffledList) ? self->_shuffledList : self->_mediaList;
+        NSUInteger foundIndex = [currentMediaList indexOfMedia:media];
+        if (foundIndex != NSNotFound)
+            self->_currentIndex = (NSInteger)foundIndex;
 
-    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidMoveOnToNextItem
-                                                        object:self];
+        [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidMoveOnToNextItem
+                                                            object:self];
+    });
 }
 
 #pragma mark - VLCDrawable

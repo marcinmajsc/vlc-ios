@@ -18,6 +18,7 @@ fileprivate enum PlayerPanType {
 #if os(iOS)
     case brightness
     case volume
+    case frame
 #endif
     case seek
     case projection
@@ -130,6 +131,12 @@ class PlayerViewController: UIViewController {
         return statusLabel
     }()
 
+    lazy var coneLoadingView: PulsingConeView = {
+        let coneLoadingView = PulsingConeView()
+        coneLoadingView.translatesAutoresizingMaskIntoConstraints = false
+        return coneLoadingView
+    }()
+
     lazy var mediaNavigationBar: MediaNavigationBar = {
 #if os(iOS)
         var mediaNavigationBar = MediaNavigationBar(frame: .zero,
@@ -145,7 +152,6 @@ class PlayerViewController: UIViewController {
 
     lazy var mediaScrubProgressBar: MediaScrubProgressBar = {
         var mediaScrubProgressBar: MediaScrubProgressBar = MediaScrubProgressBar()
-        mediaScrubProgressBar.delegate = self
         return mediaScrubProgressBar
     }()
 
@@ -753,7 +759,11 @@ class PlayerViewController: UIViewController {
 
 #if os(iOS)
         if isHorizontalSwipe && playerController.isSwipeSeekGestureEnabled {
-            panType = .seek
+            if playbackService.isPlaying {
+                panType = .seek
+            } else {
+                panType = .frame
+            }
         } else if !isHorizontalSwipe {
             if location.x < windowWidth / 2 && playerController.isBrightnessGestureEnabled && isBrightnessControlAvailable {
                 panType = .brightness
@@ -961,12 +971,12 @@ class PlayerViewController: UIViewController {
                 || (panType == .seek && playerController.isSwipeSeekGestureEnabled)
                 || (panType == .volume && playerController.isVolumeGestureEnabled)
                 || (panType == .brightness && playerController.isBrightnessGestureEnabled)
+                || panType == .frame
         else {
             return
         }
 #else
-        guard panType == .projection
-        else {
+        guard panType == .projection else {
             return
         }
 #endif
@@ -1063,6 +1073,14 @@ class PlayerViewController: UIViewController {
                 brightnessControl.value = min(max(newValue, 0), 1)
                 brightnessControl.applyValueToDevice()
                 brightnessControlView.updateIcon(level: brightnessControl.value)
+            }
+        case .frame:
+            if recognizer.state == .changed || recognizer.state == .ended {
+                if horizontalPanVelocity > 0 {
+                    playbackService.nextFrame()
+                } else {
+                    playbackService.previousFrame()
+                }
             }
 #endif
         case .projection:
@@ -1232,13 +1250,25 @@ extension PlayerViewController: VLCPlaybackServiceDelegate {
             applyCustomEqualizerProfileIfNeeded()
 
         case .stopped:
+            coneLoadingView.stopAnimating()
             moreOptionsActionSheet.resetPlaybackSpeed()
             mediaMoreOptionsActionSheetHideIcon(for: .playbackSpeed)
             moreOptionsActionSheet.resetSleepTimer()
             mediaMoreOptionsActionSheetHideIcon(for: .sleepTimer)
 
+        case .error:
+            coneLoadingView.stopAnimating()
+
         default:
             break
+        }
+    }
+
+    func mediaPlayerBufferingChanged(_ progress: Float, for playbackService: PlaybackService) {
+        if progress < 1.0 {
+            coneLoadingView.startAnimating()
+        } else {
+            coneLoadingView.stopAnimating()
         }
     }
 
@@ -1465,6 +1495,7 @@ extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
         }
 
         abRepeatView.aMarkView.isHidden = false
+        abRepeatView.bMarkView.isHidden = true
         mediaScrubProgressBar.shouldHideScrubLabels = true
     }
 
@@ -1478,6 +1509,10 @@ extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
         bMark.isEnabled = true
         mediaScrubProgressBar.shouldHideScrubLabels = false
         abRepeatView?.removeFromSuperview()
+
+        let from = min(aMark.getPosition(), bMark.getPosition())
+        let to = max(aMark.getPosition(), bMark.getPosition())
+        playbackService.setABLoopFromPosition(Double(from), toPosition: Double(to))
     }
 }
 
@@ -1514,6 +1549,8 @@ extension PlayerViewController: OptionsNavigationBarDelegate {
 
     private func resetABRepeatMarks(_ shouldDisplayView: Bool = false) {
         hideIcon(button: optionsNavigationBar.abRepeatMarksButton)
+        playbackService.resetABLoop()
+
         aMark.removeFromSuperview()
         aMark.isEnabled = false
 
@@ -1526,22 +1563,6 @@ extension PlayerViewController: OptionsNavigationBarDelegate {
         }
 
         mediaMoreOptionsActionSheetPresentABRepeatView(with: abRepeatView)
-    }
-}
-
-// MARK: - MediaScrubProgressBarDelegate
-
-extension PlayerViewController: MediaScrubProgressBarDelegate {
-    func mediaScrubProgressBarSetPlaybackPosition(to value: Float) {
-        playbackService.playbackPosition = value
-    }
-
-    func mediaScrubProgressBarGetAMark() -> ABRepeatMarkView {
-        return aMark
-    }
-
-    func mediaScrubProgressBarGetBMark() -> ABRepeatMarkView {
-        return bMark
     }
 }
 
@@ -1648,11 +1669,12 @@ extension PlayerViewController {
     }
 
     @objc func nextFrame() {
-        if playbackService.isPlaying {
-            playbackService.pause()
-        }
-
         playbackService.nextFrame()
+        mediaScrubProgressBar.updateProgressValues()
+    }
+
+    @objc func previousFrame() {
+        playbackService.previousFrame()
         mediaScrubProgressBar.updateProgressValues()
     }
 
@@ -1678,8 +1700,10 @@ extension PlayerViewController {
         let eCommand = UIKeyCommand(input: "e", modifierFlags: [], action: #selector(nextFrame))
         eCommand.discoverabilityTitle = NSLocalizedString("KEY_NEXT_FRAME", comment: "")
 
+        let zCommand = UIKeyCommand(input: "e", modifierFlags: [.shift], action: #selector(previousFrame))
+
         var commands: [UIKeyCommand] = [
-            spaceCommand, returnCommand, leftArrowCommand, rightArrowCommand, leftBracketCommand, rightBracketCommand, eCommand
+            spaceCommand, returnCommand, leftArrowCommand, rightArrowCommand, leftBracketCommand, rightBracketCommand, eCommand, zCommand
         ]
 
         let numberCommands = (0...9).map { number -> UIKeyCommand in

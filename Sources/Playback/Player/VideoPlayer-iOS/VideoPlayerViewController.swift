@@ -190,12 +190,6 @@ class VideoPlayerViewController: PlayerViewController {
         return artWorkImageView
     }()
 
-    private lazy var coneLoadingView: PulsingConeView = {
-        let coneLoadingView = PulsingConeView()
-        coneLoadingView.translatesAutoresizingMaskIntoConstraints = false
-        return coneLoadingView
-    }()
-
     private var videoOutputView: UIView = {
         var videoOutputView = UIView()
         videoOutputView.backgroundColor = .black
@@ -461,6 +455,7 @@ class VideoPlayerViewController: PlayerViewController {
         if playerController.isRememberStateEnabled {
             setupVideoControlsState()
         }
+        mediaScrubProgressBar.delegate = self
 
         view.addSubview(switchControlUtility)
         view.addSubview(optionsNavigationBar)
@@ -623,12 +618,12 @@ class VideoPlayerViewController: PlayerViewController {
 
     private func setupCommonSliderConstraints(for slider: UIView) {
         let heightConstraint = slider.heightAnchor.constraint(lessThanOrEqualToConstant: 170)
-        let topConstraint = slider.topAnchor.constraint(equalTo: mediaNavigationBar.bottomAnchor)
-        let bottomConstraint = slider.bottomAnchor.constraint(equalTo: mediaScrubProgressBar.topAnchor, constant: -10)
+        let topConstraint = slider.topAnchor.constraint(greaterThanOrEqualTo: mediaNavigationBar.bottomAnchor, constant: 10)
+        let bottomConstraint = slider.bottomAnchor.constraint(lessThanOrEqualTo: mediaScrubProgressBar.topAnchor, constant: -16)
         let yConstraint = slider.centerYAnchor.constraint(equalTo: view.centerYAnchor)
         heightConstraint.priority = .required
-        topConstraint.priority = .defaultHigh
-        bottomConstraint.priority = .defaultHigh
+        topConstraint.priority = .required
+        bottomConstraint.priority = .required
         yConstraint.priority = .defaultHigh
         NSLayoutConstraint.activate([
             heightConstraint,
@@ -637,7 +632,6 @@ class VideoPlayerViewController: PlayerViewController {
             slider.widthAnchor.constraint(equalToConstant: 50),
             yConstraint,
         ])
-
     }
 
     // MARK: - Private helpers
@@ -1275,7 +1269,7 @@ class VideoPlayerViewController: PlayerViewController {
 extension VideoPlayerViewController {
     func prepare(forMediaPlayback playbackService: PlaybackService) {
         mediaNavigationBar.setMediaTitleLabelText("")
-        videoPlayerControls.updatePlayPauseButton(toState: playbackService.isPlaying)
+        videoPlayerControls.updatePlayPauseButton(toState: playbackService.mediaPlayerState == .playing)
         mediaScrubProgressBar.setLiveStream(playbackService.metadata.isLiveStream && !playbackService.isSeekable)
 
         // FIXME: -
@@ -1294,12 +1288,6 @@ extension VideoPlayerViewController {
 
         videoPlayerControls.updatePlayPauseButton(toState: isPlaying)
         videoPlayerControls.shouldEnableSeekButtons(playbackService.mediaList.count == 1)
-
-        if currentState == .buffering {
-            coneLoadingView.startAnimating()
-        } else {
-            coneLoadingView.stopAnimating()
-        }
 
         if currentState == .error {
             statusLabel.showStatusMessage(NSLocalizedString("PLAYBACK_FAILED",
@@ -1346,11 +1334,6 @@ extension VideoPlayerViewController {
             supportedInterfaceOrientations = .allButUpsideDown
             videoPlayerControls.rotationLockButton.tintColor = .white
         }
-    }
-
-    override func playbackPositionUpdated(_ playbackService: PlaybackService) {
-        super.playbackPositionUpdated(playbackService)
-        coneLoadingView.stopAnimating()
     }
 
     func playbackServiceDidSwitchAspectRatio(_ aspectRatio: Int) {
@@ -1504,7 +1487,7 @@ extension VideoPlayerViewController {
 
 // MARK: - MediaScrubProgressBarDelegate
 
-extension VideoPlayerViewController {
+extension VideoPlayerViewController: MediaScrubProgressBarDelegate {
     func mediaScrubProgressBarShouldResetIdleTimer() {
         resetIdleTimer()
     }

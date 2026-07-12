@@ -45,6 +45,8 @@ extern NSString *const VLCLastPlaylistPlayedMedia;
 currentMediaHasTrackToChooseFrom:(BOOL)currentMediaHasTrackToChooseFrom
         currentMediaHasChapters:(BOOL)currentMediaHasChapters
              forPlaybackService:(VLCPlaybackService *)playbackService;
+- (void)mediaPlayerBufferingChanged:(float)progress
+                 forPlaybackService:(VLCPlaybackService *)playbackService;
 - (void)prepareForMediaPlayback:(VLCPlaybackService *)playbackService;
 - (void)showStatusMessage:(NSString *)statusMessage;
 - (void)displayMetadataForPlaybackService:(VLCPlaybackService *)playbackService
@@ -143,7 +145,11 @@ NS_SWIFT_NAME(PlaybackService)
 - (void)jumpForward:(int)interval;
 - (void)jumpBackward:(int)interval;
 - (void)nextFrame;
+- (void)previousFrame;
 - (void)toggleRepeatMode;
+
+- (void)setABLoopFromPosition:(double)from toPosition:(double)to;
+- (void)resetABLoop;
 - (VLCTime *)remainingTime;
 
 - (NSString *)audioTrackNameAtIndex:(NSInteger)index;

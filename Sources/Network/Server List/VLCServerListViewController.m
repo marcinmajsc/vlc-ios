@@ -36,6 +36,7 @@
 #import "VLCLocalNetworkServiceBrowserDSM.h"
 #import "VLCNetworkServerBrowserVLCMedia+FTP.h"
 #import "VLCNetworkServerBrowserVLCMedia+SFTP.h"
+#import "VLCNetworkServerBrowserVLCMedia+WebDAV.h"
 #import "VLCLocalNetworkServiceBrowserNFS.h"
 #import "VLCLocalNetworkServiceBrowserBonjour.h"
 
@@ -266,6 +267,20 @@ static const NSTimeInterval kVLCLocalNetworkReloadDebounceInterval = 0.1;
         self.navigationController.navigationBar.prefersLargeTitles = NO;
     }
 
+    UIImage *settingsImage;
+    if (@available(iOS 13.0, *)) {
+        settingsImage = [UIImage systemImageNamed:@"gearshape"];
+    } else {
+        settingsImage = [UIImage imageNamed:@"Settings"];
+    }
+    UIBarButtonItem *settingsButton = [[UIBarButtonItem alloc] initWithImage:settingsImage
+                                                                      style:UIBarButtonItemStylePlain
+                                                                     target:self
+                                                                     action:@selector(showSettings)];
+    settingsButton.accessibilityLabel = NSLocalizedString(@"Settings", nil);
+    settingsButton.accessibilityIdentifier = VLCAccessibilityIdentifier.settings;
+    self.navigationItem.leftBarButtonItem = settingsButton;
+
     NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
     [notificationCenter addObserver:self selector:@selector(themeDidChange) name:kVLCThemeDidChangeNotification object:nil];
     [notificationCenter addObserver:self selector:@selector(contentSizeDidChange) name:UIContentSizeCategoryDidChangeNotification object:nil];
@@ -286,6 +301,15 @@ static const NSTimeInterval kVLCLocalNetworkReloadDebounceInterval = 0.1;
 
     _discoveryController = [[VLCLocalServerDiscoveryController alloc] initWithServiceBrowserClasses:browserClasses];
     _discoveryController.delegate = self;
+}
+
+- (void)showSettings
+{
+    [[ParentalControlCoordinator sharedInstance] authorizeIfParentalControlIsEnabledWithAction:^{
+        SettingsController *settingsController = [[SettingsController alloc] initWithMediaLibraryService:self->_medialibraryService];
+        UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:settingsController];
+        [self presentViewController:navigationController animated:YES completion:nil];
+    } fail:nil];
 }
 
 - (void)viewWillDisappear:(BOOL)animated
@@ -625,6 +649,8 @@ static const NSTimeInterval kVLCLocalNetworkReloadDebounceInterval = 0.1;
         serverBrowser = [VLCNetworkServerBrowserVLCMedia NFSNetworkServerBrowserWithLogin:loginInformation];
     } else if ([identifier isEqualToString:VLCNetworkServerProtocolIdentifierSFTP]) {
         serverBrowser = [VLCNetworkServerBrowserVLCMedia SFTPNetworkServerBrowserWithLogin:loginInformation];
+    } else if ([identifier isEqualToString:VLCNetworkServerProtocolIdentifierWebDAV]) {
+        serverBrowser = [VLCNetworkServerBrowserVLCMedia WebDAVNetworkServerBrowserWithLogin:loginInformation];
     } else {
         APLog(@"Unsupported URL Scheme requested %@", identifier);
     }

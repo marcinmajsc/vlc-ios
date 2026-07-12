@@ -17,7 +17,7 @@
 #import "VLCAppCoordinator.h"
 #import "VLCHTTPUploaderController.h"
 
-@interface VLCLocalNetworkServiceBrowserMediaDiscoverer () <VLCMediaListDelegate>
+@interface VLCLocalNetworkServiceBrowserMediaDiscoverer () <VLCMediaDiscovererDelegate>
 {
     VLCLibrary *_internalLibraryInstance;
     BOOL _isUPnPdiscoverer;
@@ -81,11 +81,12 @@
 
     self.mediaDiscoverer = discoverer;
 #if MEDIA_DISCOVERY_DEBUG
-    self.mediaDiscoverer.libraryInstance.debugLogging = YES;
-    self.mediaDiscoverer.libraryInstance.debugLoggingLevel = 4;
+    VLCConsoleLogger *consoleLogger = [[VLCConsoleLogger alloc] init];
+    consoleLogger.level = kVLCLogLevelDebug;
+    [self.mediaDiscoverer.libraryInstance setLoggers:@[consoleLogger]];
 #endif
     [discoverer startDiscoverer];
-    discoverer.discoveredMedia.delegate = self;
+    discoverer.delegate = self;
 }
 
 - (void)stopDiscovery
@@ -95,7 +96,7 @@
         return;
     }
     VLCMediaDiscoverer *discoverer = self.mediaDiscoverer;
-    discoverer.discoveredMedia.delegate = nil;
+    discoverer.delegate = nil;
     [discoverer stopDiscoverer];
     self.mediaDiscoverer = nil;
 }
@@ -110,14 +111,18 @@
     return nil;
 }
 
-#pragma mark - VLCMediaListDelegate
-- (void)mediaList:(VLCMediaList *)aMediaList mediaAdded:(VLCMedia *)media atIndex:(NSUInteger)index
+#pragma mark - VLCMediaDiscovererDelegate
+- (void)mediaAdded:(VLCMedia *)media parent:(VLCMedia *)parent
 {
-    [self.delegate localNetworkServiceBrowserDidUpdateServices:self];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.delegate localNetworkServiceBrowserDidUpdateServices:self];
+    });
 }
-- (void)mediaList:(VLCMediaList *)aMediaList mediaRemovedAtIndex:(NSUInteger)index
+- (void)mediaRemoved:(VLCMedia *)media
 {
-    [self.delegate localNetworkServiceBrowserDidUpdateServices:self];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.delegate localNetworkServiceBrowserDidUpdateServices:self];
+    });
 }
 
 @end

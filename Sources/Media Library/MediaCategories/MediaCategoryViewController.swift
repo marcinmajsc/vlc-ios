@@ -95,6 +95,17 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     private var searchBarConstraint: NSLayoutConstraint?
     private var searchDataSource: LibrarySearchDataSource
     private let searchBarSize: CGFloat = 50.0
+    lazy var searchController: UISearchController = {
+        let searchController = UISearchController(searchResultsController: nil)
+        searchController.obscuresBackgroundDuringPresentation = false
+        searchController.delegate = self
+        searchController.searchBar.delegate = self
+        searchController.searchBar.placeholder = NSLocalizedString("SEARCH", comment: "")
+        return searchController
+    }()
+    var isSearchActive: Bool {
+        return searchDataSource.isSearching
+    }
     private let userDefaults = UserDefaults.standard
 #if os(iOS)
     private lazy var rendererButton: UIButton = VLCAppCoordinator.sharedInstance().rendererDiscovererManager.setupRendererButton()
@@ -224,7 +235,12 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             emptyView.contentType = .noHistory
         }
 
-        if model is FolderModel {
+        if let folderModel = model as? FolderModel {
+            let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path
+            if folderModel.currentFolder.mrl.path != documentsPath {
+                emptyView.folderName = folderModel.currentFolder.name
+            }
+            emptyView.isAudioFolder = folderModel.isAudio
             emptyView.contentType = .emptyFolder
         }
         // Check if it is inside a playlist
@@ -261,17 +277,20 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         let button = UIButton(type: .system)
         button.backgroundColor = PresentationTheme.current.colors.orangeUI
         button.tintColor = PresentationTheme.current.colors.background
-        button.layer.cornerRadius = 30.0
+        button.layer.cornerRadius = 26.5
         button.layer.masksToBounds = false
         button.layer.shadowColor = UIColor.black.cgColor
         button.layer.shadowOffset = CGSize(width: 0.0, height: 2.0)
         button.layer.shadowRadius = 4.0
         button.layer.shadowOpacity = 0.3
-        button.layer.shadowPath = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 60, height: 60)).cgPath
+        button.layer.shadowPath = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 55, height: 55)).cgPath
         button.addTarget(self, action: #selector(fabButtonPressed), for: .touchUpInside)
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
     }()
+
+    private var fabBottomConstraint: NSLayoutConstraint?
+    private var fabAnchorsToContainerBottom: Bool?
 
     private var lastPlaylist: LastPlayedPlaylistModel? {
         guard let encodedData = userDefaults.data(forKey: kVLCLastPlayedPlaylist),
@@ -808,6 +827,10 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         if let playlistHeader = playlistHeader {
             playlistHeader.updateAfterRotation()
         }
+
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            self?.updateFABButtonBottomConstraint()
+        })
     }
 
     // MARK: - Edit
@@ -817,6 +840,13 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     }
 
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if #available(iOS 26.0, visionOS 26.0, *) {
+            if let model = model as? CollectionModel,
+               model.mediaCollection is VLCMLAlbum {
+                updateAlbumHeader()
+            }
+            return
+        }
         // This ensures that the search bar is always visible like a sticky while searching
         if searchDataSource.isSearching {
             searchBar.endEditing(true)
@@ -1478,7 +1508,8 @@ extension MediaCategoryViewController {
         let cancelAction: UIAlertAction = UIAlertAction(title: NSLocalizedString("BUTTON_CANCEL", comment: ""), style: .cancel)
 
         let clearAction: UIAlertAction = UIAlertAction(title: NSLocalizedString("BUTTON_CLEAR", comment: ""), style: .destructive) { _ in
-            self.mediaLibraryService.medialib.clearHistory(of: .global)
+            guard let historyModel = self.model as? HistoryModel else { return }
+            self.mediaLibraryService.medialib.clearHistory(by: historyModel.mediaType)
         }
 
         let alertController: UIAlertController = UIAlertController(title: NSLocalizedString("CLEAR_HISTORY_TITLE", comment: ""),
@@ -1540,7 +1571,13 @@ extension MediaCategoryViewController: VLCRendererDiscovererManagerDelegate {
 
 // MARK: - UISearchBarDelegate
 
-extension MediaCategoryViewController {
+extension MediaCategoryViewController: UISearchControllerDelegate {
+    func didDismissSearchController(_ searchController: UISearchController) {
+        if searchDataSource.isSearching {
+            searchBarCancelButtonClicked(searchController.searchBar)
+        }
+    }
+
     func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
         searchDataSource.shouldReloadFor(searchString: "")
         reloadData()
@@ -2809,15 +2846,44 @@ extension MediaCategoryViewController {
     }
 
     private func setFABButtonConstraints() {
-        guard let tabBar = tabBarController?.tabBar,
-              let layoutGuide = tabBarController?.view.safeAreaLayoutGuide else { return }
+        guard let layoutGuide = tabBarController?.view.safeAreaLayoutGuide else { return }
+
+        fabAnchorsToContainerBottom = nil
 
         NSLayoutConstraint.activate([
             fabButton.trailingAnchor.constraint(equalTo: layoutGuide.trailingAnchor, constant: -15),
-            fabButton.bottomAnchor.constraint(equalTo: tabBar.topAnchor, constant: -15),
-            fabButton.widthAnchor.constraint(equalToConstant: 60),
-            fabButton.heightAnchor.constraint(equalToConstant: 60)
+            fabButton.widthAnchor.constraint(equalToConstant: 55),
+            fabButton.heightAnchor.constraint(equalToConstant: 55)
         ])
+
+        updateFABButtonBottomConstraint()
+    }
+
+    // iPadOS 18+ keeps the tab bar at the top in regular width, but moves it back to
+    // the bottom in compact width, so the anchor has to follow window resizes.
+    private func updateFABButtonBottomConstraint() {
+        guard let tabBar = tabBarController?.tabBar,
+              let containerView = tabBarController?.view else { return }
+
+        let anchorsToContainerBottom: Bool
+#if os(iOS) && compiler(>=6.0)
+        if #available(iOS 18.0, *), UIDevice.current.userInterfaceIdiom == .pad {
+            anchorsToContainerBottom = traitCollection.horizontalSizeClass == .regular
+        } else {
+            anchorsToContainerBottom = false
+        }
+#else
+        anchorsToContainerBottom = false
+#endif
+
+        if fabAnchorsToContainerBottom == anchorsToContainerBottom { return }
+        fabAnchorsToContainerBottom = anchorsToContainerBottom
+
+        let anchor = anchorsToContainerBottom ? containerView.bottomAnchor : tabBar.topAnchor
+        fabBottomConstraint?.isActive = false
+        let bottomConstraint = fabButton.bottomAnchor.constraint(equalTo: anchor, constant: -15)
+        bottomConstraint.isActive = true
+        fabBottomConstraint = bottomConstraint
     }
 }
 

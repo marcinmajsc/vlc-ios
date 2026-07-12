@@ -2,7 +2,7 @@
  * SettingsController.swift
  * VLC for iOS
  *****************************************************************************
- * Copyright (c) 2013-2020 VideoLAN. All rights reserved.
+ * Copyright (c) 2013-2026 VideoLAN. All rights reserved.
  *
  * Authors: Swapnanil Dhol <swapnanildhol # gmail.com>
  *          Soomin Lee < bubu@mikan.io >
@@ -15,6 +15,7 @@
  * Refer to the COPYING file of the official project for license.
  *****************************************************************************/
 
+import CoreSpotlight
 import LocalAuthentication
 import UIKit
 
@@ -49,7 +50,7 @@ class SettingsController: UITableViewController {
         return PresentationTheme.current.colors.statusBarStyle
     }
 
-    init(mediaLibraryService: MediaLibraryService) {
+    @objc init(mediaLibraryService: MediaLibraryService) {
         self.mediaLibraryService = mediaLibraryService
         super.init(style: .grouped)
         self.mediaLibraryService.deviceBackupDelegate = self
@@ -147,6 +148,25 @@ class SettingsController: UITableViewController {
                                         action: #selector(showDocumentation))
         docButton.tintColor = PresentationTheme.current.colors.orangeUI
         navigationItem.rightBarButtonItem = docButton
+
+        if navigationController?.presentingViewController != nil {
+            let closeItem: UIBarButtonItem.SystemItem
+            if #available(iOS 13.0, *) {
+                closeItem = .close
+            } else {
+                closeItem = .done
+            }
+            let closeButton = UIBarButtonItem(barButtonSystemItem: closeItem,
+                                              target: self,
+                                              action: #selector(dismissSettings))
+            closeButton.tintColor = PresentationTheme.current.colors.orangeUI
+            closeButton.accessibilityIdentifier = VLCAccessibilityIdentifier.done
+            navigationItem.leftBarButtonItems = [closeButton, aboutBarButton]
+        }
+    }
+
+    @objc private func dismissSettings() {
+        dismiss(animated: true)
     }
 
     private func setNavBarAppearance() {
@@ -250,6 +270,7 @@ class SettingsController: UITableViewController {
         let queue = DispatchQueue.global(qos: .background)
         queue.async {
             self.mediaLibraryService.forceRescan()
+            self.mediaLibraryService.reindexAllMediaForSpotlight()
         }
     }
 
@@ -542,6 +563,9 @@ extension SettingsController {
                 // If the user cancels setting the password, the toggle should revert to the unset state.
                 // This ensures the UI reflects the correct state.
                 UserDefaults.standard.set(success, forKey: kVLCSettingPasscodeOnKey)
+                if success {
+                    CSSearchableIndex.default().deleteAllSearchableItems(completionHandler: nil)
+                }
                 self.reloadSettingsSections() // To show/hide biometric row
             }
         } else {
@@ -551,6 +575,7 @@ extension SettingsController {
             // passcode will remain open even if the user doesn't set the new passcode.
             // So, this may cause the app being locked.
             try? KeychainCoordinator.passcodeService.removeSecret()
+            mediaLibraryService.reindexAllMediaForSpotlight()
 
             reloadSettingsSections()
         }
