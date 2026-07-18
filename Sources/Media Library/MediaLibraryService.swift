@@ -142,7 +142,22 @@ extension NSNotification {
 // MARK: -
 
 class MediaLibraryService: NSObject {
-    private static let databaseName: String = "medialibrary.db"
+
+    private var mlServiceType: MLServiceType
+
+    @objc enum MLServiceType: Int {
+        case mediaLibrary, snapshotLibrary
+
+        var databaseName: String {
+            switch self {
+            case .mediaLibrary:
+                return kVLCMediaLibraryDBFileName
+            case .snapshotLibrary:
+                return kVLCSnapshotMediaLibraryDBFileName
+            }
+        }
+    }
+
     private static let didForceRescan: String = "MediaLibraryDidForceRescan"
     private var initRecoveryAttempt = 0
 
@@ -180,15 +195,20 @@ class MediaLibraryService: NSObject {
     var currentlyPlayingCollection: CurrentlyPlayingCollectionModel?
 #endif
 
-    override init() {
+    @objc
+    init(libraryType: MLServiceType = .mediaLibrary) {
+        self.mlServiceType = libraryType
         super.init()
-        NotificationCenter.default.addObserver(self, selector: #selector(reload),
-                                               name: .VLCNewFileAddedNotification, object: nil)
-        
-        #if !os(watchOS)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForegroundNotification),
-                                               name: UIApplication.willEnterForegroundNotification, object: nil)
-        #endif
+
+        if libraryType == .mediaLibrary {
+            NotificationCenter.default.addObserver(self, selector: #selector(reload),
+                                                   name: .VLCNewFileAddedNotification, object: nil)
+
+            #if !os(watchOS)
+            NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForegroundNotification),
+                                                   name: UIApplication.willEnterForegroundNotification, object: nil)
+            #endif
+        }
 
         #if os(watchOS)
         let screenWidth: CGFloat = WKInterfaceDevice.current().screenBounds.size.width
@@ -262,6 +282,19 @@ private extension MediaLibraryService {
         mediaFileDiscoverer?.startDiscovering()
     }
 
+    private func banLogsFolder() {
+#if os(tvOS)
+        let searchPaths = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true)
+#else
+        let searchPaths = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)
+#endif
+        guard let basePath = searchPaths.first else {
+            return
+        }
+
+        privateMediaLib.banFolder(withPath: "file://" + basePath + "/Logs")
+    }
+
     private func startMediaLibrary(on path: String) {
         let includeMediaLibrary = UserDefaults.standard.bool(forKey: kVLCSettingBackupMediaLibrary)
         includeInDeviceBackup(includeMediaLibrary)
@@ -272,6 +305,11 @@ private extension MediaLibraryService {
         if UserDefaults.standard.bool(forKey: MediaLibraryService.didForceRescan) == false {
             privateMediaLib.forceRescan()
             UserDefaults.standard.set(true, forKey: MediaLibraryService.didForceRescan)
+        }
+
+        if VLCMigrationCursor.isStepPending(.banLogsFolder) {
+            banLogsFolder()
+            VLCMigrationCursor.complete(.banLogsFolder)
         }
 
         FileManager.default.createFile(atPath: "\(path)/\(NSLocalizedString("MEDIALIBRARY_FILES_PLACEHOLDER", comment: ""))", contents: nil, attributes: nil)
@@ -301,9 +339,20 @@ private extension MediaLibraryService {
 
         libraryPath = libraryDirectory
 
-        let databasePath = libraryPath + "/MediaLibrary/" + MediaLibraryService.databaseName
-        let thumbnailPath = libraryPath + "/MediaLibrary/Thumbnails"
-        let medialibraryPath = libraryPath + "/MediaLibrary/Internal"
+        let databasePath: String
+        let thumbnailPath: String
+        let medialibraryPath: String
+
+        switch mlServiceType {
+        case .mediaLibrary:
+            databasePath = libraryPath + "/MediaLibrary/" + MLServiceType.mediaLibrary.databaseName
+            thumbnailPath = libraryPath + "/MediaLibrary/Thumbnails"
+            medialibraryPath = libraryPath + "/MediaLibrary/Internal"
+        case .snapshotLibrary:
+            databasePath = libraryPath + "/MediaLibrarySnapshot/" + MLServiceType.snapshotLibrary.databaseName
+            thumbnailPath = libraryPath + "/MediaLibrarySnapshot/Thumbnails"
+            medialibraryPath = libraryPath + "/MediaLibrarySnapshot/Internal"
+        }
 
 #if os(tvOS)
         // we need to create the folder before we can listen to it
@@ -314,7 +363,9 @@ private extension MediaLibraryService {
             assertionFailure("Failed to create directory: \(error.localizedDescription)")
         }
 #endif
-        setupMediaDiscovery(at: mediaPath)
+        if mlServiceType == .mediaLibrary {
+            setupMediaDiscovery(at: mediaPath)
+        }
 
         _ = try? FileManager.default.removeItem(atPath: thumbnailPath)
 
@@ -326,13 +377,15 @@ private extension MediaLibraryService {
         }
 
         let medialibraryStatus = privateMediaLib.setupMediaLibrary(databasePath: databasePath,
-                                                            medialibraryPath: medialibraryPath)
+                                                               medialibraryPath: medialibraryPath)
 
         privateMediaLib.delegate = self
 
         switch medialibraryStatus {
         case .success, .dbReset:
-            startMediaLibrary(on: mediaPath)
+            if mlServiceType == .mediaLibrary {
+                startMediaLibrary(on: mediaPath)
+            }
         case .alreadyInitialized:
             assertionFailure("MediaLibraryService: Medialibrary already initialized.")
         case .failed:
@@ -358,7 +411,9 @@ private extension MediaLibraryService {
             assertionFailure("MediaLibraryService: Permanently failed to setup medialibrary.")
         case .dbCorrupted:
             privateMediaLib.clearDatabase(restorePlaylists: true)
-            startMediaLibrary(on: mediaPath)
+            if mlServiceType == .mediaLibrary {
+                startMediaLibrary(on: mediaPath)
+            }
         @unknown default:
             assertionFailure("MediaLibraryService: unhandled case")
         }
@@ -520,8 +575,8 @@ private extension MediaLibraryService {
                 preconditionFailure("MediaLibraryService: Unable to find medialibrary.")
         }
 
-        let databasePath = libraryPath + "/MediaLibrary/" + MediaLibraryService.databaseName
-        let targetPath = documentPath + "/Logs/" + MediaLibraryService.databaseName
+        let databasePath = libraryPath + "/MediaLibrary/" + kVLCMediaLibraryDBFileName
+        let targetPath = documentPath + "/Logs/" + kVLCMediaLibraryDBFileName
 
         _ = try? FileManager.default.createDirectory(atPath: targetPath,
                                                      withIntermediateDirectories: true)
@@ -627,6 +682,13 @@ extension MediaLibraryService {
                    desc: Bool = false) -> [VLCMLPlaylist] {
         return medialib.playlists(with: sort, desc: desc) ?? []
     }
+
+    func baseFolder() -> VLCMLFolder? {
+        guard let documentURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        return medialib.folder(atMrl: documentURL)
+    }
 }
 
 // MARK: - Genre methods
@@ -687,11 +749,13 @@ extension MediaLibraryService: VLCMediaLibraryDelegate {
         let tracks = media.filter {( $0.type() == .audio)}
 
         // Shows and albumtracks are known only after when the medialibrary calls didModifyMedia
-        observable.notifyObservers {
-            $0.medialibrary?(self, didAddShowEpisodes: showEpisodes)
-            $0.medialibrary?(self, didAddAlbumTracks: albumTrack)
-            $0.medialibrary?(self, didModifyVideos: videos)
-            $0.medialibrary?(self, didModifyTracks: tracks)
+        DispatchQueue.main.async {
+            self.observable.notifyObservers {
+                $0.medialibrary?(self, didAddShowEpisodes: showEpisodes)
+                $0.medialibrary?(self, didAddAlbumTracks: albumTrack)
+                $0.medialibrary?(self, didModifyVideos: videos)
+                $0.medialibrary?(self, didModifyTracks: tracks)
+            }
         }
     }
 

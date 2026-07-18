@@ -5,6 +5,7 @@
 #import "VLCAppDelegate.h"
 #import "VLCAppCoordinator.h"
 #import "VLCConstants.h"
+#import "VLCMigrationCursor.h"
 #import "VLCTransferController.h"
 #import "VLCTransferViewController.h"
 #import "VLCEmptyLibraryView.h"
@@ -48,6 +49,7 @@
 #import "VLCNetworkServerBrowserVLCMedia+SFTP.h"
 #import "VLCNetworkServerBrowserVLCMedia+WebDAV.h"
 #import "VLCLocalNetworkServiceBrowserUPnP.h"
+#import "VLCRadioListViewController.h"
 #import "VLCMediaList+M3U.h"
 
 #if TARGET_OS_IOS

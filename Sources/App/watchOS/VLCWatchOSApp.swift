@@ -19,95 +19,88 @@ struct VLCWatchOSApp: App {
     @WKApplicationDelegateAdaptor var appDelegate: VLCWatchAppDelegate
 //    @Environment(\.isLuminanceReduced) var isLuminanceReduced
 
+    #if targetEnvironment(simulator)
+    @StateObject var mlSyncManager: DummyMLSyncManager
+    #else
+    @StateObject var mlSyncManager: VLCMLSyncManager
+    #endif
     @StateObject var artistsViewModel: ArtistsViewModel
     @StateObject var albumsViewModel: AlbumsViewModel
     @StateObject var tracksViewModel: TracksViewModel
-    @State private var selection: Command = .updateAppContext
 
     private let appCoordinator = VLCAppCoordinator.sharedInstance()
 
-    // For testing WatchConnectivity APIs
-    let commands: [Command] = [.updateAppContext, .sendMessage, .sendMessageData,
-                               .transferFile, .transferUserInfo,
-                               .transferCurrentComplicationUserInfo]
-
     let mediaLibraryService: MediaLibraryService
-    let playbackService: PlaybackService
 
     init() {
         mediaLibraryService = VLCAppCoordinator.sharedInstance().mediaLibraryService
-        playbackService = PlaybackService.sharedInstance()
+
+        #if targetEnvironment(simulator)
+        let mlSyncManager = DummyMLSyncManager()
+        #else
+        let mlSyncManager = VLCMLSyncManager()
+        #endif
+
         let artistsViewModel = ArtistsViewModel(medialibrary: mediaLibraryService)
         let albumsViewModel = AlbumsViewModel(medialibrary: mediaLibraryService)
         let tracksViewModel = TracksViewModel(medialibrary: mediaLibraryService)
+
+        _mlSyncManager = StateObject(wrappedValue: mlSyncManager)
         _artistsViewModel = StateObject(wrappedValue: artistsViewModel)
         _albumsViewModel = StateObject(wrappedValue: albumsViewModel)
         _tracksViewModel = StateObject(wrappedValue: tracksViewModel)
+
+        appDelegate.sessionDelegate.mlSyncManager = mlSyncManager
+
+//        guard let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+//        documentsDir.printAllFiles()
     }
 
     var body: some Scene {
         WindowGroup {
-            TabView(selection: $selection) {
-
-                NavigationStack {
-                    MediaListView<VLCWatchMLArtist>(items: artistsViewModel.artists) { artist in
-                        print("tap artist: \(artist)")
-                    }
-                    .navigationTitle("Artists")
-                    .onAppear {
-                        guard artistsViewModel.isFirstLoad else { return }
-                        artistsViewModel.loadArtists()
-                    }
-                }
-
-                NavigationStack(path: $albumsViewModel.path) {
-                    MediaListView<VLCWatchMLAlbum>(items: albumsViewModel.albums) { album in
-                        albumsViewModel.path.append(album)
-                    }
-                    .navigationTitle("Albums")
-                    .onAppear {
-                        guard albumsViewModel.isFirstLoad else { return }
-                        albumsViewModel.loadAlbums()
-                    }
-                    .navigationDestination(for: VLCWatchMLAlbum.self) { album in
-                        let tracks = album.tracks.map {
-                            var media = VLCWatchMLMedia($0)
-                            media.showTrackNumber = true
-                            return media
-                        }
-                        MediaListView<VLCWatchMLMedia>(items: tracks) { media in
-                            tracksViewModel.play(media: media)
-                        }
-                        .navigationTitle(album.title)
-                    }
-                }
-
-                NavigationStack {
-                    MediaListView<VLCWatchMLMedia>(items: tracksViewModel.tracks) { media in
-                        tracksViewModel.play(media: media)
-                    }
-                    .navigationTitle("Songs")
-                    .onAppear {
-                        guard tracksViewModel.isFirstLoad else { return }
-                        tracksViewModel.loadTracks()
-                    }
-                }
-
-                // TODO: Radio Discovery tab
-
-                // For testing WatchConnectivity APIs
-//                ForEach(commands, id: \.self) { command in
-//                    CommandView(command: command, selectedTab: $selection).tag(command)
-//                }
-            }
-            .onReceive(NotificationCenter.default.activationDidCompletePublisher) { notification in
-                activationDidComplete(notification)
-            }
-            .onReceive(NotificationCenter.default.reachabilityDidChangePublisher) { notification in
-                reachabilityDidChange(notification)
-            }
-            .environmentObject(tracksViewModel)
+            VLCWatchContentView(
+                mlSyncManager: mlSyncManager,
+                artistsViewModel: artistsViewModel,
+                albumsViewModel: albumsViewModel,
+                tracksViewModel: tracksViewModel
+            )
         }
+    }
+}
+
+// Have to create wrapper to allow protocol @ObservedObject (https://stackoverflow.com/a/59504489)
+struct VLCWatchContentView<MLSyncManager>: View where MLSyncManager: ObservableMLSyncManager {
+    @ObservedObject var mlSyncManager: MLSyncManager
+    @ObservedObject var artistsViewModel: ArtistsViewModel
+    @ObservedObject var albumsViewModel: AlbumsViewModel
+    @ObservedObject var tracksViewModel: TracksViewModel
+
+    var body: some View {
+        TabView {
+            ArtistView(
+                artistsViewModel: artistsViewModel,
+                mlSyncState: mlSyncManager.state
+            )
+
+            AlbumView(
+                albumsViewModel: albumsViewModel,
+                mlSyncState: mlSyncManager.state
+            )
+
+            TrackView(
+                tracksViewModel: tracksViewModel,
+                mediaSyncIds: mlSyncManager.state.mediaSyncIds
+            )
+
+            // TODO: Radio Discovery tab
+        }
+        .onReceive(NotificationCenter.default.activationDidCompletePublisher) { notification in
+            activationDidComplete(notification)
+        }
+        .onReceive(NotificationCenter.default.reachabilityDidChangePublisher) { notification in
+            reachabilityDidChange(notification)
+        }
+        .environmentObject(tracksViewModel)
     }
 
     /**
@@ -123,7 +116,6 @@ struct VLCWatchOSApp: App {
         print("\(#function): isReachable:\(WCSession.default.isReachable)")
     }
 }
-
 
 extension NotificationCenter {
     var activationDidCompletePublisher: Publishers.ReceiveOn<NotificationCenter.Publisher, DispatchQueue> {

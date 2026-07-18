@@ -132,6 +132,9 @@
 "SHARING_ERROR_NO_APPLICATIONS" = "Could not find any applications to open this type of file";
 "SHARING_SUCCESS_CAMERA_ROLL" = "File was successfully saved to the Camera Roll";
 
+"RADIO" = "Radio";
+"RADIOVC_DETAILTEXT" = "Listen to radio stations from around the world";
+"BITRATE_FORMAT" = "%li kb/s";
 "FAVORITEVC_DETAILTEXT" = "See your favorite folders";
 "STREAMVC_DETAILTEXT" = "Play streams directly without downloading";
 "DOWNLOADVC_DETAILTEXT" = "Load files directly to your device";
@@ -139,7 +142,7 @@
 "HEADER_TITLE_RENDERER" = "Select a casting device";
 
 "BROWSE" = "Browse";
-"NETWORK" = "Network";
+"STREAMS" = "Streams";
 "LOCAL_NETWORK" = "Local Network";
 "CONNECT_TO_SERVER" = "Connect to Server";
 "FILE_SERVER" = "File Servers";
@@ -363,8 +366,10 @@
 "SONGS" = "Songs";
 "PLAYLISTS" = "Playlists";
 "PLAYLIST" = "Playlist";
+"FOLDERS" = "Folders";
 "VIDEO_GROUPS" = "Video groups";
 "HISTORY" = "History";
+"MEDIA_LIBRARY_LABEL" = "Library";
 "MODIFIED_DATE" = "Modified date";
 "NAME" = "Name";
 
@@ -451,6 +456,7 @@
 "LAST_PLAYBACK_DATE" = "Last playback date";
 "TRACK_ID" = "Track ID";
 "CUSTOM" = "Custom";
+"TRACK_NB_RELEASE_YEAR" = "Track Number, Albums by release date";
 
 // MARK: - VLCNetworkLoginTVViewController
 
@@ -737,7 +743,6 @@
 "LAST_PLAYED_PLAYLIST_LABEL_TITLE" = "Last Played";
 
 //MARK - something with folders
-"BUTTON_FOLDER" = "Folders";
 "BUTTON_FOLDER_HINT" = "Browse your folders";
 "EMPTY_FOLDER" = "Empty Folder";
 "EMPTY_FOLDER_DES_VIDEO" = "We couldn't find any videos here. This folder may still contain audio files.";

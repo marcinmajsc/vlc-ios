@@ -27,6 +27,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)update;
 
+@optional
+@property (nonatomic, readonly, nullable) NSString *favoriteGroupName;
+
 @end
 
 @protocol VLCNetworkServerBrowserDelegate <NSObject>
@@ -53,6 +56,7 @@ NS_ASSUME_NONNULL_BEGIN
 @optional
 @property (nonatomic, readonly, nullable) NSString *filename;
 @property (nonatomic, readonly, nullable) NSString *duration;
+@property (nonatomic, readonly, nullable) NSString *mediaDescription;
 @property (nonatomic, readonly, nullable) NSString *subtitleType;
 @property (nonatomic, readonly, nullable) NSURL *subtitleURL;
 @property (nonatomic, readonly, nullable) NSURL *thumbnailURL;

@@ -89,6 +89,19 @@
     return _folderImage;
 }
 
+- (UIImage *)streamImage
+{
+    if (!_streamImage) {
+        if (@available(iOS 13.0, tvOS 13.0, *)) {
+            _streamImage = [UIImage systemImageNamed:@"antenna.radiowaves.left.and.right"];
+        } else {
+            _streamImage = self.genericFileImage;
+        }
+    }
+
+    return _streamImage;
+}
+
 #pragma mark - cell configuration
 
 - (void)configureCell:(id<VLCRemoteBrowsingCell>)cell withItem:(id<VLCNetworkServerBrowserItem>)item
@@ -99,7 +112,7 @@
         cell.isFavorable = YES;
     } else {
         cell.isDirectory = NO;
-        cell.thumbnailImage = self.genericFileImage;
+        cell.thumbnailImage = item.media.mediaType == VLCMediaTypeStream ? self.streamImage : self.genericFileImage;
 
         NSString *sizeString = item.fileSizeBytes ? [self.byteCounterFormatter stringFromByteCount:item.fileSizeBytes.longLongValue] : nil;
 
@@ -108,12 +121,17 @@
             duration = item.duration;
 
         NSString *subtitle = nil;
-        if (sizeString && duration) {
-            subtitle = [NSString stringWithFormat:@"%@ (%@)",duration, sizeString];
-        } else if (sizeString) {
-            subtitle = sizeString;
-        } else if (duration) {
-            subtitle = duration;
+        if (item.media.mediaType == VLCMediaTypeStream && [item respondsToSelector:@selector(mediaDescription)])
+            subtitle = item.mediaDescription;
+
+        if (subtitle == nil) {
+            if (sizeString && duration) {
+                subtitle = [NSString stringWithFormat:@"%@ (%@)",duration, sizeString];
+            } else if (sizeString) {
+                subtitle = sizeString;
+            } else if (duration) {
+                subtitle = duration;
+            }
         }
         cell.subtitle = subtitle;
 #if !TARGET_OS_TV
@@ -121,6 +139,7 @@
             [(VLCNetworkListCell *)cell setTitleLabelCentered:YES];
         }
 #endif
+        cell.isFavorable = item.media.mediaType == VLCMediaTypeStream;
 #if DOWNLOAD_SUPPORTED
         if ([item respondsToSelector:@selector(isDownloadable)])
             cell.isDownloadable = item.isDownloadable;

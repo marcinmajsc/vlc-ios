@@ -11,40 +11,40 @@
  *****************************************************************************/
 
 import Foundation
+import SwiftUI
 
 // Wrapper around VLCMLArtist to be used in SwiftUI view
-struct VLCWatchMLArtist {
+struct VLCWatchMLArtist: VLCWatchMLObject {
     let id: VLCMLIdentifier
     let name: String
+    var thumbnail: URL?
     let albumsCount: Int
     let tracksCount: Int
-    let thumbnail: URL?
+
+    private let _artist: VLCMLArtist
 
     init(_ artist: VLCMLArtist) {
+        self._artist = artist
         self.id = artist.identifier()
         self.name = artist.artistName()
         self.albumsCount = Int(artist.albumsCount())
         self.tracksCount = Int(artist.tracksCount())
-        self.thumbnail = artist.artworkMRL()
+    }
+
+    func albums() -> [VLCMLAlbum] {
+        return _artist.albums() ?? []
+    }
+
+    func tracks() -> [VLCMLMedia] {
+        return _artist.tracks() ?? []
     }
 }
 
 extension VLCWatchMLArtist: VLCWatchMLCellItem {
-    var titleText: String {
-        return name
-    }
-
-    var subtitleText: String {
-        return albumsCount == 0 ? numberOfTracksString() : String(format: "%@ · %@", numberOfAlbumsString(), numberOfTracksString())
-    }
-
-    private func numberOfTracksString() -> String {
-        let tracksString = tracksCount == 1 ? NSLocalizedString("TRACK", comment: "") : NSLocalizedString("TRACKS", comment: "")
-        return String(format: tracksString, tracksCount)
-    }
-
-    private func numberOfAlbumsString() -> String {
-        let albumsString = albumsCount == 1 ? NSLocalizedString("NB_ALBUM_FORMAT", comment: "") : NSLocalizedString("NB_ALBUMS_FORMAT", comment: "")
-        return String(format: albumsString, albumsCount)
+    func placeholderName(for color: ColorScheme) -> String {
+        return color == .light ? "artist-placeholder-white" : "artist-placeholder-dark"
     }
 }
+
+// Used for NavigationDestination
+extension VLCWatchMLArtist: Hashable { }

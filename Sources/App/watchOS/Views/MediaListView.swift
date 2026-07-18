@@ -12,32 +12,15 @@
 
 import SwiftUI
 
-protocol VLCWatchMLCellItem: Identifiable {
-    var id: VLCMLIdentifier { get }
-    var titleText: String { get }
-    var subtitleText: String { get }
-    var thumbnail: URL? { get }
+protocol VLCWatchMLCellItem {
+    func placeholderName(for color: ColorScheme) -> String
 }
 
-struct MediaListView<T: VLCWatchMLCellItem> : View {
-    @EnvironmentObject var contentViewModel: TracksViewModel
-    var items: [T]
-    var didTapCell: (T) -> Void
-
-    var body: some View {
-        List(items) { item in
-            MediaCellView(thumbnail: item.thumbnail, title: item.titleText, subtitle: item.subtitleText)
-                .onTapGesture {
-                    didTapCell(item)
-                }
-        }
-    }
-}
-
-struct MediaCellView: View {
-    var thumbnail: URL?
-    var title: String
-    var subtitle: String
+struct MediaCellView<Title: View, Subtitle: View>: View {
+    let titleView: Title
+    let subtitleView: Subtitle
+    let thumbnail: URL?
+    let placeholderImageName: String
 
     var body: some View {
         HStack {
@@ -46,19 +29,17 @@ struct MediaCellView: View {
                     .resizable()
                     .scaledToFit()
             } placeholder: {
-                Rectangle()
+                Image(placeholderImageName)
+                    .resizable()
+                    .scaledToFit()
             }
             .frame(width: 42, height: 42)
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
-            VStack(alignment: .leading) {
-                Text(title)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .lineLimit(1)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                titleView
+                subtitleView
             }
         }
     }
-
 }

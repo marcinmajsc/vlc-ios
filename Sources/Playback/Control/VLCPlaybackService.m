@@ -1738,7 +1738,12 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
 - (void)setNeedsMetadataUpdate
 {
-    VLCMLMedia *media = self->_mediaPlayer.media ? [VLCMLMedia mediaForPlayingMedia:self->_mediaPlayer.media] : nil;
+    [self setNeedsMetadataUpdateForMedia:self->_mediaPlayer.media];
+}
+
+- (void)setNeedsMetadataUpdateForMedia:(VLCMedia *)playingMedia
+{
+    VLCMLMedia *media = playingMedia ? [VLCMLMedia mediaForPlayingMedia:playingMedia] : nil;
     _currentlyPlayingLibraryMedia = media;
     [_metadata updateMetadataFromMedia:media mediaPlayer:_mediaPlayer];
 
@@ -2035,6 +2040,8 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         [self _findCachedSubtitlesForMedia:media];
 #endif
 
+        media.delegate = self;
+
         if ([self->_delegate respondsToSelector:@selector(playbackService:nextMedia:)]) {
             [self->_delegate playbackService:self nextMedia:media];
         }
@@ -2043,6 +2050,10 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         NSUInteger foundIndex = [currentMediaList indexOfMedia:media];
         if (foundIndex != NSNotFound)
             self->_currentIndex = (NSInteger)foundIndex;
+
+        [self setNeedsMetadataUpdateForMedia:media];
+        self->_currentlyPlayingLibraryMedia.isNew = NO;
+        [self->_metadata resetExposedTimingWithDuration:@(self->_currentlyPlayingLibraryMedia.duration / 1000.)];
 
         [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidMoveOnToNextItem
                                                             object:self];

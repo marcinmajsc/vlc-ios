@@ -13,39 +13,70 @@
 import Foundation
 
 class TracksViewModel: TrackModel, ObservableObject {
+    @Published var snapshotMedias: [VLCWatchMLMedia] = []
+    @Published var isFirstLoad = true
 
-    override var files: [VLCMLMedia] {
-        didSet {
-            DispatchQueue.main.async {
-                self.tracks = self.anyfiles.compactMap { (obj: VLCMLObject) -> VLCWatchMLMedia? in
-                    guard let media = obj as? VLCMLMedia else { return nil }
-                    return VLCWatchMLMedia(media)
+    lazy var playbackService = PlaybackService.sharedInstance()
+
+    required init(medialibrary: MediaLibraryService) {
+        super.init(medialibrary: medialibrary)
+
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleDidUpdateMLSyncState),
+                                               name: .VLCDidUpdateMLSyncStateNotification,
+                                               object: nil)
+    }
+
+    func play(mediaID: VLCMLIdentifier) {
+        guard let media: VLCMLMedia = files.first(where: { $0.identifier() == mediaID })
+        else {
+            print("TracksViewModel: mediaID \(mediaID) not found")
+            return
+        }
+
+        playbackService.play(media)
+        print("TracksViewModel: Playing track \"\(media.title)\" id: \(mediaID)")
+    }
+
+    func loadData(mlSyncIds: [MLSyncID]) {
+        loadTracks(mlSyncIds: mlSyncIds)
+        isFirstLoad = false
+    }
+
+    @objc func handleDidUpdateMLSyncState(_ notification: Notification) {
+        guard let mlSyncState = notification.object as? MLSyncState else { return }
+        loadSnapshotTracks(mlSyncIds: mlSyncState.mediaSyncIds)
+    }
+
+    private func loadTracks(mlSyncIds: [MLSyncID]) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.sort(by: .default, desc: true)
+            self.files = self.anyfiles as? [VLCMLMedia] ?? []
+            self.loadSnapshotTracks(mlSyncIds: mlSyncIds)
+        }
+    }
+
+    private func loadSnapshotTracks(mlSyncIds: [MLSyncID]) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let snapshotAudioFiles = VLCAppCoordinator.sharedInstance().snapshotMediaLibraryService.medialib.audioFiles() {
+                let snapshotMedias = snapshotAudioFiles.map { VLCWatchMLMedia($0) }.sorted { $0.id < $1.id}
+                DispatchQueue.main.async {
+                    self.snapshotMedias = snapshotMedias
+                    self.loadThumbnails(snapshotMedias: snapshotMedias, mlSyncIds: mlSyncIds)
                 }
             }
         }
     }
 
-    lazy var playbackService = PlaybackService.sharedInstance()
+    private func loadThumbnails(snapshotMedias: [VLCWatchMLMedia], mlSyncIds: [MLSyncID]) {
+        for i in 0..<snapshotMedias.count {
+            guard let mediaId = mlSyncIds.first(where: { $0.iphoneMediaId == snapshotMedias[i].id })?.watchMediaId,
+                  let media = self.files.first(where: { $0.identifier() == mediaId })
+            else {
+                continue
+            }
 
-    @Published var tracks: [VLCWatchMLMedia] = []
-    @Published var isFirstLoad = true
-
-    required init(medialibrary: MediaLibraryService) {
-        super.init(medialibrary: medialibrary)
-        medialibrary.observable.addObserver(self)
-    }
-
-    func play(media: VLCWatchMLMedia) {
-        guard let mlMedia = files.first(where: { $0.identifier() == media.id }) else { return }
-        playbackService.play(mlMedia)
-        print("Playing media: \(media.title)")
-    }
-
-    func loadTracks() {
-        DispatchQueue.global(qos: .userInitiated).async {
-            self.sort(by: .default, desc: true)
-            self.files = self.anyfiles as? [VLCMLMedia] ?? []
+            self.snapshotMedias[i].thumbnail = media.thumbnail()
         }
-        isFirstLoad = false
     }
 }

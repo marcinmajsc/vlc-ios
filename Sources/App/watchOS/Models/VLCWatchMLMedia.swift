@@ -11,32 +11,39 @@
  *****************************************************************************/
 
 import Foundation
+import SwiftUI
+
+protocol VLCWatchMLObject: Identifiable {
+    var id: VLCMLIdentifier { get }
+}
 
 // Wrapper around VLCMLMedia to be used in SwiftUI view
-struct VLCWatchMLMedia: Identifiable {
+struct VLCWatchMLMedia: VLCWatchMLObject {
     let id: VLCMLIdentifier
     let title: String
-    let artist: VLCMLArtist?    // TODO: VLCMLArtist is a class, is this fine to have as field for SwiftUI struct?
-    let thumbnail: URL?
+    var thumbnail: URL?
     let trackNumber: Int
 
-    var showTrackNumber: Bool = false
+    let artist: VLCMLArtist?
 
     init(_ media: VLCMLMedia) {
         self.id = media.identifier()
         self.title = media.title
-        self.artist = media.artist
-        self.thumbnail = media.thumbnail()
         self.trackNumber = Int(media.trackNumber)
+        self.artist = media.artist
+    }
+
+    func isDownloaded(_ mediaSyncIds: [MLSyncID]) -> Bool {
+        guard let mediaId = mediaSyncIds.first(where: { $0.iphoneMediaId == id })?.watchMediaId else { return false }
+        return mediaSyncIds.downloadedMediaIds.contains(mediaId)
     }
 }
 
 extension VLCWatchMLMedia: VLCWatchMLCellItem {
-    var titleText: String {
-        return showTrackNumber ? "\(trackNumber). \(title)" : title
-    }
-
-    var subtitleText: String {
-        return artist?.artistName() ?? ""
+    func placeholderName(for color: ColorScheme) -> String {
+        return color == .light ? "song-placeholder-white" : "song-placeholder-dark"
     }
 }
+
+// Used for NavigationDestination
+extension VLCWatchMLMedia: Hashable {}

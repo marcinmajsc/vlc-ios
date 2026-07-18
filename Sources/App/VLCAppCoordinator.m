@@ -52,7 +52,7 @@
     dispatch_once(&pred, ^{
         sharedInstance = [VLCAppCoordinator new];
         if (sharedInstance) {
-            sharedInstance->_mediaLibraryService = [[MediaLibraryService alloc] init];
+            sharedInstance->_mediaLibraryService = [[MediaLibraryService alloc] initWithLibraryType:MLServiceTypeMediaLibrary];
         }
     });
 
@@ -74,11 +74,10 @@
 - (MediaLibraryService *)mediaLibraryService
 {
     if (!_mediaLibraryService) {
-        _mediaLibraryService = [[MediaLibraryService alloc] init];
+        _mediaLibraryService = [[MediaLibraryService alloc] initWithLibraryType:MLServiceTypeMediaLibrary];
     }
     return _mediaLibraryService;
 }
-
 
 - (VLCFavoriteService *)favoriteService
 {
@@ -173,12 +172,14 @@
     [_tabBarController.view addSubview:_playerDisplayController.view];
     _playerDisplayController.view.layoutMargins = UIEdgeInsetsMake(0, 0, tabBarController.tabBar.frame.size.height, 0);
     _playerDisplayController.realBottomAnchor = tabBarController.tabBar.topAnchor;
+    _playerDisplayController.miniPlayerReferenceTabBar = tabBarController.tabBar;
 
     if (@available(iOS 18.0, *)) {
         if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad) {
             // Adjust the margins and the constraint to the previous tab bar appearance on iPadOS
             _playerDisplayController.view.layoutMargins = UIEdgeInsetsMake(0, 0, tabBarController.bottomBar.frame.size.height, 0);
             _playerDisplayController.realBottomAnchor = tabBarController.view.safeAreaLayoutGuide.bottomAnchor;
+            _playerDisplayController.miniPlayerReferenceTabBar = nil;
         }
     }
 
@@ -200,7 +201,7 @@
     VLCMLIdentifier identifier = 0;
     NSDictionary *userInfo = userActivity.userInfo;
 
-    if (userActivity.activityType == CSSearchableItemActionType) {
+    if ([userActivity.activityType isEqualToString:CSSearchableItemActionType]) {
         identifier = [userInfo[CSSearchableItemActivityIdentifier] integerValue];
     } else {
         identifier = [userInfo[@"playingmedia"] integerValue];

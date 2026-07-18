@@ -16,7 +16,7 @@ import WatchConnectivity
 
 class VLCWatchAppDelegate: NSObject, WKApplicationDelegate {
 
-    private lazy var sessionDelegate: VLCSessionDelegate = {
+    lazy var sessionDelegate: VLCSessionDelegate = {
         return VLCSessionDelegate()
     }()
 

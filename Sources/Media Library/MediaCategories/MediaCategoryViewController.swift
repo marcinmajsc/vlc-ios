@@ -275,6 +275,18 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 
     private lazy var fabButton: UIButton = {
         let button = UIButton(type: .system)
+        button.addTarget(self, action: #selector(fabButtonPressed), for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+#if !os(visionOS)
+        if #available(iOS 26.0, *) {
+            var config: UIButton.Configuration = .prominentGlass()
+            config.baseBackgroundColor = PresentationTheme.current.colors.orangeUI
+            config.baseForegroundColor = .white
+            config.cornerStyle = .capsule
+            button.configuration = config
+            return button
+        }
+#endif
         button.backgroundColor = PresentationTheme.current.colors.orangeUI
         button.tintColor = PresentationTheme.current.colors.background
         button.layer.cornerRadius = 26.5
@@ -283,9 +295,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         button.layer.shadowOffset = CGSize(width: 0.0, height: 2.0)
         button.layer.shadowRadius = 4.0
         button.layer.shadowOpacity = 0.3
-        button.layer.shadowPath = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 55, height: 55)).cgPath
-        button.addTarget(self, action: #selector(fabButtonPressed), for: .touchUpInside)
-        button.translatesAutoresizingMaskIntoConstraints = false
+        button.layer.shadowPath = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 50, height: 50)).cgPath
         return button
     }()
 
@@ -556,7 +566,9 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
            model.mediaCollection is VLCMLAlbum {
             statusBarView.removeFromSuperview()
             view.addSubview(searchBar)
-            AppearanceManager.setupUserInterfaceStyle(theme: PresentationTheme.current)
+            if #unavailable(iOS 26.0) {
+                AppearanceManager.setupUserInterfaceStyle(theme: PresentationTheme.current)
+            }
         }
     }
 
@@ -575,9 +587,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             }
         }
 
-#if compiler(>=6.0)
         NotificationCenter.default.addObserver(self, selector: #selector(handleEditToolBar), name: Notification.Name("sidebarVisibilityChanged"), object: nil)
-#endif
 #endif
         PlaybackService.sharedInstance().setPlayerHidden(isEditing)
 
@@ -737,7 +747,9 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             marqueeLabel.textColor = colors.navigationbarTextColor
         }
 
-        fabButton.tintColor = colors.background
+        if #unavailable(iOS 26.0) {
+            fabButton.tintColor = colors.background
+        }
         editToolBar.backgroundColor = colors.tabBarColor
     }
 
@@ -922,7 +934,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 
     private func activeEditToolbar() -> EditToolbar {
         (tabBarController as? BottomTabBarController)?.ensureEditToolbarSetup()
-#if os(iOS) && compiler(>=6.0)
+#if os(iOS)
         if #available(iOS 18.0, *),
            UIDevice.current.userInterfaceIdiom == .pad,
            let tabBarController = tabBarController,
@@ -945,7 +957,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         toolBar.isHidden = isEditing ? false : true
     }
 
-#if os(iOS) && compiler(>=6.0)
+#if os(iOS)
     @objc private func handleEditToolBar() {
         guard #available(iOS 18.0, *),
               UIDevice.current.userInterfaceIdiom == .pad,
@@ -1377,7 +1389,7 @@ extension MediaCategoryViewController {
 
     private func setupSortButton() -> UIButton {
         // Fetch sortButton configuration from MediaVC
-        let sortButton = UIButton(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+        let sortButton = UIButton(frame: CGRect(x: 0, y: 0, width: 50, height: 50))
         sortButton.setImage(UIImage(named: "sort"), for: .normal)
         sortButton.addTarget(self,
                              action: #selector(handleSort),
@@ -1863,13 +1875,34 @@ private extension MediaCategoryViewController {
                     guard let self,
                           let modelContent,
                           let media = modelContent as? VLCMLMedia,
-                          let mrl = media.mainFile()?.mrl
+                          let mrl = media.mainFile()?.mrl,
+                          let albumTitle = media.album?.title,
+                          let artistName = media.artist?.name
                     else { return }
 
-                    print("Transferring file to watch: \(media.title)")
-                    print("File mrl: \(mrl)")
-                    watchService.transferFile(mrl, metadata: TestDataProvider.fileMetaData())
-                    // watchServie.transferFile(TestDataProvider.file(), metadata: TestDataProvider.fileMetaData())
+                    let librarySyncId: String
+
+                    if let existingId = UserDefaults.standard.string(forKey: kVLCMediaLibrarySyncID) {
+                        librarySyncId = existingId
+                    } else {
+                        let newId = UUID().uuidString
+                        UserDefaults.standard.set(newId, forKey: kVLCMediaLibrarySyncID)
+                        librarySyncId = newId
+                    }
+
+                    let payload: [String: Any] = [
+                        kVLCWatchMessageType: WatchMessageType.transferAudioFile.rawValue,
+                        kVLCMediaLibrarySyncID: librarySyncId,
+                        kVLCiPhoneMediaID: media.identifier(),
+                        kVLCiPhoneMediaFileName: media.fileName(),
+                        kVLCiPhoneAlbumID: media.albumId,
+                        kVLCiPhoneAlbumName: albumTitle,
+                        kVLCiPhoneArtistID: media.artistId,
+                        kVLCiPhoneArtistName: artistName
+                    ]
+
+                    print("Transferring file to watch: \(media.title) (\(mrl)) with payload \n\(payload)")
+                    watchService.transferFile(mrl, metadata: payload)
                     #endif
                 })
             case .transferUserInfo:
@@ -1896,6 +1929,37 @@ private extension MediaCategoryViewController {
 
                     // For testing
                     watchService.transferCurrentComplicationUserInfo(TestDataProvider.currentComplicationInfo())
+                    #endif
+                })
+            case .transferMetadata:
+                return $0.action({ _ in
+                    #if (os(iOS) || os(watchOS)) && !NO_WATCH
+                    guard let libraryDirectory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first else {
+                        return
+                    }
+
+                    let databaseURL = libraryDirectory
+                        .appendingPathComponent("MediaLibrary")
+                        .appendingPathComponent(kVLCMediaLibraryDBFileName)
+
+                    if FileManager.default.fileExists(atPath: databaseURL.path) {
+                        let librarySyncId: String
+
+                        if let existingId = UserDefaults.standard.string(forKey: kVLCMediaLibrarySyncID) {
+                            librarySyncId = existingId
+                        } else {
+                            let newId = UUID().uuidString
+                            UserDefaults.standard.set(newId, forKey: kVLCMediaLibrarySyncID)
+                            librarySyncId = newId
+                        }
+
+                        let payload: [String: Any] = [
+                            kVLCWatchMessageType: WatchMessageType.transferiPhoneMediaLibraryDBFile.rawValue,
+                            kVLCMediaLibrarySyncID: librarySyncId
+                        ]
+
+                        self.watchService.transferFile(databaseURL, metadata: payload)
+                    }
                     #endif
                 })
             }
@@ -1964,17 +2028,28 @@ extension MediaCategoryViewController {
             createSpotlightItem(media: media)
 #endif
         } else if let artist = modelContent as? VLCMLArtist {
-            let artistViewController = ArtistViewController(mediaLibraryService: mediaLibraryService, mediaCollection: artist)
-            navigationController?.pushViewController(artistViewController, animated: true)
+            if artist.albumsCount() == 1,
+               let album = artist.albums()?.first,
+               album.numberOfTracks() == artist.tracksCount() {
+                // Single album and no non-album tracks: skip the artist view
+                pushCollectionViewController(for: album)
+            } else {
+                let artistViewController = ArtistViewController(mediaLibraryService: mediaLibraryService, mediaCollection: artist)
+                navigationController?.pushViewController(artistViewController, animated: true)
+            }
         } else if let mediaCollection = modelContent as? MediaCollectionModel {
-            let collectionViewController = CollectionCategoryViewController(mediaLibraryService,
-                                                                            mediaCollection: mediaCollection)
-
-            collectionViewController.delegate = delegate
-            collectionViewController.navigationItem.rightBarButtonItems = collectionViewController.rightBarButtonItems()
-
-            navigationController?.pushViewController(collectionViewController, animated: true)
+            pushCollectionViewController(for: mediaCollection)
         }
+    }
+
+    private func pushCollectionViewController(for mediaCollection: MediaCollectionModel) {
+        let collectionViewController = CollectionCategoryViewController(mediaLibraryService,
+                                                                        mediaCollection: mediaCollection)
+
+        collectionViewController.delegate = delegate
+        collectionViewController.navigationItem.rightBarButtonItems = collectionViewController.rightBarButtonItems()
+
+        navigationController?.pushViewController(collectionViewController, animated: true)
     }
 
     override func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -2811,10 +2886,10 @@ extension MediaCategoryViewController {
 
         switch action {
         case .shuffleAudio:
-            fabButton.setImage(UIImage(named: "shuffle")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            setFABButtonImage(UIImage(named: "shuffle")?.withRenderingMode(.alwaysTemplate))
             fabButton.accessibilityLabel = NSLocalizedString("SHUFFLE", comment: "")
         case .playAllVideo:
-            fabButton.setImage(UIImage(named: "iconPlay")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            setFABButtonImage(UIImage(named: "iconPlay")?.withRenderingMode(.alwaysTemplate))
             fabButton.accessibilityLabel = NSLocalizedString("PLAY_ALL_BUTTON", comment: "")
         }
 
@@ -2822,6 +2897,18 @@ extension MediaCategoryViewController {
 
         setFABButtonConstraints()
         handleFABButtonVisibility()
+    }
+
+    private func setFABButtonImage(_ image: UIImage?) {
+#if !os(visionOS)
+        if #available(iOS 26.0, *), fabButton.configuration != nil {
+            var config = fabButton.configuration
+            config?.image = image
+            fabButton.configuration = config
+            return
+        }
+#endif
+        fabButton.setImage(image, for: .normal)
     }
 
     @objc private func fabButtonPressed() {
@@ -2852,8 +2939,8 @@ extension MediaCategoryViewController {
 
         NSLayoutConstraint.activate([
             fabButton.trailingAnchor.constraint(equalTo: layoutGuide.trailingAnchor, constant: -15),
-            fabButton.widthAnchor.constraint(equalToConstant: 55),
-            fabButton.heightAnchor.constraint(equalToConstant: 55)
+            fabButton.widthAnchor.constraint(equalToConstant: 44),
+            fabButton.heightAnchor.constraint(equalToConstant: 44)
         ])
 
         updateFABButtonBottomConstraint()
@@ -2862,11 +2949,12 @@ extension MediaCategoryViewController {
     // iPadOS 18+ keeps the tab bar at the top in regular width, but moves it back to
     // the bottom in compact width, so the anchor has to follow window resizes.
     private func updateFABButtonBottomConstraint() {
-        guard let tabBar = tabBarController?.tabBar,
+        guard fabButton.superview != nil,
+              let tabBar = tabBarController?.tabBar,
               let containerView = tabBarController?.view else { return }
 
         let anchorsToContainerBottom: Bool
-#if os(iOS) && compiler(>=6.0)
+#if os(iOS)
         if #available(iOS 18.0, *), UIDevice.current.userInterfaceIdiom == .pad {
             anchorsToContainerBottom = traitCollection.horizontalSizeClass == .regular
         } else {
