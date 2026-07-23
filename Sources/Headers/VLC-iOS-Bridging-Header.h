@@ -7,6 +7,7 @@
 #import "VLCConstants.h"
 #import "VLCMigrationCursor.h"
 #import "VLCTransferController.h"
+#import "VLCSubscriptionCacher.h"
 #import "VLCTransferViewController.h"
 #import "VLCEmptyLibraryView.h"
 #import "VLCOpenNetworkStreamViewController.h"
@@ -53,8 +54,6 @@
 #import "VLCMediaList+M3U.h"
 
 #if TARGET_OS_IOS
-#import "IASKSettingsReader.h"
-#import "IASKSwitch.h"
 #import <AppAuth/AppAuth.h>
 #import <ObjectiveDropboxOfficial/ObjectiveDropboxOfficial.h>
 #import "VLCGoogleDriveTableViewController.h"

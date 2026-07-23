@@ -56,10 +56,10 @@ NSString *VLCCarPlayFolderMediaIndex = @"VLCCarPlayFolderMediaIndex";
 
         NSString *detailText = @"";
         if (subfolder.duration > 0) {
-            detailText = [NSString stringWithFormat:NSLocalizedString(@"TRACKS_DURATION", nil),
+            detailText = [NSString localizedStringWithFormat:NSLocalizedString(@"TRACKS_DURATION", nil),
                           subfolder.nbAudio, [VLCTime timeWithNumber:@(subfolder.duration)].stringValue];
         }
-        CPListItem *listItem = [[CPListItem alloc] initWithText:subfolder.mrl.lastPathComponent
+        CPListItem *listItem = [[CPListItem alloc] initWithText:subfolder.name
                                                      detailText:detailText
                                                           image:folderIcon];
         listItem.userInfo = subfolder;
@@ -67,7 +67,7 @@ NSString *VLCCarPlayFolderMediaIndex = @"VLCCarPlayFolderMediaIndex";
                              dispatch_block_t completionBlock) {
             VLCMLFolder *subfolder = item.userInfo;
             CPListSection *subitemsSection = [[CPListSection alloc] initWithItems:[self listOfItemsForFolder:subfolder]];
-            CPListTemplate *subitemsTemplate = [[CPListTemplate alloc] initWithTitle:subfolder.mrl.lastPathComponent
+            CPListTemplate *subitemsTemplate = [[CPListTemplate alloc] initWithTitle:subfolder.name
                                                                             sections:@[subitemsSection]];
             [self.interfaceController pushTemplate:subitemsTemplate animated:YES];
             completionBlock();

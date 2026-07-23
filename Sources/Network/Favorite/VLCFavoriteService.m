@@ -19,10 +19,12 @@ NSString *VLCFavoriteURL = @"VLCFavoriteURL";
 NSString *VLCFavoriteArray = @"VLCFavoriteArray";
 NSString *VLCFavoriteGroupName = @"VLCFavoriteGroupName";
 NSString *VLCFavoriteArtworkURL = @"VLCFavoriteArtworkURL";
+NSString *VLCFavoriteMediaDescription = @"VLCFavoriteMediaDescription";
 NSString *VLCFavoritePlayable = @"VLCFavoritePlayable";
 NSString *VLCFavoritesFile = @"Favorites.plist";
 NSString *VLCTransitionedUPnPFavorites = @"VLCTransitionedUPnPFavorites";
 NSString *const VLCFavoriteGroupRadio = @"radio";
+NSString *const VLCFavoriteServiceContentDidChange = @"VLCFavoriteServiceContentDidChange";
 
 @implementation VLCFavorite
 
@@ -34,6 +36,7 @@ NSString *const VLCFavoriteGroupRadio = @"radio";
         self.url = [coder decodeObjectForKey:VLCFavoriteURL];
         self.groupName = [coder decodeObjectForKey:VLCFavoriteGroupName];
         self.artworkURL = [coder decodeObjectForKey:VLCFavoriteArtworkURL];
+        self.mediaDescription = [coder decodeObjectForKey:VLCFavoriteMediaDescription];
         self.playable = [coder decodeBoolForKey:VLCFavoritePlayable];
     }
     return self;
@@ -45,6 +48,7 @@ NSString *const VLCFavoriteGroupRadio = @"radio";
     [coder encodeObject:self.url forKey:VLCFavoriteURL];
     [coder encodeObject:self.groupName forKey:VLCFavoriteGroupName];
     [coder encodeObject:self.artworkURL forKey:VLCFavoriteArtworkURL];
+    [coder encodeObject:self.mediaDescription forKey:VLCFavoriteMediaDescription];
     [coder encodeBool:self.playable forKey:VLCFavoritePlayable];
 }
 
@@ -178,6 +182,7 @@ NSString *const VLCFavoriteGroupRadio = @"radio";
             NSData *data = [NSKeyedArchiver archivedDataWithRootObject:self->_favoriteContentArray requiringSecureCoding:NO error:nil];
             [data writeToFile:self->_filePath atomically:YES];
         }
+        [[NSNotificationCenter defaultCenter] postNotificationName:VLCFavoriteServiceContentDidChange object:self];
     });
 }
 
@@ -322,6 +327,35 @@ NSString *const VLCFavoriteGroupRadio = @"radio";
                     [_favoriteContentArray removeObjectAtIndex:serverIndex];
                     [_serverIdentifierArray removeObjectAtIndex:serverIndex];
                 } else {
+                    [_favoriteContentArray replaceObjectAtIndex:serverIndex withObject:server];
+                }
+                break;
+            }
+        }
+    }
+    [self storeContent];
+}
+
+- (void)moveFavoriteToFront:(VLCFavorite *)favorite
+{
+    NSString *identifier = favorite.groupIdentifier;
+    if (!identifier) {
+        return;
+    }
+    @synchronized (_favoriteContentArray) {
+        NSInteger serverIndex = [_serverIdentifierArray indexOfObject:identifier];
+        if (serverIndex == NSNotFound) {
+            return;
+        }
+        VLCFavoriteServer *server = _favoriteContentArray[serverIndex];
+        NSMutableArray *favorites = server.favorites;
+        NSUInteger count = favorites.count;
+        for (NSUInteger index = 0; index < count; index++) {
+            VLCFavorite *iter = favorites[index];
+            if ([iter.url isEqual:favorite.url]) {
+                if (index != 0) {
+                    [favorites removeObjectAtIndex:index];
+                    [favorites insertObject:iter atIndex:0];
                     [_favoriteContentArray replaceObjectAtIndex:serverIndex withObject:server];
                 }
                 break;

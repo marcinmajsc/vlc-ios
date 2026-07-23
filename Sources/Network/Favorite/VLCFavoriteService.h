@@ -16,6 +16,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT NSString *const VLCFavoriteGroupRadio;
+FOUNDATION_EXPORT NSString *const VLCFavoriteServiceContentDidChange;
 
 @interface VLCFavorite : NSObject
 
@@ -23,6 +24,7 @@ FOUNDATION_EXPORT NSString *const VLCFavoriteGroupRadio;
 @property (readwrite, retain) NSURL *url;
 @property (readwrite, retain, nullable) NSString *groupName;
 @property (readwrite, retain, nullable) NSURL *artworkURL;
+@property (readwrite, retain, nullable) NSString *mediaDescription;
 @property (readwrite) BOOL playable;
 @property (readonly) NSString *protocolIdentifier;
 @property (readonly, nullable) NSString *groupIdentifier;
@@ -45,6 +47,7 @@ FOUNDATION_EXPORT NSString *const VLCFavoriteGroupRadio;
 
 - (void)addFavorite:(VLCFavorite *)favorite;
 - (void)removeFavorite:(VLCFavorite *)favorite;
+- (void)moveFavoriteToFront:(VLCFavorite *)favorite;
 - (void)removeFavoriteOfServerWithIndex:(NSInteger)serverIndex atIndex:(NSInteger)favoriteIndex;
 
 - (void)storeContentSynchronously;

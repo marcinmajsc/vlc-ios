@@ -10,6 +10,7 @@
  *****************************************************************************/
 
 #if !os(watchOS)
+import AppIntents
 import CoreSpotlight
 #endif
 
@@ -169,6 +170,17 @@ extension VLCMLMedia {
                 attributeSet.album = album.title
             }
         }
+
+        if #available(iOS 18.4, visionOS 2.4, *), type() == .video {
+            attributeSet.associateAppEntity(VideoEntity(media: self), priority: isFavorite() ? 10 : 1)
+        }
+
+        // iOS 27 SDK
+#if canImport(MediaIntents)
+        if #available(iOS 27, *), type() == .audio {
+            attributeSet.associateAppEntity(SongEntity(media: self), priority: isFavorite() ? 10 : 1)
+        }
+#endif
 
         return attributeSet
     }

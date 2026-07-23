@@ -276,6 +276,7 @@ private extension AudioMiniPlayer {
     private func setupInfo(modern: Bool) {
         artworkImageView.translatesAutoresizingMaskIntoConstraints = false
         artworkImageView.clipsToBounds = true
+        artworkImageView.contentMode = .scaleAspectFit
         artworkImageView.accessibilityIgnoresInvertColors = true
         artworkImageView.layer.cornerRadius = modern ? 8 : 2
 
@@ -810,7 +811,7 @@ extension AudioMiniPlayer: UIContextMenuInteractionDelegate {
         do {
             let shuffleState: UIMenuElement.State = playbackService.isShuffleMode ? .on : .off
             let shuffleIconTint: UIColor = playbackService.isShuffleMode ? PresentationTheme.current.colors.orangeUI : defaultButtonColor
-            let shuffleIcon = shuffleButton.image(for: .normal)?.withTintColor(shuffleIconTint, renderingMode: .alwaysOriginal)
+            let shuffleIcon = UIImage(named: "iconShuffle")?.withTintColor(shuffleIconTint, renderingMode: .alwaysOriginal)
             actions.append(
                 UIAction(title: shuffleButton.currentTitle ?? NSLocalizedString("SHUFFLE", comment: ""),
                          image: shuffleIcon, state: shuffleState) {
@@ -877,6 +878,14 @@ extension AudioMiniPlayer: UIContextMenuInteractionDelegate {
 
     private func addContextMenu() {
         audioMiniPlayer.addInteraction(UIContextMenuInteraction(delegate: self))
+    }
+}
+
+// MARK: - ZoomTransitionEndpoint
+
+extension AudioMiniPlayer: ZoomTransitionEndpoint {
+    var zoomTransitionArtworkView: UIImageView? {
+        return artworkImageView
     }
 }
 

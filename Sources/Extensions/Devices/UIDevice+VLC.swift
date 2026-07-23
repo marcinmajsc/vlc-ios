@@ -12,36 +12,19 @@
 
 @objc extension UIDevice {
 
-    @objc(VLCHasExternalDisplay)
-    var hasExternalDisplay: Bool {
-        #if os(iOS) || os(tvOS)
-        if UIScreen.screens.count <= 1 {
-            return false
-        }
-        #endif
-
-        if #available(iOS 13.0, tvOS 13.0, visionOS 1.0, *) {
-            for scene in UIApplication.shared.connectedScenes {
-                if scene.session.role.rawValue == "CPTemplateApplicationSceneSessionRoleApplication" {
-                    return false
-                }
-#if !os(iOS) && !os(tvOS)
-                // visionOS
-                if scene.session.role.rawValue == "UIWindowSceneSessionRoleApplication" {
-                    return false
-                }
-#endif
-            }
-        }
-        return true
+    @available(*, deprecated, message: "read safeAreaInsets from the view's own window instead")
+    static var keyWindowSafeAreaInsets: UIEdgeInsets {
+        let keyWindow = UIApplication.shared.windows.filter {$0.isKeyWindow}.first
+        return keyWindow?.safeAreaInsets ?? .zero
     }
 
+    @available(*, deprecated, message: "read safeAreaInsets from the view's own window instead")
     @objc(VLCDeviceHasSafeArea)
     static var hasSafeArea: Bool {
-        let keyWindow = UIApplication.shared.windows.filter {$0.isKeyWindow}.first
-        return keyWindow?.safeAreaInsets.bottom ?? 0 > 0
+        return keyWindowSafeAreaInsets.bottom > 0
     }
 
+    @available(*, deprecated, message: "read safeAreaInsets from the view's own window instead")
     static var hasNotch: Bool {
         return hasSafeArea
     }

@@ -134,6 +134,13 @@
 
 "RADIO" = "Radio";
 "RADIOVC_DETAILTEXT" = "Listen to radio stations from around the world";
+"COUNTRIES" = "Countries";
+"ALL_COUNTRIES" = "All Countries";
+"SEE_ALL" = "See All";
+"STATION_COUNT" = "%lu stations";
+"RADIO_COUNTRIES_LOADING_FAILED" = "Couldn't load the list of countries. Please check your connection and try again.";
+"RADIO_STATIONS_LOADING_FAILED" = "Couldn't load the stations. Please check your connection and try again.";
+"BUTTON_RETRY" = "Retry";
 "BITRATE_FORMAT" = "%li kb/s";
 "FAVORITEVC_DETAILTEXT" = "See your favorite folders";
 "STREAMVC_DETAILTEXT" = "Play streams directly without downloading";
@@ -153,7 +160,7 @@
 
 "LOCAL_SERVER_REFRESH" = "Refresh";
 "LOCAL_SERVER_LAST_UPDATE" = "Last Updated on %@";
-"LOCAL_SERVER_CONNECTION_FAILED_TITLE" = "SERVER CONNECTION FAILED";
+"LOCAL_SERVER_CONNECTION_FAILED_TITLE" = "Connection to server failed";
 "LOCAL_SERVER_CONNECTION_FAILED_MESSAGE" = "Please check your server address and credentials";
 
 "FILES_APP_CELL_TITLE" = "Local files";
@@ -589,7 +596,6 @@
 "SETTINGS_PLAYLIST_PLAY_ALL" = "Seamless playback for playlists";
 "SETTINGS_PLAYLIST_PLAY_ALL_HINT" = "Enable to automatically play the next media in a playlist";
 
-"SETTINGS_DOCUMENTATION" = "Documentation";
 
 // MARK: - Local Network
 
@@ -725,6 +731,35 @@
 "APPINTENT_PLAY_MEDIA_DESCRIPTION" = "Play the selected playlist in the background without opening the app.";
 "APPINTENT_PLAY_MEDIA_PLAY_${mediaName}" = "Play ${mediaName} in the background";
 
+// MARK: - Audio App Intent Strings
+"APPINTENT_ERROR_NO_MEDIA" = "No matching media was found in your library.";
+"APPINTENT_ERROR_PLAYLIST_UPDATE" = "The playlist could not be updated.";
+"APPINTENT_AFFINITY_FAVORITE" = "Favorite";
+"APPINTENT_AFFINITY_NOT_FAVORITE" = "Not a Favorite";
+"APPINTENT_AFFINITY_UNSET" = "Unset";
+
+// MARK: - Video App Intent Strings
+"APPINTENT_PLAY_VIDEO_TITLE" = "Play Video";
+"APPINTENT_PLAY_VIDEO_DESCRIPTION" = "Play a video from your library.";
+"APPINTENT_PLAY_VIDEO_PARAM" = "Video";
+"APPINTENT_PLAY_VIDEO_PLAY_${video}" = "Play ${video}";
+
+// MARK: - AppShortcut Strings
+"APPSHORTCUT_PLAY_MEDIA_SHORT_TITLE" = "Play Media";
+"APPSHORTCUT_PLAY_MEDIA_PHRASE_PLAY_${applicationName}" = "Play media in ${applicationName}";
+"APPSHORTCUT_PLAY_MEDIA_PHRASE_PLAYLIST_${applicationName}" = "Play a playlist in ${applicationName}";
+"APPSHORTCUT_PLAY_MEDIA_PHRASE_START_${applicationName}" = "Start playback in ${applicationName}";
+"APPSHORTCUT_PLAY_AUDIO_SHORT_TITLE" = "Play Audio";
+"APPSHORTCUT_PLAY_AUDIO_PHRASE_PLAY_${applicationName}" = "Play audio in ${applicationName}";
+"APPSHORTCUT_PLAY_AUDIO_PHRASE_SONG_${applicationName}" = "Play a song in ${applicationName}";
+"APPSHORTCUT_PLAY_VIDEO_SHORT_TITLE" = "Play Video";
+"APPSHORTCUT_PLAY_VIDEO_PHRASE_PLAY_${applicationName}" = "Play a video in ${applicationName}";
+"APPSHORTCUT_PLAY_VIDEO_PHRASE_WATCH_${applicationName}" = "Watch a video in ${applicationName}";
+"APPSHORTCUT_ADD_TO_PLAYLIST_SHORT_TITLE" = "Add to Playlist";
+"APPSHORTCUT_ADD_TO_PLAYLIST_PHRASE_${applicationName}" = "Add a song to a playlist in ${applicationName}";
+"APPSHORTCUT_UPDATE_AFFINITY_SHORT_TITLE" = "Favorite";
+"APPSHORTCUT_UPDATE_AFFINITY_PHRASE_${applicationName}" = "Favorite audio in ${applicationName}";
+
 // MARK: - VerticalSliderControl Strings
 "VERTICAL_SLIDER_CONTROL_ACCESSIBILITY_LABEL" = "Vertical slider";
 "VERTICAL_SLIDER_CONTROL_INCREMENT_ACTION" = "Increment";
@@ -747,7 +782,8 @@
 "EMPTY_FOLDER" = "Empty Folder";
 "EMPTY_FOLDER_DES_VIDEO" = "We couldn't find any videos here. This folder may still contain audio files.";
 "EMPTY_FOLDER_DES_AUDIO" = "We couldn't find any audio files here. This folder may still contain videos.";
-"SUBFOLDERS_DESCRIPTION" = "%d subfolders";
+"SUBFOLDER_DESCRIPTION" = "1 folder";
+"SUBFOLDERS_DESCRIPTION" = "%d folders";
 
 "ACCESSIBILITY_SELECTED" = "selected";
 "TRACK_SELECTOR_OFF" = "Off";

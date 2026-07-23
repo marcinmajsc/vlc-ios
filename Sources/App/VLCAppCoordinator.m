@@ -16,6 +16,7 @@
 #import "VLCHTTPUploaderController.h"
 #import "VLCTransferController.h"
 #import "VLCFavoriteService.h"
+#import "VLCRadioCountryService.h"
 #import "VLCStripeController.h"
 #import "VLC-Swift.h"
 
@@ -23,6 +24,7 @@
 {
     MediaLibraryService *_mediaLibraryService;
     VLCFavoriteService *_favoriteService;
+    VLCRadioCountryService *_radioCountryService;
     VLCHTTPUploaderController *_httpUploaderController;
     VLCTransferController *_transferController;
     VLCRemoteControlService *_remoteControlService;
@@ -86,6 +88,15 @@
     }
 
     return _favoriteService;
+}
+
+- (VLCRadioCountryService *)radioCountryService
+{
+    if (!_radioCountryService) {
+        _radioCountryService = [[VLCRadioCountryService alloc] init];
+    }
+
+    return _radioCountryService;
 }
 
 - (void)initializeServices
@@ -170,14 +181,14 @@
 
     _playerDisplayController = [[VLCPlayerDisplayController alloc] init];
     [_tabBarController.view addSubview:_playerDisplayController.view];
-    _playerDisplayController.view.layoutMargins = UIEdgeInsetsMake(0, 0, tabBarController.tabBar.frame.size.height, 0);
+    _playerDisplayController.view.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(0, 0, tabBarController.tabBar.frame.size.height, 0);
     _playerDisplayController.realBottomAnchor = tabBarController.tabBar.topAnchor;
     _playerDisplayController.miniPlayerReferenceTabBar = tabBarController.tabBar;
 
     if (@available(iOS 18.0, *)) {
         if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad) {
             // Adjust the margins and the constraint to the previous tab bar appearance on iPadOS
-            _playerDisplayController.view.layoutMargins = UIEdgeInsetsMake(0, 0, tabBarController.bottomBar.frame.size.height, 0);
+            _playerDisplayController.view.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(0, 0, tabBarController.bottomBar.frame.size.height, 0);
             _playerDisplayController.realBottomAnchor = tabBarController.view.safeAreaLayoutGuide.bottomAnchor;
             _playerDisplayController.miniPlayerReferenceTabBar = nil;
         }

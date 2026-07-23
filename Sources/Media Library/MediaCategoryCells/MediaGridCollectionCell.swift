@@ -98,6 +98,8 @@ class MediaGridCollectionCell: BaseCollectionViewCell {
 
     private let separatorLabel = UILabel()
 
+    private var isFolder = false
+
     override var media: VLCMLObject? {
         didSet {
             if let media = media as? VLCMLMedia {
@@ -314,9 +316,10 @@ class MediaGridCollectionCell: BaseCollectionViewCell {
     }
 
     func update(folder: VLCMLFolder) {
+        isFolder = true
         newLabel.isHidden = true
         titleLabel.isHidden = false
-        titleLabel.text = folder.mrl.lastPathComponent
+        titleLabel.text = folder.name
 
         if #available(iOS 13.0, *) {
             let symbolConfig = UIImage.SymbolConfiguration(weight: .thin)
@@ -328,16 +331,13 @@ class MediaGridCollectionCell: BaseCollectionViewCell {
 
         thumbnailView.backgroundColor = .clear
 
-        if let subfolders = folder.subfolders(with: .default, desc: false), !subfolders.isEmpty {
-            descriptionLabel.isHidden = false
-            descriptionLabel.text = String(format: NSLocalizedString("SUBFOLDERS_DESCRIPTION", comment: ""), subfolders.count)
-        } else {
-            descriptionLabel.isHidden = true
-        }
+        let description = folder.folderDescriptionString()
+        descriptionLabel.isHidden = description.isEmpty
+        descriptionLabel.text = description
     }
 
     private func configureShadows() {
-        if PresentationTheme.current.colors.isDark {
+        if isFolder || PresentationTheme.current.colors.isDark {
             clearShadow()
         } else {
             setShadow()
@@ -368,10 +368,10 @@ class MediaGridCollectionCell: BaseCollectionViewCell {
         backgroundColor = .clear
     }
 
-    override class func numberOfColumns(for width: CGFloat) -> CGFloat {
+    override class func numberOfColumns(for width: CGFloat, safeAreaInsets: UIEdgeInsets) -> CGFloat {
         if width <= DeviceDimensions.iPhone16ProMaxPortrait.rawValue {
             return 2
-        } else if width <= DeviceDimensions.iPhoneLandscape.rawValue && !UIDevice.hasNotch {
+        } else if width <= DeviceDimensions.iPhoneLandscape.rawValue && safeAreaInsets.bottom == 0 {
             return 3
         } else if width <= DeviceDimensions.iPadLandscape.rawValue {
             return 4
@@ -380,8 +380,8 @@ class MediaGridCollectionCell: BaseCollectionViewCell {
         }
     }
 
-    override class func cellSizeForWidth(_ width: CGFloat) -> CGSize {
-        let numberOfCells: CGFloat = numberOfColumns(for: width)
+    override class func cellSizeForWidth(_ width: CGFloat, safeAreaInsets: UIEdgeInsets) -> CGSize {
+        let numberOfCells: CGFloat = numberOfColumns(for: width, safeAreaInsets: safeAreaInsets)
         let aspectRatio: CGFloat = 1.0
         let overallWidth = width - (2 * edgePadding)
         let overallCellWidthWithoutPadding = overallWidth - (numberOfCells + 1) * interItemPadding
@@ -408,6 +408,7 @@ class MediaGridCollectionCell: BaseCollectionViewCell {
         selectionOverlay.isHidden = true
         sizeLabel.isHidden = true
         separatorLabel.isHidden = true
+        isFolder = false
         clearShadow()
     }
 }

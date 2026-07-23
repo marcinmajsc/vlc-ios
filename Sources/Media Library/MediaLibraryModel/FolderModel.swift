@@ -128,9 +128,31 @@ extension VLCMLFolder: SearchableMLModel {
     func contains(_ searchString: String) -> Bool {
         var matches = false
 
-        matches = matches || search(searchString, in: mrl.lastPathComponent)
+        matches = matches || search(searchString, in: name)
 
         return matches
     }
 
+}
+
+extension VLCMLFolder {
+    func folderDescriptionString() -> String {
+        var components = [String]()
+
+        let subfolderCount = subfolders(with: .default, desc: false)?.count ?? 0
+        if subfolderCount == 1 {
+            components.append(NSLocalizedString("SUBFOLDER_DESCRIPTION", comment: ""))
+        } else if subfolderCount > 1 {
+            components.append(String(format: NSLocalizedString("SUBFOLDERS_DESCRIPTION", comment: ""), locale: Locale.current, subfolderCount))
+        }
+
+        let mediaCount = nbMedia()
+        if mediaCount == 1 {
+            components.append(NSLocalizedString("ONE_FILE", comment: ""))
+        } else if mediaCount > 1 {
+            components.append(String(format: NSLocalizedString("NUM_OF_FILES", comment: ""), locale: Locale.current, mediaCount))
+        }
+
+        return components.joined(separator: ", ")
+    }
 }
