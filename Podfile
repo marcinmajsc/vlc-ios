@@ -47,24 +47,4 @@ post_install do |installer_representation|
       config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
     end
   end
-  # Xcode 26 SDKs mark netinet6/in6.h as private; AFNetworking still imports it.
-  # Patch pod sources after installation to use public netinet/in.h instead.
-  af_sources_dir = 'Pods/AFNetworking/AFNetworking'
-  patched_files_count = 0
-
-  Dir.glob(File.join(af_sources_dir, '**', '*.{m,h}')).each do |af_file|
-    next unless File.file?(af_file)
-
-    source = File.read(af_file)
-    next unless source.include?('<netinet6/in6.h>')
-
-    patched = source.gsub('<netinet6/in6.h>', '<netinet/in.h>')
-    next if source == patched
-
-    File.open(af_file, 'w') { |file| file << patched }
-    patched_files_count += 1
-  end
-
-  puts "AFNetworking netinet patch: patched #{patched_files_count} file(s)."
-
 end
