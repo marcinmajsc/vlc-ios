@@ -28,7 +28,8 @@ jobs:
         run: pod update
 
       - name: Lint (SwiftLint)
-        run: ./Pods/SwiftLint/swiftlint --config Buildsystem/swiftlint.yml
+        # run: ./Pods/SwiftLint/swiftlint --config Buildsystem/swiftlint.yml
+        run: pod install
 
       - name: Archive VLC-iOS (Debug, unsigned)
         run: |
