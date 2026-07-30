@@ -1,5 +1,5 @@
 /*****************************************************************************
- * VLCRadioFavoritesGridCell.m
+ * VLCOnAirRailCell.m
  * VLC for iOS
  *****************************************************************************
  * Copyright (c) 2026 VideoLAN. All rights reserved.
@@ -10,65 +10,45 @@
  * Refer to the COPYING file of the official project for license.
  *****************************************************************************/
 
-#import "VLCRadioFavoritesGridCell.h"
+#import "VLCOnAirRailCell.h"
+#import "VLCOnAirAddTile.h"
 #import "VLCArtworkTile.h"
 #import "VLCFavoriteService.h"
 
-static CGFloat const kVLCRadioGridSideMargin = 20.0;
-static CGFloat const kVLCRadioGridGap = 14.0;
-static CGFloat const kVLCRadioGridNameArea = 28.0;
-static CGFloat const kVLCRadioGridMinTileWidth = 165.0;
-static CGFloat const kVLCRadioGridTopPadding = 0.0;
-static CGFloat const kVLCRadioGridBottomPadding = 4.0;
+static CGFloat const kVLCOnAirRailGap = 12.0;
+static CGFloat const kVLCOnAirRailSideMargin = 20.0;
+static CGFloat const kVLCOnAirRailNameArea = 28.0;
+static CGFloat const kVLCOnAirRailCompactTileSide = 96.0;
+static CGFloat const kVLCOnAirRailRegularTileSide = 140.0;
+static CGFloat const kVLCOnAirRailRegularWidthThreshold = 600.0;
 
-@interface VLCRadioFavoritesGridCell () <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout, VLCArtworkTileDelegate>
+@interface VLCOnAirRailCell () <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout>
 @end
 
-@implementation VLCRadioFavoritesGridCell
+@implementation VLCOnAirRailCell
 {
     UICollectionView *_collectionView;
     NSArray<VLCFavorite *> *_favorites;
+    NSUInteger _favoriteCount;
+    BOOL _showsAddTile;
+    CGFloat _tileSide;
 }
 
 + (NSString *)reuseIdentifier
 {
-    return @"VLCRadioFavoritesGridCell";
+    return @"VLCOnAirRailCell";
 }
 
-#pragma mark - layout math (shared with the hosting view controller)
-
-+ (NSInteger)columnsForWidth:(CGFloat)width
++ (CGFloat)tileSideForWidth:(CGFloat)width
 {
-    CGFloat available = width - 2 * kVLCRadioGridSideMargin;
-    NSInteger columns = (NSInteger)floor((available + kVLCRadioGridGap) / (kVLCRadioGridMinTileWidth + kVLCRadioGridGap));
-    return MAX(2, columns);
+    return width >= kVLCOnAirRailRegularWidthThreshold ? kVLCOnAirRailRegularTileSide
+                                                       : kVLCOnAirRailCompactTileSide;
 }
 
-+ (NSInteger)visibleFavoriteCapForWidth:(CGFloat)width
++ (CGFloat)heightForWidth:(CGFloat)width
 {
-    return [self columnsForWidth:width] * 2;
+    return [self tileSideForWidth:width] + kVLCOnAirRailNameArea;
 }
-
-+ (CGFloat)tileWidthForWidth:(CGFloat)width columns:(NSInteger)columns
-{
-    CGFloat available = width - 2 * kVLCRadioGridSideMargin;
-    return floor((available - kVLCRadioGridGap * (columns - 1)) / columns);
-}
-
-+ (CGFloat)heightForFavoriteCount:(NSInteger)count width:(CGFloat)width
-{
-    if (count == 0 || width <= 0)
-        return 0.0;
-
-    NSInteger columns = [self columnsForWidth:width];
-    CGFloat tileWidth = [self tileWidthForWidth:width columns:columns];
-    NSInteger rows = (count + columns - 1) / columns;
-    CGFloat itemHeight = tileWidth + kVLCRadioGridNameArea;
-
-    return kVLCRadioGridTopPadding + rows * itemHeight + (rows - 1) * kVLCRadioGridGap + kVLCRadioGridBottomPadding;
-}
-
-#pragma mark - lifecycle
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier
 {
@@ -84,19 +64,22 @@ static CGFloat const kVLCRadioGridBottomPadding = 4.0;
         self.selectionStyle = UITableViewCellSelectionStyleNone;
 
         UICollectionViewFlowLayout *layout = [[UICollectionViewFlowLayout alloc] init];
-        layout.minimumInteritemSpacing = kVLCRadioGridGap;
-        layout.minimumLineSpacing = kVLCRadioGridGap;
-        layout.sectionInset = UIEdgeInsetsMake(kVLCRadioGridTopPadding, kVLCRadioGridSideMargin,
-                                               kVLCRadioGridBottomPadding, kVLCRadioGridSideMargin);
+        layout.scrollDirection = UICollectionViewScrollDirectionHorizontal;
+        layout.minimumInteritemSpacing = kVLCOnAirRailGap;
+        layout.minimumLineSpacing = kVLCOnAirRailGap;
+        layout.sectionInset = UIEdgeInsetsMake(0.0, kVLCOnAirRailSideMargin, 0.0, kVLCOnAirRailSideMargin);
 
         _collectionView = [[UICollectionView alloc] initWithFrame:CGRectZero collectionViewLayout:layout];
         _collectionView.translatesAutoresizingMaskIntoConstraints = NO;
         _collectionView.backgroundColor = [UIColor clearColor];
-        _collectionView.scrollEnabled = NO;
+        _collectionView.showsHorizontalScrollIndicator = NO;
+        _collectionView.alwaysBounceHorizontal = YES;
         _collectionView.dataSource = self;
         _collectionView.delegate = self;
         [_collectionView registerClass:[VLCArtworkTile class]
             forCellWithReuseIdentifier:VLCArtworkTile.reuseIdentifier];
+        [_collectionView registerClass:[VLCOnAirAddTile class]
+            forCellWithReuseIdentifier:VLCOnAirAddTile.reuseIdentifier];
         [self.contentView addSubview:_collectionView];
 
         [NSLayoutConstraint activateConstraints:@[
@@ -110,8 +93,14 @@ static CGFloat const kVLCRadioGridBottomPadding = 4.0;
 }
 
 - (void)configureWithFavorites:(NSArray<VLCFavorite *> *)favorites
+                  showsAddTile:(BOOL)showsAddTile
+                referenceWidth:(CGFloat)referenceWidth
 {
     _favorites = favorites;
+    _favoriteCount = favorites.count;
+    _showsAddTile = showsAddTile;
+    _tileSide = [VLCOnAirRailCell tileSideForWidth:referenceWidth];
+    [_collectionView setContentOffset:CGPointZero animated:NO];
     [_collectionView reloadData];
 }
 
@@ -119,15 +108,21 @@ static CGFloat const kVLCRadioGridBottomPadding = 4.0;
 
 - (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section
 {
-    return _favorites.count;
+    return _favoriteCount + (_showsAddTile ? 1 : 0);
 }
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath
 {
+    if ((NSUInteger)indexPath.item >= _favoriteCount) {
+        VLCOnAirAddTile *addTile = [collectionView dequeueReusableCellWithReuseIdentifier:VLCOnAirAddTile.reuseIdentifier
+                                                                            forIndexPath:indexPath];
+        [addTile updateTheme];
+        return addTile;
+    }
+
     VLCArtworkTile *tile = [collectionView dequeueReusableCellWithReuseIdentifier:VLCArtworkTile.reuseIdentifier
                                                                      forIndexPath:indexPath];
     VLCFavorite *favorite = _favorites[indexPath.item];
-    tile.delegate = self;
     tile.badge = VLCArtworkTileBadgePlay;
     [tile configureWithName:favorite.userVisibleName artworkURL:favorite.artworkURL];
     return tile;
@@ -139,26 +134,17 @@ static CGFloat const kVLCRadioGridBottomPadding = 4.0;
                   layout:(UICollectionViewLayout *)collectionViewLayout
   sizeForItemAtIndexPath:(NSIndexPath *)indexPath
 {
-    CGFloat width = collectionView.bounds.size.width;
-    NSInteger columns = [VLCRadioFavoritesGridCell columnsForWidth:width];
-    CGFloat tileWidth = [VLCRadioFavoritesGridCell tileWidthForWidth:width columns:columns];
-    return CGSizeMake(tileWidth, tileWidth + kVLCRadioGridNameArea);
+    return CGSizeMake(_tileSide, _tileSide + kVLCOnAirRailNameArea);
 }
 
 - (void)collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath
 {
-    [self.delegate favoritesGridCell:self didSelectFavoriteAtIndex:indexPath.item];
-}
-
-#pragma mark - favorite tile delegate
-
-- (void)artworkTileDidRequestRemoval:(VLCArtworkTile *)tile
-{
-    NSIndexPath *indexPath = [_collectionView indexPathForCell:tile];
-    if (!indexPath)
+    if ((NSUInteger)indexPath.item >= _favoriteCount) {
+        [self.delegate railCellDidSelectAddTile:self];
         return;
+    }
 
-    [self.delegate favoritesGridCell:self didRequestRemovalOfFavoriteAtIndex:indexPath.item];
+    [self.delegate railCell:self didSelectItemAtIndex:indexPath.item];
 }
 
 @end

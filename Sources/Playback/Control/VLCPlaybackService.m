@@ -96,6 +96,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
     NSInteger _currentIndex;
     VLCMLMedia *_currentlyPlayingLibraryMedia;
+    NSURL *_metadataMediaURL;
     NSMutableArray *_shuffledOrder;
 
     BOOL _openInMiniPlayer;
@@ -507,6 +508,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 #endif
 
     _currentlyPlayingLibraryMedia = nil;
+    _metadataMediaURL = nil;
 
     if (_playerIsSetup) {
         _isInFillToScreen = NO; // reset _isInFillToScreen after playback is finished
@@ -1076,7 +1078,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
                                 forPlaybackService:self];
         }
 
-        [self setNeedsMetadataUpdate];
+        [self setNeedsPlaybackStateUpdate];
     });
 }
 
@@ -1753,7 +1755,24 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 {
     VLCMLMedia *media = playingMedia ? [VLCMLMedia mediaForPlayingMedia:playingMedia] : nil;
     _currentlyPlayingLibraryMedia = media;
+    _metadataMediaURL = playingMedia.url;
     [_metadata updateMetadataFromMedia:media mediaPlayer:_mediaPlayer];
+
+    [self recoverDisplayedMetadata];
+}
+
+- (void)setNeedsPlaybackStateUpdate
+{
+    VLCMedia *playingMedia = _mediaPlayer.media;
+    NSURL *playingMediaURL = playingMedia.url;
+
+    if (!playingMedia || _metadata.hasPlaceholderArtwork
+        || (_metadataMediaURL != playingMediaURL && ![_metadataMediaURL isEqual:playingMediaURL])) {
+        [self setNeedsMetadataUpdateForMedia:playingMedia];
+        return;
+    }
+
+    [_metadata updatePlaybackStateFromMediaPlayer:_mediaPlayer];
 
     [self recoverDisplayedMetadata];
 }
@@ -2170,6 +2189,30 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 #pragma mark - Widgets
 
 #if TARGET_OS_IOS
+- (UIImage *)scaledWidgetArtwork:(UIImage *)artwork
+{
+    const CGFloat maximumSize = 512.;
+    CGSize size = artwork.size;
+    if (size.width <= 0 || size.height <= 0) {
+        return artwork;
+    }
+
+    CGFloat scale = MIN(maximumSize / size.width, maximumSize / size.height);
+    if (scale >= 1.) {
+        return artwork;
+    }
+
+    CGSize targetSize = CGSizeMake(floor(size.width * scale), floor(size.height * scale));
+    UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
+    format.scale = 1.;
+    format.opaque = YES;
+
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:targetSize format:format];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        [artwork drawInRect:(CGRect){ .origin = CGPointZero, .size = targetSize }];
+    }];
+}
+
 - (void)saveMediaForWidget
 {
     VLCMedia *currentMedia = self.currentlyPlayingMedia;
@@ -2185,47 +2228,55 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         return;
     }
 
-    NSData *imageData = UIImagePNGRepresentation(thumbnailImage);
-    NSString *stringData = [imageData base64EncodedStringWithOptions:NSDataBase64Encoding64CharacterLineLength];
+    NSString *albumName = mlMedia.title;
+    NSString *artistName = artist.name ?: @"";
+    NSString *mediaURL = currentMedia.url.lastPathComponent ?: @"";
 
-    if (!stringData) {
-        return;
-    }
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+        NSData *imageData = UIImageJPEGRepresentation([self scaledWidgetArtwork:thumbnailImage], .8);
+        NSString *stringData = [imageData base64EncodedStringWithOptions:NSDataBase64Encoding64CharacterLineLength];
 
-    UIColor *averageColor = [thumbnailImage averageColor];
-    CGFloat red, green, blue, alpha;
+        if (!stringData) {
+            return;
+        }
 
-    if (![averageColor getRed:&red green:&green blue:&blue alpha:&alpha]) {
-        red = green = blue = alpha = 0;
-    }
+        UIColor *averageColor = [thumbnailImage averageColor];
+        CGFloat red, green, blue, alpha;
 
-    NSDictionary *color = @{
-        @"red": @(red),
-        @"green": @(green),
-        @"blue": @(blue),
-        @"alpha": @(alpha)
-    };
+        if (![averageColor getRed:&red green:&green blue:&blue alpha:&alpha]) {
+            red = green = blue = alpha = 0;
+        }
 
-    NSDictionary *object = @{
-        @"albumName": mlMedia.title,
-        @"artistName": mlMedia.artist.name ?: @"",
-        @"imageData": stringData,
-        @"mediaURL": currentMedia.url.lastPathComponent ?: @"",
-        @"color": color
-    };
+        NSDictionary *color = @{
+            @"red": @(red),
+            @"green": @(green),
+            @"blue": @(blue),
+            @"alpha": @(alpha)
+        };
 
-    NSError *error = nil;
-    NSData *mediaData = [NSJSONSerialization dataWithJSONObject:object options:0 error:&error];
+        NSDictionary *object = @{
+            @"albumName": albumName,
+            @"artistName": artistName,
+            @"imageData": stringData,
+            @"mediaURL": mediaURL,
+            @"color": color
+        };
 
-    NSString *groupIdentifier = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"MLKitGroupIdentifier"];
-    if (mediaData && groupIdentifier) {
-        NSUserDefaults *sharedDefaults = [[NSUserDefaults alloc] initWithSuiteName:groupIdentifier];
-        [sharedDefaults setObject:mediaData forKey:@"media"];
-    }
+        NSError *error = nil;
+        NSData *mediaData = [NSJSONSerialization dataWithJSONObject:object options:0 error:&error];
 
-    if ([self.delegate respondsToSelector:@selector(updateWidgetsIfNeeded)]) {
-        [self.delegate updateWidgetsIfNeeded];
-    }
+        NSString *groupIdentifier = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"MLKitGroupIdentifier"];
+        if (mediaData && groupIdentifier) {
+            NSUserDefaults *sharedDefaults = [[NSUserDefaults alloc] initWithSuiteName:groupIdentifier];
+            [sharedDefaults setObject:mediaData forKey:@"media"];
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if ([self.delegate respondsToSelector:@selector(updateWidgetsIfNeeded)]) {
+                [self.delegate updateWidgetsIfNeeded];
+            }
+        });
+    });
 }
 #endif
 @end

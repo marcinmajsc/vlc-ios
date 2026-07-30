@@ -15,7 +15,6 @@
 #import "VLCFavoriteService.h"
 #import "VLCAppCoordinator.h"
 #import "VLCNetworkListCell.h"
-#import "VLCPlaybackService.h"
 
 #import "VLC-Swift.h"
 
@@ -45,11 +44,20 @@
     self.navigationItem.searchController = nil;
 
     self.tableView.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
-    if (@available(iOS 13.0, *)) {
-        self.tableView.backgroundColor = [UIColor systemGroupedBackgroundColor];
-    }
+    self.tableView.backgroundColor = PresentationTheme.current.colors.pageBackground;
 
     _favoriteService = [[VLCAppCoordinator sharedInstance] favoriteService];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(themeDidChange)
+                                                 name:kVLCThemeDidChangeNotification
+                                               object:nil];
+}
+
+- (void)themeDidChange
+{
+    self.tableView.backgroundColor = PresentationTheme.current.colors.pageBackground;
+    [self.tableView reloadData];
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -176,21 +184,7 @@
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 
-    VLCFavorite *favorite = _favorites[indexPath.row];
-    VLCMedia *media = [VLCMedia mediaWithURL:favorite.url];
-    if (!media)
-        return;
-
-    media.metaData.title = favorite.userVisibleName;
-    if (favorite.artworkURL) {
-        media.metaData.artworkURL = favorite.artworkURL;
-    }
-
-    VLCMediaList *mediaList = [[VLCMediaList alloc] init];
-    [mediaList addMedia:media];
-    [[VLCPlaybackService sharedInstance] playMediaList:mediaList firstIndex:0 subtitlesFilePath:nil];
-
-    [_favoriteService moveFavoriteToFront:favorite];
+    [_favoriteService playFavorite:_favorites[indexPath.row]];
     _favorites = [_favoriteService favoritesInGroupWithIdentifier:VLCFavoriteGroupRadio];
     [self.tableView reloadData];
 }

@@ -20,7 +20,6 @@
 #import "VLCFavoriteService.h"
 #import "VLCAppCoordinator.h"
 #import "VLCNetworkListCell.h"
-#import "VLCPlaybackService.h"
 
 #import "VLC-Swift.h"
 
@@ -47,6 +46,7 @@
     self.navigationItem.searchController = nil;
 
     self.tableView.cellLayoutMarginsFollowReadableWidth = NO;
+    self.tableView.backgroundColor = PresentationTheme.current.colors.pageBackground;
     if (@available(iOS 15.0, *)) {
         self.tableView.sectionHeaderTopPadding = 0.0;
     }
@@ -57,10 +57,21 @@
     _countryService = [[VLCAppCoordinator sharedInstance] radioCountryService];
     _radioFavorites = @[];
 
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(radioCountriesDidUpdate:)
-                                                 name:VLCRadioCountriesDidUpdateNotification
-                                               object:nil];
+    NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
+    [notificationCenter addObserver:self
+                           selector:@selector(radioCountriesDidUpdate:)
+                               name:VLCRadioCountriesDidUpdateNotification
+                             object:nil];
+    [notificationCenter addObserver:self
+                           selector:@selector(themeDidChange)
+                               name:kVLCThemeDidChangeNotification
+                             object:nil];
+}
+
+- (void)themeDidChange
+{
+    self.tableView.backgroundColor = PresentationTheme.current.colors.pageBackground;
+    [self.tableView reloadData];
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -281,22 +292,19 @@
     if (index >= _radioFavorites.count)
         return;
 
-    VLCFavorite *favorite = _radioFavorites[index];
-    VLCMedia *media = [VLCMedia mediaWithURL:favorite.url];
-    if (!media)
+    VLCFavoriteService *favoriteService = [[VLCAppCoordinator sharedInstance] favoriteService];
+    [favoriteService playFavorite:_radioFavorites[index]];
+    _radioFavorites = [favoriteService favoritesInGroupWithIdentifier:VLCFavoriteGroupRadio];
+    [self.tableView reloadData];
+}
+
+- (void)favoritesGridCell:(VLCRadioFavoritesGridCell *)cell didRequestRemovalOfFavoriteAtIndex:(NSInteger)index
+{
+    if (index >= _radioFavorites.count)
         return;
 
-    media.metaData.title = favorite.userVisibleName;
-    if (favorite.artworkURL) {
-        media.metaData.artworkURL = favorite.artworkURL;
-    }
-
-    VLCMediaList *mediaList = [[VLCMediaList alloc] init];
-    [mediaList addMedia:media];
-    [[VLCPlaybackService sharedInstance] playMediaList:mediaList firstIndex:0 subtitlesFilePath:nil];
-
     VLCFavoriteService *favoriteService = [[VLCAppCoordinator sharedInstance] favoriteService];
-    [favoriteService moveFavoriteToFront:favorite];
+    [favoriteService removeFavorite:_radioFavorites[index]];
     _radioFavorites = [favoriteService favoritesInGroupWithIdentifier:VLCFavoriteGroupRadio];
     [self.tableView reloadData];
 }

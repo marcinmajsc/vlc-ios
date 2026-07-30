@@ -13,11 +13,16 @@
 import UIKit
 
 extension UIView {
-    func roundCorners(radius: CGFloat) {
+    @objc func roundCorners(radius: CGFloat) {
         layer.cornerRadius = radius
         if #available(iOS 13.0, *) {
             layer.cornerCurve = .continuous
         }
+    }
+
+    @objc func roundCorners(radius: CGFloat, maskedCorners: CACornerMask) {
+        roundCorners(radius: radius)
+        layer.maskedCorners = maskedCorners
     }
 
     // Neutral rounded chrome for floating controls over the player (footer buttons, sync row).
@@ -27,5 +32,25 @@ extension UIView {
         layer.borderWidth = 1
         layer.borderColor = colors.overlayHairlineColor.cgColor
         backgroundColor = UIAccessibility.isReduceTransparencyEnabled ? colors.background : colors.overlayControlFillColor
+    }
+}
+
+@objc extension UIButton {
+    // Accent-filled call to action on a card. Shape stays with the caller, so this
+    // suits both the pill-shaped and the circular buttons.
+    func styleAsPrimaryAction() {
+        backgroundColor = PresentationTheme.current.colors.orangeUI
+        tintColor = .white
+        setTitleColor(.white, for: .normal)
+    }
+
+    // Outlined counterpart, used beside a primary action.
+    func styleAsSecondaryAction() {
+        let colors = PresentationTheme.current.colors
+        backgroundColor = .clear
+        tintColor = colors.cellTextColor
+        setTitleColor(colors.cellTextColor, for: .normal)
+        layer.borderWidth = 1
+        layer.borderColor = colors.cellDetailTextColor.cgColor
     }
 }

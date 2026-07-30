@@ -1,5 +1,5 @@
 /*****************************************************************************
- * VLCRadioFavoriteTile.h
+ * VLCOnAirPromptCell.h
  * VLC for iOS
  *****************************************************************************
  * Copyright (c) 2026 VideoLAN. All rights reserved.
@@ -12,13 +12,26 @@
 
 #import <UIKit/UIKit.h>
 
+@class VLCOnAirPromptCell;
+
 NS_ASSUME_NONNULL_BEGIN
 
-@interface VLCRadioFavoriteTile : UICollectionViewCell
+@protocol VLCOnAirPromptCellDelegate <NSObject>
+
+- (void)promptCell:(VLCOnAirPromptCell *)cell didTapButtonAtIndex:(NSInteger)index;
+
+@end
+
+@interface VLCOnAirPromptCell : UITableViewCell
 
 @property (class, readonly) NSString *reuseIdentifier;
+@property (nonatomic, weak) id<VLCOnAirPromptCellDelegate> delegate;
 
-- (void)configureWithName:(nullable NSString *)name artworkURL:(nullable NSURL *)artworkURL;
+- (void)configureWithGlyph:(nullable UIImage *)glyph
+                     title:(NSString *)title
+                      body:(NSString *)body
+              primaryTitle:(NSString *)primaryTitle
+            secondaryTitle:(nullable NSString *)secondaryTitle;
 
 @end
 
