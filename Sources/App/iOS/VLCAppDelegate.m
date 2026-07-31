@@ -117,10 +117,6 @@
 
 - (void)setupTabBarAppearance
 {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self recoverLastPlayingMedia];
-    });
-
     VLCAppCoordinator *appCoordinator = [VLCAppCoordinator sharedInstance];
     void (^setupAppCoordinator)(void) = ^{
         [appCoordinator setTabBarController:(VLCBottomTabBarController *)self->_window.rootViewController];
@@ -167,6 +163,11 @@
         [VLCAppearanceManager setupAppearanceWithTheme:PresentationTheme.current];
         [self setupTabBarAppearance];
     }
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+        [[VLCAppCoordinator sharedInstance].mediaLibraryService restoreLastPlayedMediaList];
+    });
+
     self.orientationLock = UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskLandscape;
 #endif
 
@@ -278,7 +279,7 @@
     VLCFavoriteService *fs = [[VLCAppCoordinator sharedInstance] favoriteService];
     [fs storeContentSynchronously];
 
-    [self savePlayingMediaIdentifier];
+    [vps saveCurrentlyPlayingMediaIdentifier];
 }
 
 - (void)application:(UIApplication *)application performActionForShortcutItem:(UIApplicationShortcutItem *)shortcutItem completionHandler:(void (^)(BOOL))completionHandler
@@ -338,39 +339,6 @@
 
 - (void)application:(UIApplication *)application didDiscardSceneSessions:(NSSet<UISceneSession *> *)sceneSessions  API_AVAILABLE(ios(13.0))
 {
-}
-
-#pragma mark - Recover last playing media
-
-- (void)savePlayingMediaIdentifier {
-    VLCMLMedia *libraryMedia = [[VLCPlaybackService sharedInstance] currentlyPlayingLibraryMedia];
-    VLCMLIdentifier identifier = libraryMedia ? libraryMedia.identifier : -1;
-
-    [[NSUserDefaults standardUserDefaults] setInteger:identifier forKey:kVLCLastPlayedMediaIdentifier];
-}
-
-- (void)recoverLastPlayingMedia {
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-
-    if (![defaults boolForKey:kVLCRestoreLastPlayedMedia]) {
-        return;
-    }
-
-    VLCMLIdentifier identifier = [defaults integerForKey:kVLCLastPlayedMediaIdentifier];
-    VLCMLMedia *media = [[[VLCAppCoordinator sharedInstance] mediaLibraryService] mediaFor:identifier];
-
-    if (media.isExternalMedia) {
-        // Do not recover the last playing media if it is an external one
-        return;
-    }
-
-    // If media exists and not watched, recover it.
-    if (media && ![media isWatched]) {
-        [[VLCPlaybackService sharedInstance] playMedia:media openInMiniPlayer:YES];
-
-        // only recover a given media once
-        [defaults setInteger:-1 forKey:kVLCLastPlayedMediaIdentifier];
-    }
 }
 
 @end

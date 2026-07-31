@@ -114,7 +114,26 @@ extension NSNotification {
 
     @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
                                      didDeleteMediaGroupsWithIds mediaGroupsIds: [NSNumber])
-    
+
+    // Subscriptions
+    @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
+                                     didAddSubscriptions subscriptions: [VLCMLSubscription])
+
+    @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
+                                     didModifySubscriptionsWithIds subscriptionIds: [NSNumber])
+
+    @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
+                                     didDeleteSubscriptionsWithIds subscriptionIds: [NSNumber])
+
+    @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
+                                     didReceiveNewMediaForSubscriptionsWithIds subscriptionIds: [NSNumber])
+
+    @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
+                                     didUpdateCacheForSubscriptionWithId subscriptionId: NSNumber)
+
+    @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
+                                     cacheIdleChanged idle: Bool)
+
     // History
     @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
                                      historyChangedOfType type: VLCMLHistoryType)
@@ -238,6 +257,8 @@ class MediaLibraryService: NSObject {
         desiredThumbnailWidth = UInt(scaledCellWidth)
         desiredThumbnailHeight = UInt(scaledCellWidth / 1.6)
         #endif
+
+        VLCMediaParser.shared().delegate = self
     }
 
 #if !os(tvOS) && !os(watchOS)
@@ -619,6 +640,21 @@ private extension MediaLibraryService {
         _ = try? FileManager.default.removeItem(atPath: targetPath)
         _ = try? FileManager.default.copyItem(atPath: databasePath, toPath: targetPath)
     }
+
+    func restoreLastPlayedMediaList() {
+        guard UserDefaults.standard.bool(forKey: kVLCRestoreLastPlayedMedia) else { return }
+
+        guard let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        else { return }
+
+        let m3uFileName = NSLocalizedString("LAST_PLAYED_MEDIALIST", comment: "").appending(".m3u")
+        let m3uFileURL = appSupportURL.appendingPathComponent(m3uFileName)
+        guard FileManager.default.fileExists(atPath: m3uFileURL.path) else { return }
+
+        if let media = VLCMedia(url: m3uFileURL) {
+            VLCMediaParser.shared().queue(media)
+        }
+    }
 }
 
 // MARK: - Application notifications
@@ -932,6 +968,50 @@ extension MediaLibraryService {
     }
 }
 
+// MARK: - VLCMediaLibraryDelegate - Subscriptions
+
+extension MediaLibraryService {
+    func medialibrary(_ medialibrary: VLCMediaLibrary, didAdd subscriptions: [VLCMLSubscription]) {
+        observable.notifyObservers {
+            $0.medialibrary?(self, didAddSubscriptions: subscriptions)
+        }
+    }
+
+    func medialibrary(_ medialibrary: VLCMediaLibrary,
+                      didModifySubscriptionsWithIds subscriptionIds: [NSNumber]) {
+        observable.notifyObservers {
+            $0.medialibrary?(self, didModifySubscriptionsWithIds: subscriptionIds)
+        }
+    }
+
+    func medialibrary(_ medialibrary: VLCMediaLibrary,
+                      didDeleteSubscriptionsWithIds subscriptionIds: [NSNumber]) {
+        observable.notifyObservers {
+            $0.medialibrary?(self, didDeleteSubscriptionsWithIds: subscriptionIds)
+        }
+    }
+
+    func medialibrary(_ medialibrary: VLCMediaLibrary,
+                      didReceiveNewMediaForSubscriptionsWithIds subscriptionIds: [NSNumber]) {
+        observable.notifyObservers {
+            $0.medialibrary?(self, didReceiveNewMediaForSubscriptionsWithIds: subscriptionIds)
+        }
+    }
+
+    func medialibrary(_ medialibrary: VLCMediaLibrary,
+                      didUpdateCacheForSubscriptionWithId subscriptionId: NSNumber) {
+        observable.notifyObservers {
+            $0.medialibrary?(self, didUpdateCacheForSubscriptionWithId: subscriptionId)
+        }
+    }
+
+    func medialibrary(_ medialibrary: VLCMediaLibrary, cacheIdleChanged idle: Bool) {
+        observable.notifyObservers {
+            $0.medialibrary?(self, cacheIdleChanged: idle)
+        }
+    }
+}
+
 // MARK: - VLCMediaLibraryDelegate - Exception handling
 
 extension MediaLibraryService {
@@ -1017,3 +1097,40 @@ extension MediaLibraryService {
     }
 }
 #endif
+
+extension MediaLibraryService: VLCMediaParserDelegate {
+    func mediaFinishedParsing(_ media: VLCMedia, with status: VLCMediaParsedStatus) {
+        guard status == .done,
+              let mediaList = media.subitems
+        else { return }
+
+        guard let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+
+        let m3uFileName = NSLocalizedString("LAST_PLAYED_MEDIALIST", comment: "").appending(".m3u")
+        let m3uFileURL = appSupportURL.appendingPathComponent(m3uFileName)
+        guard FileManager.default.fileExists(atPath: m3uFileURL.path) else { return }
+
+        let defaults = UserDefaults.standard
+        let mediaCount = mediaList.count
+
+        guard mediaCount > 0 else { return }
+
+        let lastPlayedMediaId = defaults.integer(forKey: kVLCLastPlayedMediaIdentifier)
+        var lastPlayedMediaIndex = 0
+
+        for i in 0..<mediaCount {
+            guard let media = mediaList.media(at: UInt(i)),
+                  let mlMedia = fetchMedia(with: media.url),
+                  !mlMedia.isExternalMedia()
+            else { continue }
+
+            if mlMedia.identifier() == lastPlayedMediaId {
+                lastPlayedMediaIndex = i
+                break
+            }
+        }
+
+        PlaybackService.sharedInstance().configurePlaybackWithMedia(at: lastPlayedMediaIndex, fromCollection: mediaList, openInMiniPlayer: true)
+        defaults.set(-1, forKey: kVLCLastPlayedMediaIdentifier)
+    }
+}

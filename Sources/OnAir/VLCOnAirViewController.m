@@ -43,8 +43,10 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
     UITableView *_tableView;
     NSArray<VLCFavorite *> *_radioFavorites;
     VLCFavorite *_resumeFavorite;
-    BOOL _zeroState;
     BOOL _resumeSuppressed;
+    BOOL _radioIsEmpty;
+    BOOL _podcastsIsEmpty;
+    BOOL _tvIsEmpty;
 }
 
 - (instancetype)init
@@ -87,6 +89,7 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
        forCellReuseIdentifier:VLCOnAirRailCell.reuseIdentifier];
     [_tableView registerClass:[VLCOnAirPromptCell class]
        forCellReuseIdentifier:VLCOnAirPromptCell.reuseIdentifier];
+    [PodcastsOnAirBridge registerShowsCellWith:_tableView];
 
     UIRefreshControl *refreshControl = [[UIRefreshControl alloc] init];
     [refreshControl addTarget:self action:@selector(handleRefresh:) forControlEvents:UIControlEventValueChanged];
@@ -129,6 +132,8 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
     [notificationCenter addObserver:self selector:@selector(playbackDidHalt) name:VLCPlaybackServicePlaybackDidPause object:nil];
     [notificationCenter addObserver:self selector:@selector(playbackDidHalt) name:VLCPlaybackServicePlaybackDidStop object:nil];
     [notificationCenter addObserver:self selector:@selector(playbackDidHalt) name:VLCPlaybackServicePlaybackDidFail object:nil];
+
+    [PodcastsOnAirBridge configureWithMediaLibraryService:[[VLCAppCoordinator sharedInstance] mediaLibraryService]];
 
     [self updateTheme];
 }
@@ -219,17 +224,39 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
     _radioFavorites = [[[[VLCAppCoordinator sharedInstance] favoriteService] favoritesInGroupWithIdentifier:VLCFavoriteGroupRadio] copy];
     [self updateResumeItem];
 
-    _zeroState = (_radioFavorites.count == 0);
+    _radioIsEmpty = (_radioFavorites.count == 0);
+    _podcastsIsEmpty = (PodcastsOnAirBridge.numberOfShows == 0);
+    // No TV channel data source exists yet, so this section is always empty for now.
+    _tvIsEmpty = YES;
+}
+
+- (BOOL)isSectionEmpty:(VLCOnAirSection)section
+{
+    switch (section) {
+        case VLCOnAirSectionRadio:
+            return _radioIsEmpty;
+        case VLCOnAirSectionPodcasts:
+            return _podcastsIsEmpty;
+        case VLCOnAirSectionTV:
+            return _tvIsEmpty;
+        default:
+            return YES;
+    }
+}
+
+- (BOOL)isZeroState
+{
+    return _radioIsEmpty && _podcastsIsEmpty && _tvIsEmpty;
 }
 
 - (void)updateResumeSectionAnimated
 {
     BOOL wasVisible = (_resumeFavorite != nil);
-    BOOL wasZeroState = _zeroState;
+    BOOL wasZeroState = [self isZeroState];
 
     [self reloadFavorites];
 
-    if (wasVisible == (_resumeFavorite != nil) || wasZeroState != _zeroState) {
+    if (wasVisible == (_resumeFavorite != nil) || wasZeroState != [self isZeroState]) {
         [self updateTableHeaderView];
         [_tableView reloadData];
         return;
@@ -285,7 +312,7 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
 
 - (void)updateTableHeaderView
 {
-    if (!_zeroState) {
+    if (![self isZeroState]) {
         _tableView.tableHeaderView = nil;
         return;
     }
@@ -366,7 +393,13 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
 
 - (BOOL)sectionHasRail:(VLCOnAirSection)section
 {
-    return section == VLCOnAirSectionRadio && _radioFavorites.count > 0;
+    if (section == VLCOnAirSectionRadio) {
+        return _radioFavorites.count > 0;
+    }
+    if (section == VLCOnAirSectionPodcasts) {
+        return PodcastsOnAirBridge.numberOfShows > 0;
+    }
+    return NO;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
@@ -384,13 +417,23 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
         return cell;
     }
 
-    if ([self sectionHasRail:section]) {
+    if (section == VLCOnAirSectionRadio && [self sectionHasRail:section]) {
         VLCOnAirRailCell *cell = [tableView dequeueReusableCellWithIdentifier:VLCOnAirRailCell.reuseIdentifier
                                                                  forIndexPath:indexPath];
         cell.delegate = self;
         [cell configureWithFavorites:_radioFavorites
                         showsAddTile:YES
                       referenceWidth:CGRectGetWidth(tableView.bounds)];
+        return cell;
+    }
+
+    if (section == VLCOnAirSectionPodcasts && [self sectionHasRail:section]) {
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:PodcastsOnAirBridge.showsCellReuseIdentifier
+                                                                 forIndexPath:indexPath];
+        __weak typeof(self) weakSelf = self;
+        [PodcastsOnAirBridge configureShowsCell:cell onSelectShowId:^(NSString *showId) {
+            [weakSelf showPodcastShowWithId:showId];
+        }];
         return cell;
     }
 
@@ -413,17 +456,18 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
             body = NSLocalizedString(@"RADIOVC_DETAILTEXT", nil);
             primaryTitle = NSLocalizedString(@"ONAIR_FIND_STATION", nil);
             break;
-        case VLCOnAirSectionPodcasts:
-            if (!_zeroState) {
+        case VLCOnAirSectionPodcasts: {
+            BOOL zeroState = [self isZeroState];
+            if (!zeroState) {
                 title = NSLocalizedString(@"ONAIR_PODCASTS_EMPTY_TITLE", nil);
             }
-            body = _zeroState ? NSLocalizedString(@"ONAIR_PODCASTS_ZERO_BODY", nil)
-                              : NSLocalizedString(@"ONAIR_PODCASTS_EMPTY_BODY", nil);
-            primaryTitle = NSLocalizedString(@"SEARCH", nil);
-            secondaryTitle = NSLocalizedString(@"ONAIR_PASTE_RSS", nil);
+            body = zeroState ? NSLocalizedString(@"ONAIR_PODCASTS_ZERO_BODY", nil)
+                             : NSLocalizedString(@"ONAIR_PODCASTS_EMPTY_BODY", nil);
+            primaryTitle = NSLocalizedString(@"ONAIR_PASTE_RSS", nil);
             break;
+        }
         case VLCOnAirSectionTV:
-            if (!_zeroState) {
+            if (![self isZeroState]) {
                 title = NSLocalizedString(@"ONAIR_TV_EMPTY_TITLE", nil);
             }
             body = NSLocalizedString(@"ONAIR_TV_EMPTY_BODY", nil);
@@ -481,7 +525,7 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
 {
     VLCOnAirSection section = [self sectionAtIndex:indexPath.section];
-    if ([self sectionHasRail:section]) {
+    if (section == VLCOnAirSectionRadio && [self sectionHasRail:section]) {
         return [VLCOnAirRailCell heightForWidth:CGRectGetWidth(tableView.bounds)];
     }
 
@@ -490,7 +534,8 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section
 {
-    if (_zeroState || [self sectionAtIndex:section] == VLCOnAirSectionContinue) {
+    VLCOnAirSection onAirSection = [self sectionAtIndex:section];
+    if (onAirSection == VLCOnAirSectionContinue || [self isSectionEmpty:onAirSection]) {
         return CGFLOAT_MIN;
     }
 
@@ -504,11 +549,12 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section
 {
-    if (_zeroState || [self sectionAtIndex:section] == VLCOnAirSectionContinue) {
+    VLCOnAirSection onAirSection = [self sectionAtIndex:section];
+    if (onAirSection == VLCOnAirSectionContinue || [self isSectionEmpty:onAirSection]) {
         return nil;
     }
 
-    return [self sectionHeaderViewWithTitle:[self titleForSection:[self sectionAtIndex:section]]
+    return [self sectionHeaderViewWithTitle:[self titleForSection:onAirSection]
                                         tag:section];
 }
 
@@ -590,7 +636,7 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
             [self showRadio];
             break;
         case VLCOnAirSectionPodcasts:
-            index == 0 ? [self showPodcasts] : [self showPodcastFeedEntry];
+            [self showPodcasts];
             break;
         case VLCOnAirSectionTV:
             index == 0 ? [self showTVDirectory] : [self showAddM3U];
@@ -640,12 +686,18 @@ static CGFloat const kVLCOnAirHeaderHeight = 44.0;
 
 - (void)showPodcasts
 {
-    APLog(@"On Air: no podcast directory available yet");
+    MediaLibraryService *mediaLibraryService = [[VLCAppCoordinator sharedInstance] mediaLibraryService];
+    UIViewController *podcastsViewController = [PodcastsOnAirBridge makePodcastsViewControllerWithMediaLibraryService:mediaLibraryService];
+    [self.navigationController pushViewController:podcastsViewController animated:YES];
 }
 
-- (void)showPodcastFeedEntry
+- (void)showPodcastShowWithId:(NSString *)showId
 {
-    APLog(@"On Air: no podcast feed subscription available yet");
+    UIViewController *detailViewController = [PodcastsOnAirBridge makeShowDetailViewControllerForShowId:showId];
+    if (!detailViewController) {
+        return;
+    }
+    [self.navigationController pushViewController:detailViewController animated:YES];
 }
 
 - (void)showTVDirectory
