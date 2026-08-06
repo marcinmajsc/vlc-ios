@@ -27,8 +27,8 @@ class PodcastsViewController: UIViewController {
     // pattern.
     private var revealedLatestEpisodesCount = Int(kVLCDefaultPageSize)
 
-    private var visibleLatestEpisodes: [PodcastEpisode] {
-        return Array(store.latestEpisodes.prefix(revealedLatestEpisodesCount))
+    private var visibleLatestEpisodes: ArraySlice<PodcastEpisode> {
+        return store.latestEpisodes.prefix(revealedLatestEpisodesCount)
     }
 
     // MARK: Search
@@ -161,6 +161,7 @@ class PodcastsViewController: UIViewController {
             emptyStateView.isHidden = true
             return
         }
+
         let isEmpty = store.shows.isEmpty
         tableView.isHidden = isEmpty
         emptyStateView.isHidden = !isEmpty
@@ -220,9 +221,7 @@ class PodcastsViewController: UIViewController {
         guard !store.isDownloading(episodeId: episode.id) else {
             return
         }
-        store.downloadEpisode(episodeId: episode.id, showId: episode.showId) { [weak self] _ in
-            self?.tableView.reloadData()
-        }
+        store.downloadEpisode(episodeId: episode.id, showId: episode.showId)
         tableView.reloadRows(at: [indexPath], with: .none)
     }
 
@@ -235,7 +234,7 @@ class PodcastsViewController: UIViewController {
                                                 style: .destructive) { [weak self] _ in
             guard let self = self else { return }
             self.store.deleteDownloadedEpisode(episodeId: episode.id, showId: episode.showId)
-            self.tableView.reloadData()
+            self.tableView.reloadRows(at: [indexPath], with: .none)
         })
         present(alertController, animated: true)
     }
@@ -314,6 +313,7 @@ extension PodcastsViewController: UITableViewDataSource, UITableViewDelegate {
             sections.append(.continueListening)
         }
         sections.append(.latestEpisodes)
+
         if !store.shows.isEmpty {
             sections.append(.shows)
         }
@@ -416,10 +416,14 @@ extension PodcastsViewController: UITableViewDataSource, UITableViewDelegate {
         guard !isSearching, visibleSections[indexPath.section] == .latestEpisodes else {
             return
         }
+
         let revealedCount = visibleLatestEpisodes.count
-        guard revealedCount < store.latestEpisodes.count, indexPath.row >= revealedCount - Int(kVLCPrefetchDistance) else {
+
+        guard revealedCount < store.latestEpisodes.count,
+              indexPath.row >= revealedCount - Int(kVLCPrefetchDistance) else {
             return
         }
+
         revealedLatestEpisodesCount += Int(kVLCDefaultPageSize)
         tableView.reloadData()
     }

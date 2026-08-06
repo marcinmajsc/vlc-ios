@@ -44,11 +44,6 @@ static CGFloat const kVLCRadioGridBottomPadding = 4.0;
     return MAX(2, columns);
 }
 
-+ (NSInteger)visibleFavoriteCapForWidth:(CGFloat)width
-{
-    return [self columnsForWidth:width] * 2;
-}
-
 + (CGFloat)tileWidthForWidth:(CGFloat)width columns:(NSInteger)columns
 {
     CGFloat available = width - 2 * kVLCRadioGridSideMargin;
@@ -130,6 +125,12 @@ static CGFloat const kVLCRadioGridBottomPadding = 4.0;
     tile.delegate = self;
     tile.badge = VLCArtworkTileBadgePlay;
     [tile configureWithName:favorite.userVisibleName artworkURL:favorite.artworkURL];
+
+    if ([self.delegate respondsToSelector:@selector(favoritesGridCell:hasAlarmForFavoriteAtIndex:)]
+        && [self.delegate favoritesGridCell:self hasAlarmForFavoriteAtIndex:indexPath.item]) {
+        tile.accessoryGlyphName = @"alarm.fill";
+    }
+
     return tile;
 }
 
@@ -159,6 +160,18 @@ static CGFloat const kVLCRadioGridBottomPadding = 4.0;
         return;
 
     [self.delegate favoritesGridCell:self didRequestRemovalOfFavoriteAtIndex:indexPath.item];
+}
+
+- (NSArray<UIMenuElement *> *)menuElementsForArtworkTile:(VLCArtworkTile *)tile
+{
+    NSIndexPath *indexPath = [_collectionView indexPathForCell:tile];
+    if (!indexPath)
+        return nil;
+
+    if (![self.delegate respondsToSelector:@selector(favoritesGridCell:menuElementsForFavoriteAtIndex:)])
+        return nil;
+
+    return [self.delegate favoritesGridCell:self menuElementsForFavoriteAtIndex:indexPath.item];
 }
 
 @end

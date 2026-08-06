@@ -62,6 +62,10 @@ class SettingsController: UITableViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        SettingsSpecifierCache.purge()
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         setup()
@@ -84,7 +88,7 @@ class SettingsController: UITableViewController {
     // MARK: - Setup Functions
 
     private func setupTabBarItem() {
-        title = NSLocalizedString("Settings", comment: "")
+        title = NSLocalizedString("SETTINGS_INFO_TITLE", comment: "")
         tabBarItem = UITabBarItem(title: NSLocalizedString("Settings", comment: ""),
                                   image: UIImage(named: "Settings"),
                                   selectedImage: UIImage(named: "Settings"))
@@ -134,14 +138,6 @@ class SettingsController: UITableViewController {
     }
 
     private func setupBarButton() {
-        let aboutBarButton = UIBarButtonItem(title: NSLocalizedString("BUTTON_ABOUT", comment: ""),
-                                             style: .plain,
-                                             target: self,
-                                             action: #selector(showAbout))
-        aboutBarButton.tintColor = PresentationTheme.current.colors.orangeUI
-        navigationItem.rightBarButtonItem = aboutBarButton
-        navigationItem.rightBarButtonItem?.accessibilityIdentifier = VLCAccessibilityIdentifier.about
-
         if navigationController?.presentingViewController != nil {
             let closeItem: UIBarButtonItem.SystemItem
             if #available(iOS 13.0, *) {
@@ -174,7 +170,7 @@ class SettingsController: UITableViewController {
 
     // MARK: - Observer & BarButton Actions
 
-    @objc private func showAbout() {
+    private func showAbout() {
 #if os(iOS)
         ImpactFeedbackGenerator().selectionChanged()
 #endif
@@ -428,6 +424,8 @@ extension SettingsController {
             exportMediaLibrary()
         case .exportSettings:
             exportSettings()
+        case .about:
+            showAbout()
         case .donation:
             showDonation(indexPath: indexPath)
         case .documentation:
@@ -459,7 +457,7 @@ extension SettingsController {
     }
 
     override func tableView(_: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return section >= 2 ? 64 : 0
+        return settingsSections[section].title != nil ? 64 : 0
     }
 
     override func tableView(_: UITableView, heightForFooterInSection _: Int) -> CGFloat {

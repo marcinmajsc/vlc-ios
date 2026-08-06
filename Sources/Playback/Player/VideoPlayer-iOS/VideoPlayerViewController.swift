@@ -198,13 +198,13 @@ class VideoPlayerViewController: PlayerViewController {
     /// present the player controls.
     ///
     /// Without this, Switch Control uses Point mode, which is cumbersome.
-    private var switchControlUtility: UIControl = {
+    private lazy var switchControlUtility: UIControl = {
         var switchControlUtility = UIControl()
         switchControlUtility.backgroundColor = .clear
         switchControlUtility.translatesAutoresizingMaskIntoConstraints = false
         switchControlUtility.isUserInteractionEnabled = true
         switchControlUtility.isAccessibilityElement = true
-        switchControlUtility.addTarget(VideoPlayerViewController.self,
+        switchControlUtility.addTarget(self,
                                        action: #selector(handleTapOnVideo),
                                        for: .touchUpInside)
 
@@ -339,9 +339,7 @@ class VideoPlayerViewController: PlayerViewController {
         mediaNavigationBar.updateDeviceButton(with: image, color: color)
         mediaNavigationBar.rotateButton.isHidden = false
 
-        if #available(iOS 11.0, *) {
-            adaptVideoOutputToNotch()
-        }
+        adaptVideoOutputToNotch()
 
         if playbackService.adjustFilter.isEnabled {
             showIcon(button: optionsNavigationBar.videoFiltersButton)
@@ -993,7 +991,6 @@ class VideoPlayerViewController: PlayerViewController {
 
     // MARK: - Public helpers
 
-    @available(iOS 11.0, *)
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
 
@@ -1094,7 +1091,6 @@ class VideoPlayerViewController: PlayerViewController {
 
     // MARK: - Private helpers
 
-    @available(iOS 11.0, *)
     private func adaptVideoOutputToNotch() {
         // Ignore the constraint updates for iPads and notchless devices.
         let interfaceIdiom = UIDevice.current.userInterfaceIdiom
@@ -1108,8 +1104,8 @@ class VideoPlayerViewController: PlayerViewController {
             return
         }
 
-        // 30.0 represents the exact size of the notch
-        let constant: CGFloat = playbackService.currentAspectRatio != AspectRatio.fillToScreen.rawValue ? 30.0 : 0.0
+        let inset = max(view.safeAreaInsets.left, view.safeAreaInsets.right)
+        let constant: CGFloat = playbackService.currentAspectRatio != AspectRatio.fillToScreen.rawValue ? inset : 0.0
 #if os(iOS)
         if view.bounds.width > view.bounds.height {
             videoOutputViewLeadingConstraint.constant = constant

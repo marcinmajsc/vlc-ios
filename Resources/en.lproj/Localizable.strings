@@ -56,7 +56,6 @@
 "CONTINUE_PLAYBACK" = "Continue playback?";
 "CONTINUE_PLAYBACK_LONG" = "Would you like to continue playback of \"%@\" where you left off?";
 
-"BUTTON_ABOUT" = "About";
 "BUTTON_BACK" = "Back";
 "BUTTON_DONE" = "Done";
 "BUTTON_OPEN" = "Open";
@@ -110,7 +109,6 @@
 
 "HTTP_DOWNLOAD_CANCELLED" = "Download canceled by user";
 
-"DOWNLOAD_FROM_HTTP" = "Transfers";
 "TRANSFERS" = "Transfers";
 "TRANSFERS_IN_PROGRESS" = "In progress";
 "TRANSFER_FAILED" = "Transfer failed";
@@ -140,12 +138,14 @@
 "STATION_COUNT" = "%lu stations";
 "RADIO_COUNTRIES_LOADING_FAILED" = "Couldn't load the list of countries. Please check your connection and try again.";
 "RADIO_STATIONS_LOADING_FAILED" = "Couldn't load the stations. Please check your connection and try again.";
+"RADIO_ALARM_SET" = "Set Alarm…";
+"RADIO_ALARM_EDIT" = "Edit Alarm…";
+"RADIO_ALARM_REMOVE" = "Remove Alarm";
+"RADIO_ALARM_LISTEN" = "Listen";
+"RADIO_ALARM_DENIED" = "VLC is not allowed to set alarms. You can grant access in the Settings app.";
+"RADIO_ALARM_FAILED" = "The alarm could not be set. Please try again.";
 "BUTTON_RETRY" = "Retry";
 "BITRATE_FORMAT" = "%li kb/s";
-"FAVORITEVC_DETAILTEXT" = "See your favorite folders";
-"STREAMVC_DETAILTEXT" = "Play streams directly without downloading";
-"DOWNLOADVC_DETAILTEXT" = "Load files directly to your device";
-"CLOUDVC_DETAILTEXT" = "Play or download media from online services";
 "HEADER_TITLE_RENDERER" = "Select a casting device";
 
 "ONAIR" = "On Air";
@@ -167,10 +167,16 @@
 "ONAIR_ADD_M3U" = "Add M3U";
 
 "BROWSE" = "Browse";
+"BROWSE_SECTION_OPEN" = "Open…";
+"BROWSE_PHOTOS" = "Photos";
+"BROWSE_CLOUD" = "Cloud";
+"BROWSE_NETWORK_STREAM" = "Network stream";
+"BROWSE_DOWNLOADS" = "Downloads";
+"BROWSE_WIFI_SHARING" = "Wi-Fi sharing";
+"BROWSE_ADD_SERVER" = "Add server";
 "STREAMS" = "Streams";
 "LOCAL_NETWORK" = "Local Network";
 "CONNECT_TO_SERVER" = "Connect to Server";
-"FILE_SERVER" = "File Servers";
 "USER_LABEL" = "User";
 "PASSWORD_LABEL" = "Password";
 "DISABLE_LABEL" = "Disable";
@@ -182,10 +188,7 @@
 "LOCAL_SERVER_CONNECTION_FAILED_MESSAGE" = "Please check your server address and credentials";
 
 "FILES_APP_CELL_TITLE" = "Local files";
-"FILES_APP_CELL_SUBTITLE" = "Open a file without copying it to VLC";
 
-"PHOTO_LIBRARY_CELL_TITLE" = "Photo Library";
-"PHOTO_LIBRARY_CELL_SUBTITLE" = "Import videos from your photo library";
 "PHOTO_LIBRARY_IMPORT_FAILED" = "Import failed";
 "PHOTO_LIBRARY_IMPORT_FAILED_MESSAGE" = "VLC could not import %d of the selected videos from your photo library.";
 
@@ -202,6 +205,8 @@
 "GDRIVE_DOWNLOAD_SUCCESSFUL_TITLE" = "SUCCESS";
 "GDRIVE_ERROR_DOWNLOADING_FILE" = "An error occured while downloading";
 "GDRIVE_ERROR_DOWNLOADING_FILE_TITLE" = "ERROR";
+"GDRIVE_MY_DRIVE" = "My Drive";
+"GDRIVE_SHARED_WITH_ME" = "Shared with me";
 
 "ONEDRIVE_MEDIA_WITHOUT_URL" = "The selected Media doesn't have a playable url";
 
@@ -231,7 +236,7 @@
 "OFF" = "Off";
 
 "EMPTY_LIBRARY" = "Empty Media Library";
-"EMPTY_LIBRARY_LONG" = "For playback, you can stream media from a server on your local network, from the cloud or synchronize media to your device using iTunes, Wi-Fi Upload or Cloud services.";
+"EMPTY_LIBRARY_LONG" = "For playback, you can stream media from a server on your local network, from the cloud or synchronize media to your device using the \"Files\" tab in Finder or iTunes, Wi-Fi Upload or cloud services.";
 
 "EMPTY_NO_PLAYLISTS" = "Playlists";
 "EMPTY_NO_PLAYLISTS_DESCRIPTION" = "To create playlists, enter Edit mode in the Video or Audio content tabs and select your favorite media.\nYou can also synchronize existing playlists from your other devices or the internet.";
@@ -289,7 +294,7 @@
 
 "FIRST_STEPS_ITUNES" = "File Sync";
 "FIRST_STEPS_ITUNES_TITLE" = "Sync With Your Computer";
-"FIRST_STEPS_ITUNES_DETAILS" = "Connect your %@ to use the Finder or iTunes for \"File Sharing\". Select VLC to transfer files.";
+"FIRST_STEPS_ITUNES_DETAILS" = "Connect your %@ to use the Finder or iTunes. In the Finder, select the \"Files\" tab and choose VLC to transfer files.";
 "FIRST_STEPS_WIFI_TITLE" = "Share via Wi-Fi";
 "FIRST_STEPS_WIFI_DETAILS" = "Enter the generated URL in your favorite web browser while connected to the same network as your %@.";
 "FIRST_STEPS_CLOUDS" = "Clouds";
@@ -359,6 +364,7 @@
 
 "NFS_LONG" = "Network File System (NFS)";
 "NFS_SHORT" = "NFS";
+"SHARED_VLC_IOS_LIBRARY_SHORT" = "VLC";
 
 "BONJOUR_FILE_SERVERS" = "BONJOUR File Server";
 "DSM_WORKGROUP" = "Workgroup";
@@ -371,11 +377,13 @@
 "DELETE_MESSAGE_PLAYLIST" = "Are you sure to delete the selected playlist?\nAssociated media files won't be deleted.";
 "DELETE_MESSAGE_PLAYLISTS" = "Are you sure to delete the selected playlists?\nAssociated media files won't be deleted.";
 "DELETE_MESSAGE_PLAYLIST_CONTENT" = "Are you sure to remove the selected media from the playlist?\nThey won't be deleted from the disk.";
+"DELETE_MESSAGE_FOLDER" = "Are you sure to delete the selection?\nEvery media file inside the selected folders will be deleted from the disk, too.";
 
 // MARK: - Drag and Drop
 
 "PROTOCOL_NOT_SELECTED" = "Protocol not selected";
 "Settings" = "Settings";
+"SETTINGS_INFO_TITLE" = "Settings & Info";
 
 "ERROR" = "Error";
 "SORT" = "Sort";
@@ -689,6 +697,7 @@
 "PLAY_NEXT_IN_QUEUE_LABEL" = "Play next in queue";
 "APPEND_TO_QUEUE_HINT" = "Append to queue";
 "APPEND_TO_QUEUE_LABEL" = "Append to queue";
+"ENQUEUE_LABEL" = "Enqueue";
 "QUEUE_LABEL" = "Queue";
 
 "DISPLAY_AS" = "Display as";
@@ -791,6 +800,12 @@
 "APPINTENT_PLAY_VIDEO_PARAM" = "Video";
 "APPINTENT_PLAY_VIDEO_PLAY_${video}" = "Play ${video}";
 
+// MARK: - Radio App Intent Strings
+"APPINTENT_PLAY_RADIO_TITLE" = "Play Radio Station";
+"APPINTENT_PLAY_RADIO_DESCRIPTION" = "Play a radio station in VLC.";
+"APPINTENT_PLAY_RADIO_PLAY_${station}" = "Play ${station}";
+"APPINTENT_PLAY_RADIO_PROMPT" = "Which radio station would you like to play?";
+
 // MARK: - AppShortcut Strings
 "APPSHORTCUT_PLAY_MEDIA_SHORT_TITLE" = "Play Media";
 "APPSHORTCUT_PLAY_MEDIA_PHRASE_PLAY_${applicationName}" = "Play media in ${applicationName}";
@@ -806,6 +821,9 @@
 "APPSHORTCUT_ADD_TO_PLAYLIST_PHRASE_${applicationName}" = "Add a song to a playlist in ${applicationName}";
 "APPSHORTCUT_UPDATE_AFFINITY_SHORT_TITLE" = "Favorite";
 "APPSHORTCUT_UPDATE_AFFINITY_PHRASE_${applicationName}" = "Favorite audio in ${applicationName}";
+"APPSHORTCUT_PLAY_RADIO_SHORT_TITLE" = "Play Radio";
+"APPSHORTCUT_PLAY_RADIO_PHRASE_PLAY_${applicationName}" = "Play radio in ${applicationName}";
+"APPSHORTCUT_PLAY_RADIO_PHRASE_LISTEN_${applicationName}" = "Listen to radio in ${applicationName}";
 
 // MARK: - VerticalSliderControl Strings
 "VERTICAL_SLIDER_CONTROL_ACCESSIBILITY_LABEL" = "Vertical slider";
@@ -845,3 +863,6 @@
 "SUBTITLE_ASSIGN_PRIMARY" = "Assign primary subtitle";
 "SUBTITLE_ASSIGN_SECONDARY" = "Assign secondary subtitle";
 "LAST_PLAYED_MEDIALIST" = "Last played medialist";
+"SHARE_EXTENSION_IMPORTING" = "Adding to VLC…";
+"SHARE_EXTENSION_IMPORTED" = "Added to VLC";
+"SHARE_EXTENSION_FAILED" = "Could not add to VLC";

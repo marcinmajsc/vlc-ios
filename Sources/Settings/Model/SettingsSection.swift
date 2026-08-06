@@ -55,6 +55,7 @@ struct SettingsItem: Equatable {
         case isLoading
         case toggle(Toggle)
         case showActionSheet(title: String, preferenceKey: String, hasInfo: Bool)
+        case about
         case donation
         case documentation
         case openPrivacySettings
@@ -147,9 +148,9 @@ struct SettingsSection: Equatable {
 
     static func sections(isLabActivated: Bool, isBackingUp: Bool, isForwardBackwardEqual: Bool, isTapSwipeEqual: Bool) -> [SettingsSection] {
         [
-            MainOptions.section(),
-            DonationOptions.section(),
-            GenericOptions.section(),
+            InformationOptions.section(),
+            AppearanceOptions.section(),
+            PlaybackOptions.section(),
             PrivacyOptions.section(),
             GestureControlOptions.section(isForwardBackwardEqual: isForwardBackwardEqual, isTapSwipeEqual: isTapSwipeEqual),
             VideoOptions.section(),
@@ -165,13 +166,19 @@ struct SettingsSection: Equatable {
     }
 }
 
-// MARK: - MainOptions
+// MARK: - InformationOptions
 
-enum MainOptions {
-    static var privacy: SettingsItem {
-        .init(title: "SETTINGS_PRIVACY_TITLE",
-              subtitle: "SETTINGS_PRIVACY_SUBTITLE",
-              action: .openPrivacySettings)
+enum InformationOptions {
+    static var about: SettingsItem {
+        .init(title: "SETTINGS_ABOUT",
+              subtitle: nil,
+              action: .about)
+    }
+
+    static var donate: SettingsItem {
+        .init(title: "SETTINGS_DONATE",
+              subtitle: "SETTINGS_DONATE_LONG",
+              action: .donation)
     }
 
     static var documentation: SettingsItem {
@@ -180,6 +187,18 @@ enum MainOptions {
               action: .documentation)
     }
 
+    static func section() -> SettingsSection? {
+        .init(title: "SETTINGS_INFORMATION_TITLE", items: [
+            about,
+            documentation,
+            donate,
+        ])
+    }
+}
+
+// MARK: - AppearanceOptions
+
+enum AppearanceOptions {
     static var appearance: SettingsItem {
         let k = kVLCSettingAppTheme
         return .init(title: "SETTINGS_DARKTHEME",
@@ -195,41 +214,21 @@ enum MainOptions {
     }
 
     static func section() -> SettingsSection? {
-        var items: [SettingsItem] = []
-
-        #if os(iOS)
-        if #available(iOS 14.0, *) {
-            items.append(privacy)
-        }
-        #endif
-        items.append(documentation)
-
-        #if !os(visionOS)
         // visionOS uses a standard system appearance and doesn't have light/dark mode.
-        items.append(appearance)
-        items.append(blackTheme)
+        #if os(visionOS)
+        return nil
+        #else
+        return .init(title: "SETTINGS_APPEARANCE_TITLE", items: [
+            appearance,
+            blackTheme,
+        ])
         #endif
-        return .init(title: nil, items: items)
     }
 }
 
-// MARK: - DonationOptions
+// MARK: - PlaybackOptions
 
-enum DonationOptions {
-    static var donate: SettingsItem {
-        .init(title: "SETTINGS_DONATE",
-              subtitle: "SETTINGS_DONATE_LONG",
-              action: .donation)
-    }
-
-    static func section() -> SettingsSection? {
-        .init(title: "SETTINGS_DONATE_TITLE", items: [donate])
-    }
-}
-
-// MARK: - GenericOptions
-
-enum GenericOptions {
+enum PlaybackOptions {
     static var defaultPlaybackSpeed: SettingsItem {
         let k = kVLCSettingPlaybackSpeedDefaultValue
         return .init(title: "SETTINGS_PLAYBACK_SPEED_DEFAULT",
@@ -286,7 +285,7 @@ enum GenericOptions {
     }
 
     static func section() -> SettingsSection? {
-        .init(title: "SETTINGS_GENERIC_TITLE", items: [
+        .init(title: "SETTINGS_PLAYBACK_TITLE", items: [
             defaultPlaybackSpeed,
             continueAudioPlayback,
             playVideoInFullScreen,
@@ -353,13 +352,27 @@ enum PrivacyOptions {
                 preferenceKey: kVLCSettingParentalControl)
     }
 
+    static var openPrivacySettings: SettingsItem {
+        .init(title: "SETTINGS_PRIVACY_SUBTITLE",
+              subtitle: nil,
+              action: .openPrivacySettings)
+    }
+
     static func section() -> SettingsSection? {
-        .init(title: "SETTINGS_PRIVACY_TITLE", items: [
+        var items: [SettingsItem?] = [
             passcodeLock,
             enableBiometrics,
             hideLibraryInFilesApp,
-            parentalControl
-        ].compactMap { $0 })
+            parentalControl,
+        ]
+
+        #if os(iOS)
+        if #available(iOS 14.0, *) {
+            items.append(openPrivacySettings)
+        }
+        #endif
+
+        return .init(title: "SETTINGS_PRIVACY_TITLE", items: items.compactMap { $0 })
     }
 }
 

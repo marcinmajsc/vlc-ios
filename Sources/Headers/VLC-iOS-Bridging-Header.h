@@ -17,7 +17,6 @@
 #import "VLCPlayerDisplayController.h"
 #import "VLCServerListViewController.h"
 #import "VLCSlider.h"
-#import "VLCWiFiUploadTableViewCell.h"
 #import "VLCHTTPUploaderController.h"
 #import "VLCActivityViewControllerVendor.h"
 #import "VLCMediaFileDiscoverer.h"
@@ -36,6 +35,7 @@
 #import "UIImage+AverageColor.h"
 #import "UIStackView+Orientation.h"
 #import "VLCFavoriteService.h"
+#import "VLCPlaceholderArtwork.h"
 #import "VLCPhotoLibraryController.h"
 #import "VLCDonationViewController.h"
 #import "VLCDonationNavigationController.h"
@@ -56,7 +56,6 @@
 #import "VLCMediaList+M3U.h"
 
 #if TARGET_OS_IOS
-#import <AppAuth/AppAuth.h>
 #import <ObjectiveDropboxOfficial/ObjectiveDropboxOfficial.h>
 #import "VLCGoogleDriveTableViewController.h"
 #import "VLCGoogleDriveConstants.h"

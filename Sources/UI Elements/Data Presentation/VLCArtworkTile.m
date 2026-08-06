@@ -17,16 +17,21 @@
 #import "VLC-Swift.h"
 
 static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
+static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
 
 @implementation VLCArtworkTile
 {
     UIView *_artworkContainer;
     UILabel *_initialsLabel;
-    UIImageView *_glyphView;
     VLCNetworkImageView *_artworkView;
-    UIVisualEffectView *_playBadge;
+    UIVisualEffectView *_badgeView;
+    UIImageView *_badgeGlyph;
+    NSLayoutConstraint *_badgeGlyphCenterX;
+    NSLayoutConstraint *_badgeGlyphWidth;
+    NSLayoutConstraint *_badgeGlyphHeight;
     UIView *_pillView;
     UILabel *_pillLabel;
+    UIButton *_accessoryButton;
     UIButton *_moreButton;
     UILabel *_nameLabel;
 }
@@ -59,37 +64,34 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
     _initialsLabel.textAlignment = NSTextAlignmentCenter;
     [_artworkContainer addSubview:_initialsLabel];
 
-    _glyphView = [[UIImageView alloc] init];
-    _glyphView.translatesAutoresizingMaskIntoConstraints = NO;
-    _glyphView.contentMode = UIViewContentModeScaleAspectFit;
-    _glyphView.hidden = YES;
-    [_artworkContainer addSubview:_glyphView];
-
     _artworkView = [[VLCNetworkImageView alloc] init];
     _artworkView.translatesAutoresizingMaskIntoConstraints = NO;
     _artworkView.contentMode = UIViewContentModeScaleAspectFill;
     _artworkView.clipsToBounds = YES;
     [_artworkContainer addSubview:_artworkView];
 
-    _playBadge = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
-    _playBadge.translatesAutoresizingMaskIntoConstraints = NO;
-    _playBadge.layer.cornerRadius = 15.0;
-    _playBadge.clipsToBounds = YES;
-    _playBadge.hidden = YES;
-    [_artworkContainer addSubview:_playBadge];
+    _badgeView = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
+    _badgeView.translatesAutoresizingMaskIntoConstraints = NO;
+    _badgeView.layer.cornerRadius = 15.0;
+    _badgeView.clipsToBounds = YES;
+    _badgeView.hidden = YES;
+    [_artworkContainer addSubview:_badgeView];
 
-    UIImageView *playGlyph = [[UIImageView alloc] init];
-    playGlyph.translatesAutoresizingMaskIntoConstraints = NO;
-    playGlyph.contentMode = UIViewContentModeScaleAspectFit;
-    playGlyph.tintColor = [UIColor whiteColor];
-    if (@available(iOS 13.0, *)) {
-        playGlyph.image = [UIImage systemImageNamed:@"play.fill"];
-    }
-    [_playBadge.contentView addSubview:playGlyph];
+    _badgeGlyph = [[UIImageView alloc] init];
+    _badgeGlyph.translatesAutoresizingMaskIntoConstraints = NO;
+    _badgeGlyph.contentMode = UIViewContentModeScaleAspectFit;
+    _badgeGlyph.tintColor = [UIColor whiteColor];
+    [_badgeView.contentView addSubview:_badgeGlyph];
+
+    _badgeGlyphCenterX = [_badgeGlyph.centerXAnchor constraintEqualToAnchor:_badgeView.centerXAnchor constant:1.0];
+    _badgeGlyphWidth = [_badgeGlyph.widthAnchor constraintEqualToConstant:12.0];
+    _badgeGlyphHeight = [_badgeGlyph.heightAnchor constraintEqualToConstant:13.0];
 
     _pillView = [[UIView alloc] init];
     _pillView.translatesAutoresizingMaskIntoConstraints = NO;
     _pillView.backgroundColor = PresentationTheme.current.colors.orangeUI;
+    _pillView.layer.borderWidth = 2.0;
+    _pillView.layer.borderColor = PresentationTheme.current.colors.orangeDarkAccent.CGColor;
     [_pillView roundCornersWithRadius:9.0];
     _pillView.hidden = YES;
     [_artworkContainer addSubview:_pillView];
@@ -99,6 +101,13 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
     _pillLabel.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightBold];
     _pillLabel.textColor = [UIColor whiteColor];
     [_pillView addSubview:_pillLabel];
+
+    _accessoryButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    _accessoryButton.translatesAutoresizingMaskIntoConstraints = NO;
+    _accessoryButton.userInteractionEnabled = NO;
+    _accessoryButton.hidden = YES;
+    [self applyAccessoryButtonStyle];
+    [_artworkContainer addSubview:_accessoryButton];
 
     _moreButton = [UIButton buttonWithType:UIButtonTypeSystem];
     _moreButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -128,25 +137,20 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
         [_initialsLabel.trailingAnchor constraintEqualToAnchor:_artworkContainer.trailingAnchor constant:-8.0],
         [_initialsLabel.centerYAnchor constraintEqualToAnchor:_artworkContainer.centerYAnchor],
 
-        [_glyphView.centerXAnchor constraintEqualToAnchor:_artworkContainer.centerXAnchor],
-        [_glyphView.centerYAnchor constraintEqualToAnchor:_artworkContainer.centerYAnchor],
-        [_glyphView.widthAnchor constraintEqualToConstant:40.0],
-        [_glyphView.heightAnchor constraintEqualToConstant:40.0],
-
         [_artworkView.topAnchor constraintEqualToAnchor:_artworkContainer.topAnchor],
         [_artworkView.leadingAnchor constraintEqualToAnchor:_artworkContainer.leadingAnchor],
         [_artworkView.trailingAnchor constraintEqualToAnchor:_artworkContainer.trailingAnchor],
         [_artworkView.bottomAnchor constraintEqualToAnchor:_artworkContainer.bottomAnchor],
 
-        [_playBadge.leadingAnchor constraintEqualToAnchor:_artworkContainer.leadingAnchor constant:10.0],
-        [_playBadge.bottomAnchor constraintEqualToAnchor:_artworkContainer.bottomAnchor constant:-10.0],
-        [_playBadge.widthAnchor constraintEqualToConstant:30.0],
-        [_playBadge.heightAnchor constraintEqualToConstant:30.0],
+        [_badgeView.leadingAnchor constraintEqualToAnchor:_artworkContainer.leadingAnchor constant:10.0],
+        [_badgeView.bottomAnchor constraintEqualToAnchor:_artworkContainer.bottomAnchor constant:-10.0],
+        [_badgeView.widthAnchor constraintEqualToConstant:30.0],
+        [_badgeView.heightAnchor constraintEqualToConstant:30.0],
 
-        [playGlyph.centerYAnchor constraintEqualToAnchor:_playBadge.centerYAnchor],
-        [playGlyph.centerXAnchor constraintEqualToAnchor:_playBadge.centerXAnchor constant:1.0],
-        [playGlyph.widthAnchor constraintEqualToConstant:12.0],
-        [playGlyph.heightAnchor constraintEqualToConstant:13.0],
+        [_badgeGlyph.centerYAnchor constraintEqualToAnchor:_badgeView.centerYAnchor],
+        _badgeGlyphCenterX,
+        _badgeGlyphWidth,
+        _badgeGlyphHeight,
 
         [_pillView.trailingAnchor constraintEqualToAnchor:_artworkContainer.trailingAnchor constant:-7.0],
         [_pillView.topAnchor constraintEqualToAnchor:_artworkContainer.topAnchor constant:7.0],
@@ -155,6 +159,11 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
         [_pillLabel.trailingAnchor constraintEqualToAnchor:_pillView.trailingAnchor constant:-7.0],
         [_pillLabel.topAnchor constraintEqualToAnchor:_pillView.topAnchor constant:2.0],
         [_pillLabel.bottomAnchor constraintEqualToAnchor:_pillView.bottomAnchor constant:-2.0],
+
+        [_accessoryButton.trailingAnchor constraintEqualToAnchor:_artworkContainer.trailingAnchor constant:-10.0],
+        [_accessoryButton.bottomAnchor constraintEqualToAnchor:_artworkContainer.bottomAnchor constant:-10.0],
+        [_accessoryButton.widthAnchor constraintEqualToConstant:30.0],
+        [_accessoryButton.heightAnchor constraintEqualToConstant:30.0],
 
         [_moreButton.trailingAnchor constraintEqualToAnchor:_artworkContainer.trailingAnchor constant:-8.0],
         [_moreButton.topAnchor constraintEqualToAnchor:_artworkContainer.topAnchor constant:8.0],
@@ -166,6 +175,23 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
         [_nameLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-2.0],
         [_nameLabel.bottomAnchor constraintLessThanOrEqualToAnchor:self.contentView.bottomAnchor]
     ]];
+}
+
+- (void)applyAccessoryButtonStyle
+{
+#if !TARGET_OS_VISION
+    if (@available(iOS 26.0, *)) {
+        UIButtonConfiguration *glass = [UIButtonConfiguration glassButtonConfiguration];
+        glass.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+        glass.baseForegroundColor = PresentationTheme.current.colors.orangeUI;
+        _accessoryButton.configuration = glass;
+        return;
+    }
+#endif
+    _accessoryButton.tintColor = PresentationTheme.current.colors.orangeUI;
+    _accessoryButton.backgroundColor = PresentationTheme.current.colors.transparentDarkBackgroundColor;
+    _accessoryButton.layer.cornerRadius = 15.0;
+    _accessoryButton.clipsToBounds = YES;
 }
 
 - (void)layoutSubviews
@@ -196,10 +222,61 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
     [self setNeedsLayout];
 }
 
+- (NSString *)symbolNameForBadge:(VLCArtworkTileBadge)badge
+{
+    switch (badge) {
+        case VLCArtworkTileBadgePlay:
+            return @"play.fill";
+        case VLCArtworkTileBadgeFolder:
+            return @"folder.fill";
+        case VLCArtworkTileBadgeServer:
+            if (@available(iOS 14.0, *)) {
+                return @"server.rack";
+            }
+            return @"network";
+        case VLCArtworkTileBadgeNone:
+            return nil;
+    }
+}
+
 - (void)setBadge:(VLCArtworkTileBadge)badge
 {
     _badge = badge;
-    _playBadge.hidden = badge != VLCArtworkTileBadgePlay;
+    [self updateBadge];
+}
+
+- (void)setBadgeImage:(UIImage *)badgeImage
+{
+    _badgeImage = badgeImage;
+    [self updateBadge];
+}
+
+- (void)updateBadge
+{
+    if (_badgeImage) {
+        _badgeView.hidden = NO;
+        _badgeGlyph.image = [_badgeImage imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+        _badgeGlyphCenterX.constant = 0.0;
+        _badgeGlyphWidth.constant = kVLCArtworkTileBadgeImageSide;
+        _badgeGlyphHeight.constant = kVLCArtworkTileBadgeImageSide;
+        return;
+    }
+
+    _badgeView.hidden = _badge == VLCArtworkTileBadgeNone;
+
+    if (_badge == VLCArtworkTileBadgeNone) {
+        return;
+    }
+
+    BOOL isPlay = _badge == VLCArtworkTileBadgePlay;
+    _badgeGlyphCenterX.constant = isPlay ? 1.0 : 0.0;
+    _badgeGlyphWidth.constant = isPlay ? 12.0 : 15.0;
+    _badgeGlyphHeight.constant = 13.0;
+    _badgeGlyph.image = nil;
+
+    if (@available(iOS 13.0, *)) {
+        _badgeGlyph.image = [UIImage systemImageNamed:[self symbolNameForBadge:_badge]];
+    }
 }
 
 - (void)setPillText:(NSString *)pillText
@@ -207,6 +284,32 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
     _pillText = [pillText copy];
     _pillLabel.text = _pillText;
     _pillView.hidden = _pillText.length == 0;
+}
+
+- (void)setAccessoryGlyphName:(NSString *)accessoryGlyphName
+{
+    _accessoryGlyphName = [accessoryGlyphName copy];
+
+    UIImage *image = nil;
+    if (@available(iOS 13.0, *)) {
+        if (_accessoryGlyphName.length > 0) {
+            UIImageSymbolConfiguration *symbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:14.0];
+            image = [UIImage systemImageNamed:_accessoryGlyphName withConfiguration:symbolConfiguration];
+        }
+    }
+
+#if TARGET_OS_VISION
+    [_accessoryButton setImage:image forState:UIControlStateNormal];
+#else
+    if (@available(iOS 26.0, *)) {
+        UIButtonConfiguration *glass = _accessoryButton.configuration;
+        glass.image = image;
+        _accessoryButton.configuration = glass;
+    } else {
+        [_accessoryButton setImage:image forState:UIControlStateNormal];
+    }
+#endif
+    _accessoryButton.hidden = image == nil;
 }
 
 - (void)setDelegate:(id<VLCArtworkTileDelegate>)delegate
@@ -242,7 +345,17 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
         [weakSelf.delegate artworkTileDidRequestRemoval:weakSelf];
     }];
     removeAction.attributes = UIMenuElementAttributesDestructive;
-    _moreButton.menu = [UIMenu menuWithTitle:@"" children:@[removeAction]];
+
+    UIDeferredMenuElement *delegateElements =
+        [UIDeferredMenuElement elementWithProvider:^(void (^completion)(NSArray<UIMenuElement *> *)) {
+        if ([weakSelf.delegate respondsToSelector:@selector(menuElementsForArtworkTile:)]) {
+            completion([weakSelf.delegate menuElementsForArtworkTile:weakSelf] ?: @[]);
+        } else {
+            completion(@[]);
+        }
+    }];
+
+    _moreButton.menu = [UIMenu menuWithTitle:@"" children:@[delegateElements, removeAction]];
     _moreButton.showsMenuAsPrimaryAction = YES;
 }
 
@@ -251,8 +364,6 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
     _nameLabel.text = name;
     _nameLabel.textColor = PresentationTheme.current.colors.cellTextColor;
 
-    _glyphView.hidden = YES;
-    _initialsLabel.hidden = NO;
     _artworkContainer.backgroundColor = [VLCPlaceholderArtwork backgroundColorForName:name];
     _initialsLabel.textColor = [VLCPlaceholderArtwork foregroundColorForName:name];
     _initialsLabel.text = [VLCPlaceholderArtwork initialsForName:name];
@@ -265,21 +376,6 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
     }
 }
 
-- (void)configureWithName:(NSString *)name glyph:(UIImage *)glyph tintColor:(UIColor *)tintColor
-{
-    _nameLabel.text = name;
-    _nameLabel.textColor = PresentationTheme.current.colors.cellTextColor;
-
-    _initialsLabel.hidden = YES;
-    _initialsLabel.text = nil;
-    _artworkView.hidden = YES;
-    _artworkContainer.backgroundColor = tintColor;
-
-    _glyphView.hidden = NO;
-    _glyphView.image = [glyph imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-    _glyphView.tintColor = PresentationTheme.current.colors.orangeUI;
-}
-
 - (void)prepareForReuse
 {
     [super prepareForReuse];
@@ -288,10 +384,12 @@ static CGFloat const kVLCArtworkTileDefaultCornerRadius = 18.0;
     _artworkView.hidden = NO;
     _nameLabel.text = nil;
     _initialsLabel.text = nil;
-    _initialsLabel.hidden = NO;
-    _glyphView.image = nil;
-    _glyphView.hidden = YES;
     self.pillText = nil;
+    self.accessoryGlyphName = nil;
+    self.badgeImage = nil;
+    self.badge = VLCArtworkTileBadgeNone;
+    self.delegate = nil;
+    self.removalActionTitle = nil;
 }
 
 @end

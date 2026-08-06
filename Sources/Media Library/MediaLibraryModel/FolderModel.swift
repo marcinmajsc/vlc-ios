@@ -49,11 +49,11 @@ class FolderModel: MLBaseModel {
     func setupData() {
         fileArrayLock.lock()
         defer { fileArrayLock.unlock() }
-        files = currentFolder.subfolders(with: sortModel.currentSort, desc: sortModel.desc)!
+        files = currentFolder.subfolders(with: sortModel.currentSort, desc: sortModel.desc) ?? []
         if self.isAudio {
-            folderMediaFiles = currentFolder.media(of: .audio, sortingCriteria: sortModel.currentSort, desc: sortModel.desc)!
+            folderMediaFiles = currentFolder.media(of: .audio, sortingCriteria: sortModel.currentSort, desc: sortModel.desc) ?? []
         } else {
-            folderMediaFiles = currentFolder.media(of: .video, sortingCriteria: sortModel.currentSort, desc: sortModel.desc)!
+            folderMediaFiles = currentFolder.media(of: .video, sortingCriteria: sortModel.currentSort, desc: sortModel.desc) ?? []
         }
     }
 
@@ -62,7 +62,30 @@ class FolderModel: MLBaseModel {
     }
 
     func delete(_ items: [VLCMLFolder]) {
-        // dummy function
+        var parentDirectories = Set<URL>()
+
+        for folder in items {
+            let url = URL(fileURLWithPath: folder.mrl.path)
+            parentDirectories.insert(url.deletingLastPathComponent())
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch let error as NSError {
+                APLog("FolderModel: Failed to delete \(url.path): \(error.localizedDescription)")
+            }
+        }
+
+        removeEmptiedDirectories(parentDirectories)
+
+        let deletedIdentifiers = Set(items.map { $0.identifier() })
+        fileArrayLock.lock()
+        files.removeAll { deletedIdentifiers.contains($0.identifier()) }
+        fileArrayLock.unlock()
+
+        medialibrary.reload()
+
+        observable.notifyObservers() {
+            $0.mediaLibraryBaseModelReloadView()
+        }
     }
 
     func getMedia() {
@@ -74,30 +97,54 @@ class FolderModel: MLBaseModel {
     }
 
     func delete(media: [VLCMLMedia]) {
-        media.forEach { mediaItem in
-            mediaItem.deleteMainFile()
-        }
-        fileArrayLock.lock()
-        defer { fileArrayLock.unlock() }
-        media.forEach { mediaItem in
-            if let index = folderMediaFiles.firstIndex(of: mediaItem) {
-                folderMediaFiles.remove(at: index)
+        var parentDirectories = Set<URL>()
+
+        for mediaItem in media {
+            guard let file = mediaItem.mainFile(), !file.isExternal(), !file.isNetwork() else {
+                continue
+            }
+
+            let url = URL(fileURLWithPath: file.mrl.path)
+            parentDirectories.insert(url.deletingLastPathComponent())
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch let error as NSError {
+                APLog("FolderModel: Failed to delete \(url.path): \(error.localizedDescription)")
             }
         }
+
+        removeEmptiedDirectories(parentDirectories)
+
+        let deletedIdentifiers = Set(media.map { $0.identifier() })
+        fileArrayLock.lock()
+        folderMediaFiles.removeAll { deletedIdentifiers.contains($0.identifier()) }
+        fileArrayLock.unlock()
+
+        medialibrary.reload()
+
         observable.notifyObservers() {
             $0.mediaLibraryBaseModelReloadView()
         }
     }
 
+    private func removeEmptiedDirectories(_ directories: Set<URL>) {
+        for directory in directories {
+            do {
+                try FileManager.default.deleteMediaFolder(name: directory.lastPathComponent, at: directory)
+            } catch let error as NSError {
+                APLog("FolderModel: Failed to remove the emptied directory \(directory.path): \(error.localizedDescription)")
+            }
+        }
+    }
 
     func sort(by criteria: VLCMLSortingCriteria, desc: Bool) {
         fileArrayLock.lock()
         defer { fileArrayLock.unlock() }
-        files = currentFolder.subfolders(with: criteria, desc: desc)!
+        files = currentFolder.subfolders(with: criteria, desc: desc) ?? []
         if self.isAudio {
-            folderMediaFiles = currentFolder.media(of: .audio, sortingCriteria: criteria, desc: desc)!
+            folderMediaFiles = currentFolder.media(of: .audio, sortingCriteria: criteria, desc: desc) ?? []
         } else {
-            folderMediaFiles = currentFolder.media(of: .video, sortingCriteria: criteria, desc: desc)!
+            folderMediaFiles = currentFolder.media(of: .video, sortingCriteria: criteria, desc: desc) ?? []
         }
 
         sortModel.currentSort = criteria
@@ -111,12 +158,23 @@ class FolderModel: MLBaseModel {
 // No notification for folders, so latest folders are only updated instantly in UI, if the folder is not empty, and a media file is also added.
 extension FolderModel: MediaLibraryObserver {
     func medialibrary(_ medialibrary: MediaLibraryService, didAddVideos videos: [VLCMLMedia]) {
-        setupData()
-        observable.notifyObservers() {
-            $0.mediaLibraryBaseModelReloadView()
-        }
+        reloadContents()
+    }
+    func medialibrary(_ medialibrary: MediaLibraryService, didAddTracks tracks: [VLCMLMedia]) {
+        reloadContents()
     }
     func medialibrary(_ medialibrary: MediaLibraryService, didDeleteMediaWithIds ids: [NSNumber]) {
+        reloadContents()
+    }
+
+    private func reloadContents() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                self.reloadContents()
+            }
+            return
+        }
+
         setupData()
         observable.notifyObservers() {
             $0.mediaLibraryBaseModelReloadView()
@@ -136,6 +194,16 @@ extension VLCMLFolder: SearchableMLModel {
 }
 
 extension VLCMLFolder {
+    func allMedia() -> [VLCMLMedia] {
+        var media = self.media(of: .unknown, sortingCriteria: .default, desc: false) ?? []
+
+        for subfolder in subfolders(with: .default, desc: false) ?? [] {
+            media += subfolder.allMedia()
+        }
+
+        return media
+    }
+
     func folderDescriptionString() -> String {
         var components = [String]()
 

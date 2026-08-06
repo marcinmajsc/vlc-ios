@@ -18,11 +18,15 @@ NS_ASSUME_NONNULL_BEGIN
 
 typedef NS_ENUM(NSInteger, VLCArtworkTileBadge) {
     VLCArtworkTileBadgeNone,
-    VLCArtworkTileBadgePlay
+    VLCArtworkTileBadgePlay,
+    VLCArtworkTileBadgeFolder,
+    VLCArtworkTileBadgeServer
 };
 
 @protocol VLCArtworkTileDelegate <NSObject>
 - (void)artworkTileDidRequestRemoval:(VLCArtworkTile *)tile;
+@optional
+- (nullable NSArray<UIMenuElement *> *)menuElementsForArtworkTile:(VLCArtworkTile *)tile API_AVAILABLE(ios(14.0));
 @end
 
 @interface VLCArtworkTile : UICollectionViewCell
@@ -31,13 +35,12 @@ typedef NS_ENUM(NSInteger, VLCArtworkTileBadge) {
 @property (nonatomic, weak, nullable) id<VLCArtworkTileDelegate> delegate;
 @property (nonatomic) CGFloat artworkCornerRadius;
 @property (nonatomic) VLCArtworkTileBadge badge;
+@property (nonatomic, nullable) UIImage *badgeImage;
 @property (nonatomic, copy, nullable) NSString *pillText;
+@property (nonatomic, copy, nullable) NSString *accessoryGlyphName;
 @property (nonatomic, copy, nullable) NSString *removalActionTitle;
 
 - (void)configureWithName:(nullable NSString *)name artworkURL:(nullable NSURL *)artworkURL;
-- (void)configureWithName:(nullable NSString *)name
-                    glyph:(nullable UIImage *)glyph
-                tintColor:(UIColor *)tintColor;
 
 @end
 

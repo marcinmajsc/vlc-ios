@@ -1,5 +1,5 @@
 /*****************************************************************************
- * VLCRadioFavoritesListViewController.h
+ * VLCAddTile.h
  * VLC for iOS
  *****************************************************************************
  * Copyright (c) 2026 VideoLAN. All rights reserved.
@@ -10,8 +10,17 @@
  * Refer to the COPYING file of the official project for license.
  *****************************************************************************/
 
-#import "VLCNetworkListViewController.h"
+#import <UIKit/UIKit.h>
 
-@interface VLCRadioFavoritesListViewController : VLCNetworkListViewController
+NS_ASSUME_NONNULL_BEGIN
+
+@interface VLCAddTile : UICollectionViewCell
+
+@property (class, readonly) NSString *reuseIdentifier;
+@property (nonatomic) CGFloat outlineCornerRadius;
+
+- (void)configureWithTitle:(nullable NSString *)title;
 
 @end
+
+NS_ASSUME_NONNULL_END

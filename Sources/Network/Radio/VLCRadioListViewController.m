@@ -15,7 +15,7 @@
 #import "VLCRadioCountryService.h"
 #import "VLCRadioCountry.h"
 #import "VLCRadioFavoritesGridCell.h"
-#import "VLCRadioFavoritesListViewController.h"
+#import "VLCRadioFavoriteMenu.h"
 #import "VLCRadioStationsViewController.h"
 #import "VLCFavoriteService.h"
 #import "VLCAppCoordinator.h"
@@ -27,6 +27,7 @@
 {
     VLCRadioCountryService *_countryService;
     NSArray<VLCFavorite *> *_radioFavorites;
+    NSSet<NSURL *> *_favoritesWithAlarms;
 }
 @end
 
@@ -81,8 +82,7 @@
     self.navigationController.navigationBar.prefersLargeTitles = YES;
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
 
-    _radioFavorites = [[[VLCAppCoordinator sharedInstance] favoriteService] favoritesInGroupWithIdentifier:VLCFavoriteGroupRadio];
-    [self.tableView reloadData];
+    [self reloadFavorites];
 
     [_countryService startCountryDiscoveryIfNeeded];
 }
@@ -111,6 +111,25 @@
     [self.tableView reloadData];
 }
 
+- (void)reloadFavorites
+{
+    _radioFavorites = [[[VLCAppCoordinator sharedInstance] favoriteService] favoritesInGroupWithIdentifier:VLCFavoriteGroupRadio];
+    [self reloadAlarmState];
+    [self.tableView reloadData];
+}
+
+- (void)reloadAlarmState
+{
+    [VLCRadioAlarmService.shared urlsWithAlarmsForFavorites:_radioFavorites
+                                                completion:^(NSSet<NSURL *> *urls) {
+        if (urls.count == 0 && self->_favoritesWithAlarms.count == 0)
+            return;
+
+        self->_favoritesWithAlarms = urls;
+        [self.tableView reloadData];
+    }];
+}
+
 #pragma mark - section layout
 
 - (BOOL)favoritesSectionVisible
@@ -121,24 +140,6 @@
 - (NSInteger)countriesSection
 {
     return self.favoritesSectionVisible ? 1 : 0;
-}
-
-- (NSInteger)visibleFavoriteCap
-{
-    return [VLCRadioFavoritesGridCell visibleFavoriteCapForWidth:self.tableView.bounds.size.width];
-}
-
-- (NSArray<VLCFavorite *> *)visibleFavorites
-{
-    NSInteger cap = [self visibleFavoriteCap];
-    if (_radioFavorites.count <= cap)
-        return _radioFavorites;
-    return [_radioFavorites subarrayWithRange:NSMakeRange(0, cap)];
-}
-
-- (BOOL)hasMoreFavorites
-{
-    return _radioFavorites.count > [self visibleFavoriteCap];
 }
 
 #pragma mark - table view data source
@@ -162,7 +163,7 @@
         VLCRadioFavoritesGridCell *gridCell =
             [tableView dequeueReusableCellWithIdentifier:VLCRadioFavoritesGridCell.reuseIdentifier forIndexPath:indexPath];
         gridCell.delegate = self;
-        [gridCell configureWithFavorites:[self visibleFavorites]];
+        [gridCell configureWithFavorites:_radioFavorites];
         return gridCell;
     }
 
@@ -199,7 +200,7 @@
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
 {
     if (indexPath.section != self.countriesSection) {
-        return [VLCRadioFavoritesGridCell heightForFavoriteCount:[self visibleFavorites].count
+        return [VLCRadioFavoritesGridCell heightForFavoriteCount:_radioFavorites.count
                                                            width:tableView.bounds.size.width];
     }
     return [VLCNetworkListCell heightOfCell];
@@ -226,14 +227,12 @@
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section
 {
-    BOOL isCountries = (section == self.countriesSection);
-    NSString *title = isCountries ? NSLocalizedString(@"COUNTRIES", nil)
-                                  : NSLocalizedString(@"FAVORITES", nil);
-    BOOL showsSeeAll = !isCountries && [self hasMoreFavorites];
-    return [self sectionHeaderViewWithTitle:title showsSeeAll:showsSeeAll];
+    NSString *title = (section == self.countriesSection) ? NSLocalizedString(@"COUNTRIES", nil)
+                                                         : NSLocalizedString(@"FAVORITES", nil);
+    return [self sectionHeaderViewWithTitle:title];
 }
 
-- (UIView *)sectionHeaderViewWithTitle:(NSString *)title showsSeeAll:(BOOL)showsSeeAll
+- (UIView *)sectionHeaderViewWithTitle:(NSString *)title
 {
     ColorPalette *themeColors = PresentationTheme.current.colors;
 
@@ -252,28 +251,7 @@
         [label.centerYAnchor constraintEqualToAnchor:header.centerYAnchor]
     ]];
 
-    if (showsSeeAll) {
-        UIButton *seeAllButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        seeAllButton.translatesAutoresizingMaskIntoConstraints = NO;
-        seeAllButton.tintColor = themeColors.orangeUI;
-        seeAllButton.titleLabel.font = [UIFont systemFontOfSize:15.0];
-        [seeAllButton setTitle:NSLocalizedString(@"SEE_ALL", nil) forState:UIControlStateNormal];
-        [seeAllButton addTarget:self action:@selector(showAllFavorites) forControlEvents:UIControlEventTouchUpInside];
-        [header addSubview:seeAllButton];
-
-        [NSLayoutConstraint activateConstraints:@[
-            [seeAllButton.trailingAnchor constraintEqualToAnchor:header.safeAreaLayoutGuide.trailingAnchor constant:-20.0],
-            [seeAllButton.centerYAnchor constraintEqualToAnchor:label.centerYAnchor]
-        ]];
-    }
-
     return header;
-}
-
-- (void)showAllFavorites
-{
-    VLCRadioFavoritesListViewController *targetViewController = [[VLCRadioFavoritesListViewController alloc] init];
-    [self.navigationController pushViewController:targetViewController animated:YES];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
@@ -286,6 +264,27 @@
 }
 
 #pragma mark - favorites grid delegate
+
+- (NSArray<UIMenuElement *> *)favoritesGridCell:(VLCRadioFavoritesGridCell *)cell menuElementsForFavoriteAtIndex:(NSInteger)index
+{
+    if (index >= _radioFavorites.count)
+        return nil;
+
+    __weak typeof(self) weakSelf = self;
+    return [VLCRadioFavoriteMenu alarmActionsForFavorite:_radioFavorites[index]
+                                presentingViewController:self
+                                               didChange:^{
+        [weakSelf reloadFavorites];
+    }];
+}
+
+- (BOOL)favoritesGridCell:(VLCRadioFavoritesGridCell *)cell hasAlarmForFavoriteAtIndex:(NSInteger)index
+{
+    if (index >= _radioFavorites.count)
+        return NO;
+
+    return [_favoritesWithAlarms containsObject:_radioFavorites[index].url];
+}
 
 - (void)favoritesGridCell:(VLCRadioFavoritesGridCell *)cell didSelectFavoriteAtIndex:(NSInteger)index
 {

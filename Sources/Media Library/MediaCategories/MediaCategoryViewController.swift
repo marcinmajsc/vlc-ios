@@ -273,6 +273,8 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         return nil
     }
 
+    private static let fabButtonSize: CGFloat = 44
+
     private lazy var fabButton: UIButton = {
         let button = UIButton(type: .system)
         button.addTarget(self, action: #selector(fabButtonPressed), for: .touchUpInside)
@@ -289,13 +291,15 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 #endif
         button.backgroundColor = PresentationTheme.current.colors.orangeUI
         button.tintColor = PresentationTheme.current.colors.background
-        button.layer.cornerRadius = 26.5
+        button.layer.cornerRadius = MediaCategoryViewController.fabButtonSize / 2
         button.layer.masksToBounds = false
         button.layer.shadowColor = UIColor.black.cgColor
         button.layer.shadowOffset = CGSize(width: 0.0, height: 2.0)
         button.layer.shadowRadius = 4.0
         button.layer.shadowOpacity = 0.3
-        button.layer.shadowPath = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 50, height: 50)).cgPath
+        button.layer.shadowPath = UIBezierPath(ovalIn: CGRect(x: 0, y: 0,
+                                                              width: MediaCategoryViewController.fabButtonSize,
+                                                              height: MediaCategoryViewController.fabButtonSize)).cgPath
         return button
     }()
 
@@ -596,6 +600,11 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         setupCollectionView() //Fixes crash that is caused due to layout change
         setNavbarAppearance()
         addInitializationCommonObservers()
+
+        if let folderModel = model as? FolderModel {
+            folderModel.setupData()
+        }
+
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             PlaybackService.sharedInstance().playerDisplayController.isMiniPlayerVisible
@@ -1295,6 +1304,12 @@ private extension MediaCategoryViewController {
             if !(collectionModel.mediaCollection is VLCMLPlaylist) {
                 navigationController?.popViewController(animated: true)
             }
+        }
+
+        // Inside a folder that has been removed from the disk
+        if let folderModel = model as? FolderModel,
+           !FileManager.default.fileExists(atPath: folderModel.currentFolder.mrl.path) {
+            navigationController?.popViewController(animated: true)
         }
     }
 
@@ -2269,6 +2284,7 @@ extension MediaCategoryViewController {
     private func setupPlaylistHeaderReusableView(headerView: PlaylistHeader, collection: VLCMLPlaylist) -> UICollectionReusableView {
         headerView.updateImage(with: collection.thumbnail())
         headerView.updateTitle(with: collection.title())
+        headerView.updateSubtitle(with: collection.subtitleString())
         headerView.collection = collection
         headerView.sortModel = model.sortModel
         playlistHeader = headerView
@@ -2803,9 +2819,9 @@ extension MediaCategoryViewController {
     }
 }
 
-// MARK: - MediaCollectionViewCellDelegate
+// MARK: - MediaCollectionViewCellEnqueueDelegate
 
-extension MediaCategoryViewController: MediaCollectionViewCellDelegate {
+extension MediaCategoryViewController: MediaCollectionViewCellEnqueueDelegate {
     func mediaCollectionViewCellHandleDelete(of cell: MediaCollectionViewCell) {
         guard let indexPath = collectionView.indexPath(for: cell),
               let modelContent = getObject(at: indexPath) else {
@@ -2831,6 +2847,15 @@ extension MediaCategoryViewController: MediaCollectionViewCellDelegate {
                 playbackService.removeMediaFromMediaList(at: UInt(indexPath.row))
             }
         }
+    }
+
+    func mediaCollectionViewCellHandleEnqueue(of cell: MediaCollectionViewCell) {
+        guard let indexPath = collectionView.indexPath(for: cell),
+              let modelContent = getObject(at: indexPath) else {
+            return
+        }
+
+        generatePlayAction(for: modelContent, type: .appendToQueue)
     }
 
     func mediaCollectionViewCellMediaTapped(in cell: MediaCollectionViewCell) {
@@ -2942,8 +2967,8 @@ extension MediaCategoryViewController {
 
         NSLayoutConstraint.activate([
             fabButton.trailingAnchor.constraint(equalTo: layoutGuide.trailingAnchor, constant: -15),
-            fabButton.widthAnchor.constraint(equalToConstant: 44),
-            fabButton.heightAnchor.constraint(equalToConstant: 44)
+            fabButton.widthAnchor.constraint(equalToConstant: MediaCategoryViewController.fabButtonSize),
+            fabButton.heightAnchor.constraint(equalToConstant: MediaCategoryViewController.fabButtonSize)
         ])
 
         updateFABButtonBottomConstraint()

@@ -70,6 +70,12 @@ class SettingsCell: UITableViewCell {
         return activityIndicator
     }()
 
+    private lazy var externalLinkAccessoryImageView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.contentMode = .center
+        return imageView
+    }()
+
     let mainLabel: UILabel = {
         let label = UILabel()
         let colors = PresentationTheme.current.colors
@@ -160,6 +166,7 @@ class SettingsCell: UITableViewCell {
 
             subtitleLabel.text = settingsItem.subtitle
             subtitleLabel.isHidden = settingsItem.subtitle?.isEmpty ?? true
+            accessibilityIdentifier = nil
 
             switch settingsItem.action {
             case .isLoading:
@@ -192,6 +199,15 @@ class SettingsCell: UITableViewCell {
                 accessoryType = .disclosureIndicator
                 selectionStyle = .default
 
+            case .about:
+                switchControl.isHidden = true
+                infoButton.isHidden = true
+                activityIndicator.isHidden = true
+                accessoryView = .none
+                accessoryType = .disclosureIndicator
+                selectionStyle = .default
+                accessibilityIdentifier = VLCAccessibilityIdentifier.about
+
             case .donation:
                 switchControl.isHidden = true
                 infoButton.isHidden = true
@@ -200,21 +216,23 @@ class SettingsCell: UITableViewCell {
                 accessoryType = .disclosureIndicator
                 selectionStyle = .default
 
-            case .documentation:
+            case .documentation, .openPrivacySettings:
                 switchControl.isHidden = true
                 infoButton.isHidden = true
                 activityIndicator.isHidden = true
-                accessoryView = .none
-                accessoryType = .disclosureIndicator
                 selectionStyle = .default
 
-            case .openPrivacySettings:
-                switchControl.isHidden = true
-                infoButton.isHidden = true
-                activityIndicator.isHidden = true
-                accessoryView = .none
-                accessoryType = .disclosureIndicator
-                selectionStyle = .default
+                if let externalLinkIcon = UIImage.with(systemName: "arrow.up.forward.app")?
+                    .withRenderingMode(.alwaysTemplate) {
+                    externalLinkAccessoryImageView.image = externalLinkIcon
+                    externalLinkAccessoryImageView.tintColor = PresentationTheme.current.colors.cellDetailTextColor
+                    externalLinkAccessoryImageView.sizeToFit()
+                    accessoryView = externalLinkAccessoryImageView
+                    accessoryType = .none
+                } else {
+                    accessoryView = .none
+                    accessoryType = .disclosureIndicator
+                }
 
             case .forceRescanAlert,
                     .exportMediaLibrary,

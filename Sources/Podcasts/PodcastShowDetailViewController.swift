@@ -43,7 +43,13 @@ class PodcastShowDetailViewController: UIViewController {
     private var sortCriteria: PodcastEpisodeSortCriteria
     private var sortDescending: Bool
 
+    private var cachedEpisodes: [PodcastEpisode]?
+
     private var episodes: [PodcastEpisode] {
+        if let cachedEpisodes = cachedEpisodes {
+            return cachedEpisodes
+        }
+
         let episodes = store.episodes(forShowId: show.id)
         let sorted: [PodcastEpisode]
         switch sortCriteria {
@@ -54,7 +60,10 @@ class PodcastShowDetailViewController: UIViewController {
         case .duration:
             sorted = episodes.sorted { $0.durationValue < $1.durationValue }
         }
-        return sortDescending ? sorted.reversed() : sorted
+
+        let result = sortDescending ? Array(sorted.reversed()) : sorted
+        cachedEpisodes = result
+        return result
     }
 
     // Shows can have thousands of episodes (VLCMLSubscription has no paged query, unlike the
@@ -63,8 +72,8 @@ class PodcastShowDetailViewController: UIViewController {
     // willDisplay/kVLCPrefetchDistance pattern.
     private var revealedEpisodeCount = Int(kVLCDefaultPageSize)
 
-    private var visibleEpisodes: [PodcastEpisode] {
-        return Array(episodes.prefix(revealedEpisodeCount))
+    private var visibleEpisodes: ArraySlice<PodcastEpisode> {
+        return episodes.prefix(revealedEpisodeCount)
     }
 
     private lazy var tableView: UITableView = {
@@ -174,6 +183,7 @@ class PodcastShowDetailViewController: UIViewController {
         sortCriteria = criteria
         sortDescending = desc
         revealedEpisodeCount = Int(kVLCDefaultPageSize)
+        cachedEpisodes = nil
 
         let userDefaults = UserDefaults.standard
         userDefaults.set(criteria.rawValue, forKey: "\(kVLCSortDefault)podcastEpisodes")
@@ -195,9 +205,7 @@ class PodcastShowDetailViewController: UIViewController {
         guard !store.isDownloading(episodeId: episode.id) else {
             return
         }
-        store.downloadEpisode(episodeId: episode.id, showId: show.id) { [weak self] _ in
-            self?.tableView.reloadData()
-        }
+        store.downloadEpisode(episodeId: episode.id, showId: show.id)
         tableView.reloadRows(at: [indexPath], with: .none)
     }
 
@@ -210,7 +218,7 @@ class PodcastShowDetailViewController: UIViewController {
                                                 style: .destructive) { [weak self] _ in
             guard let self = self else { return }
             self.store.deleteDownloadedEpisode(episodeId: episode.id, showId: self.show.id)
-            self.tableView.reloadData()
+            self.tableView.reloadRows(at: [indexPath], with: .none)
         })
         present(alertController, animated: true)
     }
@@ -220,6 +228,7 @@ class PodcastShowDetailViewController: UIViewController {
 
 extension PodcastShowDetailViewController: MediaLibraryBaseModelObserver {
     func mediaLibraryBaseModelReloadView() {
+        cachedEpisodes = nil
         tableView.reloadData()
     }
 }
