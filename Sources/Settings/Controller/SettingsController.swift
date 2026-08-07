@@ -255,6 +255,51 @@ class SettingsController: UITableViewController {
         present(alert, animated: true, completion: nil)
     }
 
+    private func syncMediaLibraryAlert() {
+        guard let libraryDirectory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first else {
+            return
+        }
+
+#if os(iOS)
+        NotificationFeedbackGenerator().warning()
+#endif
+        let databaseURL = libraryDirectory
+            .appendingPathComponent("MediaLibrary")
+            .appendingPathComponent(kVLCMediaLibraryDBFileName)
+
+        var fileSize: Int?
+        do {
+            let resourceValues = try databaseURL.resourceValues(forKeys: [.fileSizeKey])
+            fileSize = resourceValues.fileSize ?? 0
+        } catch {
+            print("SettingsController: Error getting resource values\n\(error.localizedDescription)")
+
+        }
+
+        let fileSizeFormatted = ByteCountFormatter().string(fromByteCount: Int64(fileSize ?? 0))
+        let format = NSLocalizedString("SETTINGS_SYNC_MEDIA_LIBRARY_MESSAGE", comment: "")
+        let message = String(format: format, fileSizeFormatted)
+        let alert = UIAlertController(title: NSLocalizedString("SETTINGS_SYNC_MEDIA_LIBRARY_TITLE", comment: ""),
+                                      message: message,
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: NSLocalizedString("BUTTON_CANCEL", comment: ""),
+                                      style: .cancel,
+                                      handler: nil))
+        alert.addAction(UIAlertAction(title: NSLocalizedString("BUTTON_SYNC", comment: ""),
+                                      style: .default,
+                                      handler: { _ in
+#if os(iOS)
+                                          ImpactFeedbackGenerator().selectionChanged()
+#endif
+
+#if (os(iOS)) && !NO_WATCH
+                                          let watchService = VLCWatchConnectivityService()
+                                          watchService.transferMediaLibraryFile()
+#endif
+                                      }))
+        present(alert, animated: true, completion: nil)
+    }
+
     private func forceRescanLibrary() {
         let queue = DispatchQueue.global(qos: .background)
         queue.async {
@@ -434,6 +479,8 @@ extension SettingsController {
             displayResetAlert()
         case let .showActionSheet(title, preferenceKey, _):
             showActionSheet(title: title, preferenceKey: preferenceKey)
+        case .syncMediaLibraryAlert:
+            syncMediaLibraryAlert()
         }
     }
 

@@ -279,6 +279,7 @@ class VLCSessionDelegate: NSObject, WCSessionDelegate {
 //        Logger.shared.clearLogs()
         #endif
         postNotificationOnMainQueueAsync(name: .dataDidFlow, object: message)
+        UserDefaults.standard.set(Date(), forKey: kVLCSettingAutomaticallySyncMediaLibraryLastUpdated)
     }
 
     // WCSessionDelegate methods for iOS only.
