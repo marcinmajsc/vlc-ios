@@ -132,14 +132,23 @@ extension NSNotification {
                                      didUpdateCacheForSubscriptionWithId subscriptionId: VLCMLIdentifier)
 
     @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
+                                     artworkReadyForSubscriptionWithId subscriptionId: VLCMLIdentifier,
+                                     success: Bool)
+
+    @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
                                      cacheIdleChanged idle: Bool)
 
     @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
-                                     didStartCachingMediaWithId mediaId: VLCMLIdentifier)
+                                     backgroundTasksIdleChanged idle: Bool)
+
+    @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
+                                     didStartCachingMediaWithId mediaId: VLCMLIdentifier,
+                                     operation: VLCMLCacheOperation)
 
     @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
                                      didFinishCachingMediaWithId mediaId: VLCMLIdentifier,
-                                     cached: Bool)
+                                     operation: VLCMLCacheOperation,
+                                     status: VLCMLCacheStatus)
 
     // History
     @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
@@ -203,7 +212,8 @@ class MediaLibraryService: NSObject {
     private var lastPlayedMediaList: VLCMedia?
 
 #if !os(watchOS)
-    private let subscriptionCacher = VLCSubscriptionCacher()
+    let subscriptionCacher = VLCSubscriptionCacher()
+    private let artworkCacher = VLCArtworkCacher()
 #endif
 
     @objc var medialib: VLCMediaLibrary {
@@ -455,6 +465,7 @@ private extension MediaLibraryService {
         privateMediaLib.delegate = self
 #if !os(watchOS)
         privateMediaLib.cacherDelegate = subscriptionCacher
+        privateMediaLib.artworkCacherDelegate = artworkCacher
 #endif
 
         switch medialibraryStatus {
@@ -543,14 +554,30 @@ private extension MediaLibraryService {
         guard let mrl = mrl  else {
             return nil //Happens when we have a URL or there is no currently playing file
         }
-        return medialib.media(withMrl: mrl)
+        if let media = medialib.media(withMrl: mrl) {
+            return media
+        }
+#if !os(watchOS)
+        if mrl.isFileURL {
+            let cachedIdentifier = subscriptionCacher.mediaIdentifier(forCachePath: mrl.path)
+            if cachedIdentifier != 0 {
+                return media(for: cachedIdentifier)
+            }
+        }
+#endif
+        return nil
     }
 
     @objc func fetchOrCreateMedia(with mrl: URL?) -> VLCMLMedia? {
         guard let mrl = mrl else {
             return nil
         }
-        return medialib.media(withMrl: mrl) ?? medialib.addExternalMedia(withMrl: mrl)
+        return medialib.media(withMrl: mrl) ?? addUnknownMedia(with: mrl)
+    }
+
+    private func addUnknownMedia(with mrl: URL) -> VLCMLMedia? {
+        return mrl.isFileURL ? medialib.addExternalMedia(withMrl: mrl)
+                             : medialib.addStream(withMrl: mrl)
     }
 
     @objc func media(for identifier: VLCMLIdentifier) -> VLCMLMedia? {
@@ -601,7 +628,7 @@ private extension MediaLibraryService {
 
         if mlMedia == nil {
             // Add media unknown to the medialibrary.
-            mlMedia = medialib.addExternalMedia(withMrl: mrl)
+            mlMedia = addUnknownMedia(with: mrl)
         }
         saveMetaData(of: mlMedia, from: player)
     }
@@ -1029,23 +1056,41 @@ extension MediaLibraryService {
         }
     }
 
+    func medialibrary(_ medialibrary: VLCMediaLibrary,
+                      artworkReadyForSubscriptionWithId subscriptionId: VLCMLIdentifier,
+                      withSuccess success: Bool) {
+        observable.notifyObservers {
+            $0.medialibrary?(self, artworkReadyForSubscriptionWithId: subscriptionId, success: success)
+        }
+    }
+
     func medialibrary(_ medialibrary: VLCMediaLibrary, cacheIdleChanged idle: Bool) {
         observable.notifyObservers {
             $0.medialibrary?(self, cacheIdleChanged: idle)
         }
     }
 
-    func medialibrary(_ medialibrary: VLCMediaLibrary,
-                      didStartCachingMediaWithId mediaId: VLCMLIdentifier) {
+    func medialibrary(_ medialibrary: VLCMediaLibrary, didChangeIdleBackgroundTasksWithSuccess success: Bool) {
         observable.notifyObservers {
-            $0.medialibrary?(self, didStartCachingMediaWithId: mediaId)
+            $0.medialibrary?(self, backgroundTasksIdleChanged: success)
         }
     }
 
     func medialibrary(_ medialibrary: VLCMediaLibrary,
-                      didFinishCachingMediaWithId mediaId: VLCMLIdentifier, cached: Bool) {
+                      didStartCachingMediaWithId mediaId: VLCMLIdentifier,
+                      operation: VLCMLCacheOperation) {
         observable.notifyObservers {
-            $0.medialibrary?(self, didFinishCachingMediaWithId: mediaId, cached: cached)
+            $0.medialibrary?(self, didStartCachingMediaWithId: mediaId, operation: operation)
+        }
+    }
+
+    func medialibrary(_ medialibrary: VLCMediaLibrary,
+                      didFinishCachingMediaWithId mediaId: VLCMLIdentifier,
+                      operation: VLCMLCacheOperation,
+                      status: VLCMLCacheStatus) {
+        observable.notifyObservers {
+            $0.medialibrary?(self, didFinishCachingMediaWithId: mediaId, operation: operation,
+                             status: status)
         }
     }
 }
@@ -1167,6 +1212,13 @@ extension MediaLibraryService: VLCMediaParserDelegate {
                 break
             }
         }
+
+        // The loop above skips external media, so a queue made up of podcast episodes or network
+        // streams alone falls through to the first item and would resurrect it in the mini player.
+        guard let restoredMedia = mediaList.media(at: UInt(lastPlayedMediaIndex)),
+              let restoredLibraryMedia = fetchMedia(with: restoredMedia.url),
+              !restoredLibraryMedia.isExternalMedia()
+        else { return }
 
         DispatchQueue.main.async {
             PlaybackService.sharedInstance().configurePlaybackWithMedia(at: lastPlayedMediaIndex, fromCollection: mediaList, openInMiniPlayer: true)

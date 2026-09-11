@@ -77,7 +77,19 @@ struct RadioStationEntity: AppEntity {
 
         let mediaList = VLCMediaList()
         mediaList.add(media)
-        _ = await PlaybackService.sharedInstance().playMediaList(mediaList, firstIndex: 0, subtitlesFilePath: nil)
+
+        let waiter = PlaybackStartWaiter()
+        startPlayback(of: mediaList)
+
+        guard await waiter.waitForPlaybackStart(timeout: 30) else {
+            APLog("RadioStationEntity: playback did not start for \(name)")
+            throw IntentError.playbackDidNotStart
+        }
+    }
+
+    @MainActor
+    private func startPlayback(of mediaList: VLCMediaList) {
+        PlaybackService.sharedInstance().playMediaList(mediaList, firstIndex: 0, subtitlesFilePath: nil)
     }
 }
 

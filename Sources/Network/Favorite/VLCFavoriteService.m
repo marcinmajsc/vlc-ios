@@ -56,6 +56,19 @@ NSString *const VLCFavoriteServiceContentDidChange = @"VLCFavoriteServiceContent
     [coder encodeBool:self.playable forKey:VLCFavoritePlayable];
 }
 
+- (id)copyWithZone:(NSZone *)zone
+{
+    VLCFavorite *copy = [[VLCFavorite allocWithZone:zone] init];
+    copy.userVisibleName = self.userVisibleName;
+    copy.url = self.url;
+    copy.groupName = self.groupName;
+    copy.artworkURL = self.artworkURL;
+    copy.mediaDescription = self.mediaDescription;
+    copy.lastPlayedDate = self.lastPlayedDate;
+    copy.playable = self.playable;
+    return copy;
+}
+
 - (NSString *)protocolIdentifier
 {
     return [[self.url scheme] uppercaseString];
@@ -354,7 +367,10 @@ NSString *const VLCFavoriteServiceContentDidChange = @"VLCFavoriteServiceContent
 
     VLCMediaList *mediaList = [[VLCMediaList alloc] init];
     [mediaList addMedia:media];
-    [[VLCPlaybackService sharedInstance] playMediaList:mediaList firstIndex:0 subtitlesFilePath:nil];
+
+    VLCPlaybackService *playbackService = [VLCPlaybackService sharedInstance];
+    playbackService.expectsAudioOnlyContent = [favorite.groupIdentifier isEqualToString:VLCFavoriteGroupRadio];
+    [playbackService playMediaList:mediaList firstIndex:0 subtitlesFilePath:nil];
 
     [self markFavoriteAsPlayed:favorite];
 }

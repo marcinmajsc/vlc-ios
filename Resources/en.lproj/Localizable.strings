@@ -13,7 +13,7 @@
 "LANGUAGE" = "Language";
 "MEDIA_INFO" = "Media Information";
 "VIDEO_DIMENSIONS" = "Video dimensions";
-"FORMAT_VIDEO_DIMENSIONS" = "%ix%i pixel";
+"FORMAT_VIDEO_DIMENSIONS" = "%ix%i pixels";
 "VIDEO_CODEC" = "Video Codec";
 "RESOLUTION_CLASS_8K" = "8K";
 "RESOLUTION_CLASS_4K" = "4K";
@@ -49,6 +49,7 @@
 "DEFAULT" = "Default";
 "FILL_TO_SCREEN" = "Crop to fill screen";
 "PLAYBACK_SPEED" = "Playback speed";
+"PLAYBACK_SPEED_FORMAT" = "%@×";
 "SPU_DELAY" = "Subtitles delay";
 "AUDIO_DELAY" = "Audio delay";
 "BUTTON_SLEEP_TIMER" = "Sleep Timer";
@@ -59,6 +60,8 @@
 "BUTTON_BACK" = "Back";
 "BUTTON_DONE" = "Done";
 "BUTTON_OPEN" = "Open";
+"BUTTON_PASTE_AND_OPEN" = "Paste and Open";
+"BUTTON_PASTE_AND_LOAD" = "Paste and Load";
 "BUTTON_CANCEL" = "Cancel";
 "BUTTON_CLOSE" = "Close";
 "BUTTON_SAVE" = "Save";
@@ -96,6 +99,7 @@
 "OPEN_NETWORK" = "Open Network Stream";
 "NETWORK_TITLE" = "Network Stream";
 "RECENT_STREAMS" = "Recent Streams";
+"REMOVE_FROM_RECENT_STREAMS" = "Remove from Recent Streams";
 "HTTP_UPLOAD_SERVER_OFF" = "Inactive Server";
 "HTTP_UPLOAD_NO_CONNECTIVITY" = "No active Wi-Fi connection";
 "OPEN_STREAM_OR_DOWNLOAD" = "Would you like to download or play this URL?";
@@ -110,6 +114,11 @@
 
 "HTTP_DOWNLOAD_CANCELLED" = "Download canceled by user";
 
+"NETWORK_AUTH_TITLE" = "Authentication Required";
+"NETWORK_AUTH_MESSAGE" = "%@ requires a user name and a password.";
+"NETWORK_AUTH_MESSAGE_REALM" = "%@ requires a user name and a password for “%@”.";
+"NETWORK_AUTH_WRONG_CREDENTIALS" = "The user name or the password was incorrect.";
+
 "TRANSFERS" = "Transfers";
 "TRANSFERS_IN_PROGRESS" = "In progress";
 "TRANSFER_FAILED" = "Transfer failed";
@@ -123,6 +132,7 @@
 "SCHEME_NOT_SUPPORTED" = "Address scheme not supported";
 "SCHEME_NOT_SUPPORTED_LONG" = "The address scheme (%@) is not supported. Please use an address starting with HTTP, HTTPS or FTP.";
 "RENAME_MEDIA_TO" = "Enter new name for %@";
+"MEDIA_PLACEHOLDER" = "Media title";
 
 
 "SHARING_ACTION_SHEET_TITLE_CHOOSE_FILE" = "Choose a file to open:";
@@ -157,12 +167,10 @@
 "ONAIR_ADD" = "Add";
 "ONAIR_FIND_STATION" = "Find a station";
 "ONAIR_PODCASTS" = "Podcasts";
-"ONAIR_PODCASTS_EMPTY_TITLE" = "No subscriptions yet";
 "ONAIR_PODCASTS_EMPTY_BODY" = "Paste an RSS feed to subscribe.";
 "ONAIR_PODCASTS_ZERO_BODY" = "Bring your own feed to get started.";
 "ONAIR_PASTE_RSS" = "Paste RSS";
 "ONAIR_TV" = "TV";
-"ONAIR_TV_EMPTY_TITLE" = "No channels yet";
 "ONAIR_TV_EMPTY_BODY" = "Public channels, or your own M3U.";
 "ONAIR_OPEN_DIRECTORY" = "Open directory";
 "ONAIR_ADD_M3U" = "Add M3U";
@@ -172,7 +180,6 @@
 "BROWSE_PHOTOS" = "Photos";
 "BROWSE_CLOUD" = "Cloud";
 "BROWSE_NETWORK_STREAM" = "Network stream";
-"BROWSE_DOWNLOADS" = "Downloads";
 "BROWSE_WIFI_SHARING" = "Wi-Fi sharing";
 "BROWSE_ADD_SERVER" = "Add server";
 "STREAMS" = "Streams";
@@ -281,6 +288,7 @@
 "DEFAULT_PROFILE_NAME" = "Custom profile";
 "CUSTOM_EQUALIZER_ALERT_TITLE" = "Save new profile";
 "CUSTOM_EQUALIZER_ALERT_MESSAGE" = "Do you want to save a new profile with the selected values?";
+"CUSTOM_EQUALIZER_PROFILE_PLACEHOLDER" = "Profile title";
 "RENAME_CUSTOM_PROFILE_TITLE" = "Rename the profile";
 "DELETE_CUSTOM_PROFILE_TITLE" = "Delete the profile";
 "DELETE_CUSTOM_PROFILE_MESSAGE" = "Do you want to delete the selected profile?";
@@ -349,6 +357,8 @@
 "SHUFFLE" = "Shuffle";
 "SHUFFLE_DISABLED" = "Shuffle off";
 
+"NETWORK_STREAM_PLACEHOLDER" = "Stream title";
+"NETWORK_STREAM_URL_PLACEHOLDER" = "Stream address";
 "RESET_NETWORK_STREAM_LIST_TITLE" = "Reset list";
 "RESET_NETWORK_STREAM_LIST_TEXT" = "Permanently reset the list of recently played network streams.";
 
@@ -379,17 +389,22 @@
 "DELETE_MESSAGE_PLAYLISTS" = "Are you sure to delete the selected playlists?\nAssociated media files won't be deleted.";
 "DELETE_MESSAGE_PLAYLIST_CONTENT" = "Are you sure to remove the selected media from the playlist?\nThey won't be deleted from the disk.";
 "DELETE_MESSAGE_FOLDER" = "Are you sure to delete the selection?\nEvery media file inside the selected folders will be deleted from the disk, too.";
+"DELETE_MESSAGE_HISTORY" = "Are you sure to remove the selected media from the history?\nThey won't be deleted from the disk, but their playback progress will be lost.";
 
 // MARK: - Drag and Drop
 
 "PROTOCOL_NOT_SELECTED" = "Protocol not selected";
 "Settings" = "Settings";
-"SETTINGS_INFO_TITLE" = "Settings & Info";
+"SETTINGS_ABOUT" = "About VLC";
+"SETTINGS_DOCUMENTATION" = "Documentation";
+"SETTINGS_DONATE" = "Donate to VideoLAN";
+"SETTINGS_DONATE_LONG" = "Support free and open source multimedia";
 
 "ERROR" = "Error";
 "SORT" = "Sort";
 "SORT_BY" = "Sort by";
 "SORT_NOTIFICATION" = "Using the same option in a row reverses the sorting order";
+/* Noun, not verb: the label of a search field or search button (French: "Recherche", not "Rechercher") */
 "SEARCH" = "Search";
 "VIDEO" = "Video";
 
@@ -405,23 +420,27 @@
 "FOLDERS" = "Folders";
 
 // MARK: - Podcasts
-"PODCAST_CONTENT_TITLE" = "Content";
 "PODCAST_CONTINUE_LISTENING" = "Continue Listening";
 "PODCAST_LATEST_EPISODES" = "Latest Episodes";
 "PODCAST_SHOWS" = "Shows";
 "PODCAST_SORT_EPISODES_HINT" = "Sort the episodes in this show";
+"PODCAST_MARK_ALL_AS_PLAYED" = "Mark All as Played";
+"PODCAST_TIME_LEFT" = "%@ left";
+"PODCAST_EXPORT_MEDIA_FILE" = "Export Media File";
+"PODCAST_OPEN_LINK" = "Open Link…";
 "PODCAST_EPISODE_COUNT" = "%d episodes";
 "PODCAST_EPISODE_DOWNLOAD" = "Download episode";
 "PODCAST_EPISODE_DOWNLOADED" = "Episode downloaded";
-"PODCAST_EPISODE_DOWNLOADING" = "Downloading episode";
+"PODCAST_EPISODE_CANCEL_DOWNLOAD" = "Cancel download";
 "PODCAST_DELETE_DOWNLOAD_TITLE" = "Remove Download";
 "PODCAST_DELETE_DOWNLOAD_MESSAGE" = "This will delete the downloaded copy of this episode. You can download it again later.";
-"PODCAST_SUBSCRIBE" = "Subscribe";
-"PODCAST_SUBSCRIBED" = "Subscribed";
+"PODCAST_UNSUBSCRIBE" = "Unsubscribe";
+"PODCAST_UNSUBSCRIBE_MESSAGE" = "This will remove this show, its episodes and any downloaded copies from your library.";
+"PODCAST_OPEN_WEBSITE" = "Open Website…";
 "PODCAST_EMPTY_TITLE" = "No Podcasts Yet";
 "PODCAST_EMPTY_DESCRIPTION" = "Add a show via its RSS feed URL to start listening.";
 "PODCAST_ADD_VIA_RSS" = "Add via RSS URL";
-"PODCAST_ADD_BUTTON" = "Add Podcast";
+"PODCAST_SUBSCRIBE" = "Subscribe";
 "PODCAST_ADD_RSS_PLACEHOLDER" = "https://example.com/feed.xml";
 "PODCAST_ADD_RSS_ERROR" = "Couldn't add this podcast. Check the URL and try again.";
 "PODCAST_ADD_RSS_ERROR_EMPTY" = "Enter a podcast feed URL.";
@@ -430,6 +449,8 @@
 "PODCAST_ADD_RSS_ERROR_NETWORK" = "Couldn't reach that address. Check your internet connection and the URL.";
 "PODCAST_ADD_RSS_ERROR_HTTP" = "That address returned an error (%d). Double-check the feed URL.";
 "PODCAST_ADD_RSS_ERROR_NOT_A_FEED" = "That URL doesn't look like a podcast feed. Make sure it points directly to the RSS/XML feed, not the podcast's webpage.";
+"PODCAST_SUBSCRIBE_FEEDS_MESSAGE" = "This file contains %d podcast feeds.";
+"PODCAST_SUBSCRIBE_PARTIAL" = "%d of %d feeds could not be added.";
 "VIDEO_GROUPS" = "Video groups";
 "HISTORY" = "History";
 "MEDIA_LIBRARY_LABEL" = "Library";
@@ -610,6 +631,7 @@
 "BOOKMARKS_TITLE" = "Bookmarks";
 "ADD_BOOKMARKS_TITLE" = "Add Bookmarks";
 "BOOKMARK_DEFAULT_NAME" = "Bookmark at";
+"BOOKMARK_PLACEHOLDER" = "Bookmark title";
 "BOOKMARK_RENAME_TITLE" = "Rename bookmark";
 "BOOKMARK_DELETE_TITLE" = "Delete bookmark";
 "BOOKMARK_DELETE_MESSAGE" = "Confirm the deletion of the bookmark";
@@ -774,9 +796,11 @@
 
 // MARK: - Custom Playback Speed
 
-"SETTINGS_CUSTOM_PLAYBACK_SPEED" = "Custom Speed";
-"SETTINGS_CUSTOM_PLAYBACK_SPEED_MESSAGE" = "Enter a speed between 0.25 and 8.0";
-"SETTINGS_INVALID_SPEED_VALUE" = "Please enter a valid number between 0.25 and 8.0"; /* Please enter a valid number between 0.25 and 8.0 */
+
+// MARK: - Custom Setting Value
+
+"SETTINGS_CUSTOM_VALUE_MESSAGE" = "Enter a value between %@ and %@";
+"SETTINGS_CUSTOM_VALUE_ERROR" = "Please enter a valid value between %@ and %@";
 
 // MARK: - TitleSelection
 
@@ -793,6 +817,7 @@
 // MARK: - Audio App Intent Strings
 "APPINTENT_ERROR_NO_MEDIA" = "No matching media was found in your library.";
 "APPINTENT_ERROR_PLAYLIST_UPDATE" = "The playlist could not be updated.";
+"APPINTENT_ERROR_PLAYBACK_START" = "Playback could not be started.";
 "APPINTENT_AFFINITY_FAVORITE" = "Favorite";
 "APPINTENT_AFFINITY_NOT_FAVORITE" = "Not a Favorite";
 "APPINTENT_AFFINITY_UNSET" = "Unset";
@@ -869,3 +894,14 @@
 "SHARE_EXTENSION_IMPORTING" = "Adding to VLC…";
 "SHARE_EXTENSION_IMPORTED" = "Added to VLC";
 "SHARE_EXTENSION_FAILED" = "Could not add to VLC";
+
+// MARK: - Player WatchOS
+"TRACKS_WO_COUNTER" = "Tracks";
+
+// MARK: - Radio Stations WatchOS
+"STATION_LOAD_ERROR" = "There's been an error loading the station. Please try again.";
+"RADIO_GENERIC_ERROR" = "Something went wrong";
+"RADIO_DATA_LOAD_ERROR" = "There's been an error loading the data";
+"DISCOVER_LABEL" = "Discover";
+"RECENTS" = "Recents";
+

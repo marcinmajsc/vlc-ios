@@ -150,6 +150,7 @@ extension EditActions {
 
             // Not using VLCAlertViewController to have more customization in text fields
             let alertInfo = TextFieldAlertInfo(alertTitle: String(format: NSLocalizedString("RENAME_MEDIA_TO", comment: ""), mlObjectName),
+                                               placeHolder: getObjectPlaceholder(for: mlObject),
                                                textfieldText: mlObjectName,
                                                confirmActionTitle: NSLocalizedString("BUTTON_RENAME", comment: ""))
             presentTextFieldAlert(with: alertInfo, completionHandler: {
@@ -200,6 +201,8 @@ extension EditActions {
             message = NSLocalizedString("DELETE_MESSAGE_PLAYLIST_CONTENT", comment: "")
         } else if objects.contains(where: { $0 is VLCMLFolder }) {
             message = NSLocalizedString("DELETE_MESSAGE_FOLDER", comment: "")
+        } else if model is HistoryModel {
+            message = NSLocalizedString("DELETE_MESSAGE_HISTORY", comment: "")
         } else {
             message = NSLocalizedString("DELETE_MESSAGE", comment: "")
         }
@@ -346,6 +349,17 @@ private extension EditActions {
             assertionFailure("EditActions: Rename/Delete called with wrong model.")
             return nil
         }
+    }
+
+    private func getObjectPlaceholder(for mlObject: VLCMLObject?) -> String {
+        if mlObject is VLCMLPlaylist {
+            return NSLocalizedString("PLAYLIST_PLACEHOLDER", comment: "")
+        } else if let mediaGroup = mlObject as? VLCMLMediaGroup,
+                  mediaGroup.nbTotalMedia() > 1 || mediaGroup.userInteracted() {
+            return NSLocalizedString("MEDIA_GROUPS_PLACEHOLDER", comment: "")
+        }
+
+        return NSLocalizedString("MEDIA_PLACEHOLDER", comment: "")
     }
 
     private func presentTextFieldAlert(with info: TextFieldAlertInfo,

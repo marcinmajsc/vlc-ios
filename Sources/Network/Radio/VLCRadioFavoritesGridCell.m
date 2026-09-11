@@ -16,8 +16,8 @@
 
 static CGFloat const kVLCRadioGridSideMargin = 20.0;
 static CGFloat const kVLCRadioGridGap = 14.0;
-static CGFloat const kVLCRadioGridNameArea = 28.0;
-static CGFloat const kVLCRadioGridMinTileWidth = 165.0;
+static CGFloat const kVLCRadioGridNameArea = 22.0;
+static CGFloat const kVLCRadioGridMinTileWidth = 100.0;
 static CGFloat const kVLCRadioGridTopPadding = 0.0;
 static CGFloat const kVLCRadioGridBottomPadding = 4.0;
 
@@ -124,6 +124,8 @@ static CGFloat const kVLCRadioGridBottomPadding = 4.0;
     VLCFavorite *favorite = _favorites[indexPath.item];
     tile.delegate = self;
     tile.badge = VLCArtworkTileBadgePlay;
+    tile.removalActionTitle = self.removalActionTitle;
+    tile.removalActionGlyphName = self.removalActionGlyphName;
     [tile configureWithName:favorite.userVisibleName artworkURL:favorite.artworkURL];
 
     if ([self.delegate respondsToSelector:@selector(favoritesGridCell:hasAlarmForFavoriteAtIndex:)]

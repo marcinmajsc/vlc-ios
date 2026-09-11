@@ -13,8 +13,8 @@
 
 #import "VLCHTTPFileDownloader.h"
 #import "VLCActivityManager.h"
+#import "VLCURLAuthenticationHandler.h"
 #import "VLC-Swift.h"
-#import "NSURLSessionConfiguration+default.h"
 
 @interface VLCHTTPFileDownloader () <NSURLSessionDelegate>
 {
@@ -24,6 +24,7 @@
 
     NSURLSession *_urlSession;
     NSURLSessionTask *_urlSessionTask;
+    VLCURLAuthenticationHandler *_authenticationHandler;
     dispatch_queue_t _downloadsAccessQueue;
 
     BOOL _downloadInProgress;
@@ -35,9 +36,10 @@
 - (instancetype)init
 {
     if (self = [super init]) {
-        _urlSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultMPTCPConfiguration]
+        _urlSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]
                                                     delegate:self
                                                delegateQueue:nil];
+        _authenticationHandler = [[VLCURLAuthenticationHandler alloc] init];
         _downloadsAccessQueue = dispatch_queue_create("VLCHTTPFileDownloader.downloadsQueue", DISPATCH_QUEUE_SERIAL);
     }
     return self;
@@ -100,6 +102,14 @@
 
 - (void)URLSession:(NSURLSession *)session
               task:(NSURLSessionTask *)task
+didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential * _Nullable))completionHandler
+{
+    [_authenticationHandler handleChallenge:challenge forURL:_url completionHandler:completionHandler];
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
 willPerformHTTPRedirection:(NSHTTPURLResponse *)response
         newRequest:(NSURLRequest *)request
  completionHandler:(void (^)(NSURLRequest * _Nullable))completionHandler
@@ -144,6 +154,10 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
     /* check Content-Disposition header for a server-provided filename */
     if ([downloadTask.response isKindOfClass:[NSHTTPURLResponse class]]) {
         NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)downloadTask.response;
+        if (httpResponse.statusCode >= 400) {
+            return;
+        }
+
         NSString *suggestedFilename = [self filenameFromContentDisposition:httpResponse.allHeaderFields[@"Content-Disposition"]];
         if (suggestedFilename.length > 0) {
             NSString *directory = [_fileURL.path stringByDeletingLastPathComponent];
@@ -191,17 +205,28 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
 {
-    if (error.code != -999) {
-        if (error) {
-            APLog(@"http file download failed (%li)", (long)error.code);
-            [self _failWithDescription:error.localizedDescription];
-        } else {
-            APLog(@"http file download complete");
-            [self _downloadSucceeded];
-        }
-    } else {
+    if (error.code == NSURLErrorCancelled) {
         APLog(@"http file download canceled");
+        return;
     }
+
+    if (error) {
+        APLog(@"http file download failed (%li)", (long)error.code);
+        [self _failWithDescription:error.localizedDescription];
+        return;
+    }
+
+    if ([task.response isKindOfClass:[NSHTTPURLResponse class]]) {
+        NSInteger statusCode = ((NSHTTPURLResponse *)task.response).statusCode;
+        if (statusCode >= 400) {
+            APLog(@"http file download failed with status code %li", (long)statusCode);
+            [self _failWithDescription:[NSHTTPURLResponse localizedStringForStatusCode:statusCode].capitalizedString];
+            return;
+        }
+    }
+
+    APLog(@"http file download complete");
+    [self _downloadSucceeded];
 }
 
 - (void)cancelDownload

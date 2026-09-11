@@ -13,7 +13,13 @@
 #import "VLCRadioStationsViewController.h"
 #import "VLCPlaceholderArtwork.h"
 #import "VLCRadioErrorView.h"
+#import "VLCRadioService.h"
 #import "VLCNetworkListCell.h"
+#import "VLCFavoriteService.h"
+#import "VLCPlaybackService.h"
+#import "VLCMetadata.h"
+#import "VLCNetworkImageView.h"
+#import "VLCAppCoordinator.h"
 
 #import "VLC-Swift.h"
 
@@ -23,6 +29,7 @@ static NSTimeInterval const kVLCRadioStationsDiscoveryTimeout = 20.0;
 {
     NSTimer *_timeoutTimer;
     UIView *_errorView;
+    UIImage *_moreImage;
 }
 @end
 
@@ -54,6 +61,12 @@ static NSTimeInterval const kVLCRadioStationsDiscoveryTimeout = 20.0;
     [super themeDidChange];
 
     self.tableView.backgroundColor = PresentationTheme.current.colors.pageBackground;
+
+    _moreImage = nil;
+    for (VLCNetworkListCell *cell in self.tableView.visibleCells) {
+        if ([cell isKindOfClass:[VLCNetworkListCell class]])
+            [self applyMoreButtonToCell:cell];
+    }
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -73,6 +86,37 @@ static NSTimeInterval const kVLCRadioStationsDiscoveryTimeout = 20.0;
     self.navigationController.navigationBar.prefersLargeTitles = NO;
 
     [self cancelTimeout];
+}
+
+#pragma mark - server browser item specifics
+
+- (void)didSelectItem:(id<VLCNetworkServerBrowserItem>)item index:(NSUInteger)index singlePlayback:(BOOL)singlePlayback
+{
+    if (!item.isContainer) {
+        VLCFavorite *entry = [self recentEntryForItem:item];
+        [[[VLCAppCoordinator sharedInstance] radioService] markStreamPlayed:entry];
+
+        VLCPlaybackService *playbackService = VLCPlaybackService.sharedInstance;
+        playbackService.expectsAudioOnlyContent = YES;
+        [playbackService.metadata prepareArtworkImage:[VLCNetworkImageView cachedImageForURL:entry.artworkURL]
+                                               forURL:entry.artworkURL];
+    }
+
+    [super didSelectItem:item index:index singlePlayback:YES];
+}
+
+- (VLCFavorite *)recentEntryForItem:(id<VLCNetworkServerBrowserItem>)item
+{
+    VLCFavorite *entry = [[VLCFavorite alloc] init];
+    entry.userVisibleName = item.name;
+    entry.url = item.URL;
+    entry.groupName = VLCFavoriteGroupRadio;
+    if ([item respondsToSelector:@selector(thumbnailURL)])
+        entry.artworkURL = item.thumbnailURL;
+    if ([item respondsToSelector:@selector(mediaDescription)])
+        entry.mediaDescription = item.mediaDescription;
+
+    return entry;
 }
 
 #pragma mark - loading timeout
@@ -175,8 +219,7 @@ static NSTimeInterval const kVLCRadioStationsDiscoveryTimeout = 20.0;
     cell.thumbnailView.clipsToBounds = YES;
     cell.thumbnailView.contentMode = UIViewContentModeScaleAspectFill;
 
-    NSURL *iconURL = cell.iconURL;
-    UIImage *cachedArtwork = iconURL ? [[VLCNetworkImageView sharedImageCache] objectForKey:iconURL] : nil;
+    UIImage *cachedArtwork = [VLCNetworkImageView cachedImageForURL:cell.iconURL];
     if (cachedArtwork) {
         cell.thumbnailView.image = cachedArtwork;
         return;
@@ -189,6 +232,18 @@ static NSTimeInterval const kVLCRadioStationsDiscoveryTimeout = 20.0;
                                                                fontSize:13.0];
 }
 
+- (UIImage *)moreImage
+{
+    if (_moreImage)
+        return _moreImage;
+
+    if (@available(iOS 13.0, *)) {
+        _moreImage = [[UIImage systemImageNamed:@"ellipsis"] imageWithTintColor:PresentationTheme.current.colors.cellDetailTextColor
+                                                                  renderingMode:UIImageRenderingModeAlwaysOriginal];
+    }
+    return _moreImage;
+}
+
 - (void)applyMoreButtonToCell:(VLCNetworkListCell *)cell
 {
     if (!cell.isFavorable) {
@@ -196,12 +251,22 @@ static NSTimeInterval const kVLCRadioStationsDiscoveryTimeout = 20.0;
         return;
     }
 
-    UIButton *moreButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    moreButton.tintColor = PresentationTheme.current.colors.cellDetailTextColor;
+    UIButton *moreButton = [cell.accessoryView isKindOfClass:[UIButton class]] ? (UIButton *)cell.accessoryView : nil;
+    if (!moreButton) {
+        moreButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        if (@available(iOS 14.0, *)) {
+            moreButton.showsMenuAsPrimaryAction = YES;
+        } else {
+            [moreButton addTarget:cell action:@selector(triggerFavorite:) forControlEvents:UIControlEventTouchUpInside];
+        }
+        cell.accessoryView = moreButton;
+    }
+
     if (@available(iOS 13.0, *)) {
-        [moreButton setImage:[UIImage systemImageNamed:@"ellipsis"] forState:UIControlStateNormal];
+        [moreButton setImage:self.moreImage forState:UIControlStateNormal];
     } else {
         [moreButton setTitle:@"•••" forState:UIControlStateNormal];
+        [moreButton setTitleColor:PresentationTheme.current.colors.cellDetailTextColor forState:UIControlStateNormal];
     }
     [moreButton sizeToFit];
 
@@ -218,12 +283,7 @@ static NSTimeInterval const kVLCRadioStationsDiscoveryTimeout = 20.0;
             [weakCell triggerFavorite:nil];
         }];
         moreButton.menu = [UIMenu menuWithTitle:@"" children:@[favoriteAction]];
-        moreButton.showsMenuAsPrimaryAction = YES;
-    } else {
-        [moreButton addTarget:cell action:@selector(triggerFavorite:) forControlEvents:UIControlEventTouchUpInside];
     }
-
-    cell.accessoryView = moreButton;
 }
 
 @end

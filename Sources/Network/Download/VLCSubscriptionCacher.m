@@ -13,6 +13,7 @@
 #import "VLCSubscriptionCacher.h"
 #import "VLCAppCoordinator.h"
 #import "VLCTransferController.h"
+#import "Reachability.h"
 #import "VLC-Swift.h"
 
 static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
@@ -20,6 +21,7 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
 @interface VLCSubscriptionCacher () <VLCMediaDownloaderDelegate>
 {
     VLCMediaDownloader *_downloader;
+    Reachability *_reachability;
 
     /* The mutex guards the state shared with interruptCaching, which is called
      * from a different thread than cacheMRL:toPath:. */
@@ -27,9 +29,14 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
     VLCMediaDownloadTask *_task;
     NSFileHandle *_fileHandle;
     dispatch_semaphore_t _completion;
+    NSMutableSet<NSNumber *> *_manualMediaIdentifiers;
+    NSMutableSet<NSNumber *> *_cancelledMediaIdentifiers;
+    VLCMLIdentifier _currentMediaIdentifier;
+    NSString *_currentCachePath;
+    BOOL _currentIsAutomatic;
     BOOL _cancelled;
     BOOL _terminated;
-    BOOL _success;
+    VLCMLCacheStatus _status;
 
     NSUInteger _transferToken;
     NSTimeInterval _lastProgressReport;
@@ -43,25 +50,144 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
     if (self = [super init]) {
         _downloader = [[VLCMediaDownloader alloc] init];
         _lock = [[NSLock alloc] init];
+        _manualMediaIdentifiers = [NSMutableSet set];
+        _cancelledMediaIdentifiers = [NSMutableSet set];
+        _reachability = [Reachability reachabilityForInternetConnection];
+        [_reachability startNotifier];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(reachabilityDidChange)
+                                                     name:kReachabilityChangedNotification
+                                                   object:nil];
     }
     return self;
 }
 
+#pragma mark - network policy
+
+- (BOOL)automaticCachingAllowed
+{
+    return _reachability.currentReachabilityStatus == ReachableViaWiFi;
+}
+
+- (void)addManualRequestForMediaWithIdentifier:(VLCMLIdentifier)identifier
+{
+    [_lock lock];
+    [_manualMediaIdentifiers addObject:@(identifier)];
+    [_cancelledMediaIdentifiers removeObject:@(identifier)];
+    [_lock unlock];
+}
+
+- (void)removeManualRequestForMediaWithIdentifier:(VLCMLIdentifier)identifier
+{
+    [_lock lock];
+    [_manualMediaIdentifiers removeObject:@(identifier)];
+    [_lock unlock];
+}
+
+- (BOOL)consumeManualRequestForMedia:(VLCMLMedia *)media
+{
+    if (!media) {
+        return NO;
+    }
+
+    NSNumber *identifier = @([media identifier]);
+    [_lock lock];
+    BOOL manual = [_manualMediaIdentifiers containsObject:identifier];
+    if (manual) {
+        [_manualMediaIdentifiers removeObject:identifier];
+    }
+    [_lock unlock];
+
+    return manual;
+}
+
+- (BOOL)consumeCancellationForMedia:(VLCMLMedia *)media
+{
+    if (!media) {
+        return NO;
+    }
+
+    NSNumber *identifier = @([media identifier]);
+    [_lock lock];
+    BOOL cancelled = [_cancelledMediaIdentifiers containsObject:identifier];
+    if (cancelled) {
+        [_cancelledMediaIdentifiers removeObject:identifier];
+    }
+    [_lock unlock];
+
+    return cancelled;
+}
+
+- (void)cancelCachingOfMediaWithIdentifier:(VLCMLIdentifier)identifier
+{
+    [_lock lock];
+    VLCMediaDownloadTask *task = nil;
+    if (_currentMediaIdentifier == identifier) {
+        _cancelled = YES;
+        task = _task;
+    } else {
+        [_cancelledMediaIdentifiers addObject:@(identifier)];
+    }
+    [_lock unlock];
+
+    [task cancel];
+}
+
+- (void)cancelExternalDownloadWithToken:(NSUInteger)token
+{
+    [_lock lock];
+    VLCMediaDownloadTask *task = nil;
+    if (_transferToken == token) {
+        _cancelled = YES;
+        task = _task;
+    }
+    [_lock unlock];
+
+    [task cancel];
+}
+
+- (void)reachabilityDidChange
+{
+    if (self.automaticCachingAllowed) {
+        return;
+    }
+
+    [_lock lock];
+    VLCMediaDownloadTask *task = _currentIsAutomatic ? _task : nil;
+    if (task) {
+        _cancelled = YES;
+    }
+    [_lock unlock];
+
+    [task cancel];
+}
+
 #pragma mark - VLCMLCacherDelegate
 
-- (BOOL)cacheMRL:(NSURL *)mrl toPath:(NSString *)path
+- (VLCMLCacheStatus)cacheMRL:(NSURL *)mrl toPath:(NSString *)path
 {
+    VLCMLMedia *libraryMedia = [[VLCAppCoordinator sharedInstance].mediaLibraryService.medialib mediaWithMrl:mrl];
+    BOOL automatic = ![self consumeManualRequestForMedia:libraryMedia];
+    if ([self consumeCancellationForMedia:libraryMedia]) {
+        APLog(@"%s: skipping the cancelled download of %@", __func__, mrl);
+        return VLCMLCacheStatusCancelled;
+    }
+    if (automatic && !self.automaticCachingAllowed) {
+        APLog(@"%s: skipping the automatic download of %@ while off Wi-Fi", __func__, mrl);
+        return VLCMLCacheStatusCancelled;
+    }
+
     NSFileManager *fileManager = [NSFileManager defaultManager];
     if (![fileManager createFileAtPath:path contents:nil attributes:nil]) {
         APLog(@"%s: failed to create cache file at %@", __func__, path);
-        return NO;
+        return VLCMLCacheStatusFailed;
     }
 
     NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:path];
     if (!fileHandle) {
         APLog(@"%s: failed to open cache file at %@", __func__, path);
         [fileManager removeItemAtPath:path error:nil];
-        return NO;
+        return VLCMLCacheStatusFailed;
     }
 
     VLCMedia *media = [VLCMedia mediaWithURL:mrl];
@@ -69,11 +195,11 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
         APLog(@"%s: failed to create media for %@", __func__, mrl);
         [fileHandle closeFile];
         [fileManager removeItemAtPath:path error:nil];
-        return NO;
+        return VLCMLCacheStatusFailed;
     }
 
     dispatch_semaphore_t completion = dispatch_semaphore_create(0);
-    NSString *displayName = [[VLCAppCoordinator sharedInstance].mediaLibraryService.medialib mediaWithMrl:mrl].title;
+    NSString *displayName = libraryMedia.title;
     if (displayName.length == 0) {
         displayName = mrl.lastPathComponent.stringByRemovingPercentEncoding ?: mrl.absoluteString;
     }
@@ -82,14 +208,18 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
     _fileHandle = fileHandle;
     _completion = completion;
     _terminated = NO;
-    _success = NO;
+    _status = VLCMLCacheStatusFailed;
     _transferToken = 0;
     _lastProgressReport = 0;
+    _currentMediaIdentifier = libraryMedia.identifier;
+    _currentCachePath = path;
+    _currentIsAutomatic = automatic;
     /* A prior interruptCaching (e.g. a shutdown racing the next item) must abort
      * this download too rather than being silently forgotten. */
     BOOL abortImmediately = _cancelled;
     if (!abortImmediately) {
-        _transferToken = [[VLCAppCoordinator sharedInstance].transferController startExternalDownloadWithName:displayName];
+        _transferToken = [[VLCAppCoordinator sharedInstance].transferController startExternalDownloadWithName:displayName
+                                                                                                   canceller:self];
         _task = [_downloader downloadMedia:media delegate:self];
     }
     VLCMediaDownloadTask *task = _task;
@@ -99,7 +229,7 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
         if (!abortImmediately) {
             APLog(@"%s: failed to queue download for %@", __func__, mrl);
         }
-        [self finishWithSuccess:NO];
+        [self finishWithStatus:abortImmediately ? VLCMLCacheStatusCancelled : VLCMLCacheStatusFailed];
         dispatch_semaphore_wait(completion, DISPATCH_TIME_FOREVER);
         return [self teardownAndCleanupPath:path];
     }
@@ -120,8 +250,17 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
 
 #pragma mark - completion handling
 
+- (BOOL)wasCancelled
+{
+    [_lock lock];
+    BOOL cancelled = _cancelled;
+    [_lock unlock];
+
+    return cancelled;
+}
+
 /* Signals the waiting cacheMRL:toPath: exactly once. */
-- (void)finishWithSuccess:(BOOL)success
+- (void)finishWithStatus:(VLCMLCacheStatus)status
 {
     [_lock lock];
     if (_terminated) {
@@ -129,7 +268,7 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
         return;
     }
     _terminated = YES;
-    _success = success;
+    _status = status;
     dispatch_semaphore_t completion = _completion;
     [_lock unlock];
 
@@ -138,16 +277,19 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
     }
 }
 
-- (BOOL)teardownAndCleanupPath:(NSString *)path
+- (VLCMLCacheStatus)teardownAndCleanupPath:(NSString *)path
 {
     [_lock lock];
     NSFileHandle *fileHandle = _fileHandle;
-    BOOL success = _success;
+    VLCMLCacheStatus status = _status;
     NSUInteger token = _transferToken;
     _fileHandle = nil;
     _task = nil;
     _completion = nil;
     _transferToken = 0;
+    _currentMediaIdentifier = 0;
+    _currentCachePath = nil;
+    _currentIsAutomatic = NO;
     /* Reset for the next item; a cancellation only applies to the download it
      * interrupted. */
     _cancelled = NO;
@@ -155,6 +297,7 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
 
     [fileHandle closeFile];
 
+    BOOL success = status == VLCMLCacheStatusSuccess;
     if (!success) {
         /* Drop the partial file so the library never treats it as a complete
          * cached episode. */
@@ -165,12 +308,14 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
         VLCTransferController *transferController = [VLCAppCoordinator sharedInstance].transferController;
         if (success) {
             [transferController finishExternalDownload:token filePath:path];
+        } else if (status == VLCMLCacheStatusCancelled) {
+            [transferController cancelExternalDownload:token];
         } else {
             [transferController failExternalDownload:token errorDescription:nil];
         }
     }
 
-    return success;
+    return status;
 }
 
 - (void)reportProgressReceived:(uint64_t)received expected:(uint64_t)expected
@@ -179,17 +324,46 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
 
     [_lock lock];
     NSUInteger token = _transferToken;
+    VLCMLIdentifier identifier = _currentMediaIdentifier;
+    NSString *path = _currentCachePath;
     BOOL due = token != 0 && (now - _lastProgressReport >= VLCSubscriptionCacherProgressInterval);
     if (due) {
         _lastProgressReport = now;
     }
     [_lock unlock];
 
-    if (due) {
-        [[VLCAppCoordinator sharedInstance].transferController updateExternalDownload:token
-                                                                       receivedBytes:(long long)received
-                                                                       expectedBytes:(long long)expected];
+    if (!due) {
+        return;
     }
+
+    [[VLCAppCoordinator sharedInstance].transferController updateExternalDownload:token
+                                                                   receivedBytes:(long long)received
+                                                                   expectedBytes:(long long)expected];
+
+    if (identifier == 0 || expected == 0) {
+        return;
+    }
+
+    float fraction = (float)((double)received / (double)expected);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.delegate subscriptionCacher:self
+              didCacheMediaWithIdentifier:identifier
+                                   toPath:path
+                                 fraction:fraction];
+    });
+}
+
+- (VLCMLIdentifier)mediaIdentifierForCachePath:(NSString *)path
+{
+    if (path.length == 0) {
+        return 0;
+    }
+
+    [_lock lock];
+    VLCMLIdentifier identifier = [_currentCachePath isEqualToString:path] ? _currentMediaIdentifier : 0;
+    [_lock unlock];
+
+    return identifier;
 }
 
 #pragma mark - VLCMediaDownloaderDelegate
@@ -231,12 +405,16 @@ static const NSTimeInterval VLCSubscriptionCacherProgressInterval = 0.5;
             break;
 
         case VLCMediaDownloadStatusFinished:
-            [self finishWithSuccess:YES];
+            [self finishWithStatus:VLCMLCacheStatusSuccess];
             break;
 
         case VLCMediaDownloadStatusCancelled:
+            [self finishWithStatus:[self wasCancelled] ? VLCMLCacheStatusCancelled
+                                                       : VLCMLCacheStatusFailed];
+            break;
+
         case VLCMediaDownloadStatusError:
-            [self finishWithSuccess:NO];
+            [self finishWithStatus:VLCMLCacheStatusFailed];
             break;
     }
 }

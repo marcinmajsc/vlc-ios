@@ -23,7 +23,10 @@
 #import "VLC-Swift.h"
 #import "VLCAppSceneDelegate.h"
 #import "VLCMLMedia+isWatched.h"
+#import "PodcastBackgroundRefresher.h"
+#if (TARGET_OS_IOS || TARGET_OS_WATCH) && !NO_WATCH
 #import <WatchConnectivity/WatchConnectivity.h>
+#endif
 
 @interface VLCAppDelegate ()
 {
@@ -92,6 +95,7 @@
                                   kVLCSettingShowThumbnails : kVLCSettingShowThumbnailsDefaultValue,
                                   kVLCSettingShowArtworks : kVLCSettingShowArtworksDefaultValue,
                                   kVLCSettingBackupMediaLibrary : kVLCSettingBackupMediaLibraryDefaultValue,
+                                  kVLCSettingPodcastAutomaticDownloads : kVLCSettingPodcastAutomaticDownloadsDefaultValue,
                                   kVLCSettingCastingAudioPassthrough : @(NO),
                                   kVLCSettingCastingConversionQuality : @(2),
                                   kVLCForceSMBV1 : @(NO),
@@ -189,11 +193,19 @@
         [[VLCAppCoordinator sharedInstance] handleShortcutItem:shortcutItem];
     }
 
+    if (@available(iOS 13.0, *)) {
+        [[PodcastBackgroundRefresher sharedInstance] registerTasks];
+    }
+
 #if (TARGET_OS_IOS || TARGET_OS_WATCH) && !NO_WATCH
     if ([WCSession isSupported]) {
         sessionDelegate = [[VLCSessionDelegate alloc] init];
         [WCSession defaultSession].delegate = sessionDelegate;
         [[WCSession defaultSession] activateSession];
+
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+            [[[VLCAppCoordinator sharedInstance] transferController] observeOutstandingWatchTransfers];
+        });
     }
 #endif
 
@@ -273,6 +285,10 @@
     } else if(_isComingFromHandoff) {
         _isComingFromHandoff = NO;
     }
+
+#if TARGET_OS_IOS
+    [self.window.rootViewController setNeedsStatusBarAppearanceUpdate];
+#endif
 }
 
 - (void)applicationWillTerminate:(UIApplication *)application

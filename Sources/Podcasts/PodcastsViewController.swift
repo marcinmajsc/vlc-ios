@@ -21,11 +21,9 @@ class PodcastsViewController: UIViewController {
 
     private let store = PodcastStore.shared
 
-    // The combined "latest episodes" list spans every subscribed show and can be large, so it's
-    // revealed incrementally as the user scrolls near the end, same as episodes(forShowId:) in
-    // PodcastShowDetailViewController and the audio/video tabs' willDisplay/kVLCPrefetchDistance
-    // pattern.
     private var revealedLatestEpisodesCount = Int(kVLCDefaultPageSize)
+
+    private var isSubscribing = false
 
     private var visibleLatestEpisodes: ArraySlice<PodcastEpisode> {
         return store.latestEpisodes.prefix(revealedLatestEpisodesCount)
@@ -62,6 +60,29 @@ class PodcastsViewController: UIViewController {
         return tableView
     }()
 
+    private lazy var refreshControl: UIRefreshControl = {
+        let refreshControl = UIRefreshControl()
+        refreshControl.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
+        return refreshControl
+    }()
+
+    private lazy var subscribeIndicator: UIActivityIndicatorView = {
+        let style: UIActivityIndicatorView.Style
+#if os(visionOS)
+        style = .large
+#else
+        if #available(iOS 13.0, *) {
+            style = .large
+        } else {
+            style = .whiteLarge
+        }
+#endif
+        let indicator = UIActivityIndicatorView(style: style)
+        indicator.hidesWhenStopped = true
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        return indicator
+    }()
+
     private lazy var emptyStateView: PodcastsEmptyStateView = {
         let view = PodcastsEmptyStateView()
         view.onAddViaRSS = { [weak self] in
@@ -85,13 +106,13 @@ class PodcastsViewController: UIViewController {
     }
 
     private func setupTabBarItem() {
-        title = NSLocalizedString("PODCAST_CONTENT_TITLE", comment: "")
+        title = NSLocalizedString("ONAIR_PODCASTS", comment: "")
         if #available(iOS 13.0, *) {
-            tabBarItem = UITabBarItem(title: NSLocalizedString("PODCAST_CONTENT_TITLE", comment: ""),
+            tabBarItem = UITabBarItem(title: title,
                                        image: UIImage(systemName: "mic"),
                                        selectedImage: UIImage(systemName: "mic.fill"))
         } else {
-            tabBarItem = UITabBarItem(title: NSLocalizedString("PODCAST_CONTENT_TITLE", comment: ""),
+            tabBarItem = UITabBarItem(title: title,
                                        image: nil, selectedImage: nil)
         }
         tabBarItem.accessibilityIdentifier = VLCAccessibilityIdentifier.podcasts
@@ -101,11 +122,13 @@ class PodcastsViewController: UIViewController {
         super.viewDidLoad()
         navigationItem.largeTitleDisplayMode = .always
         navigationController?.navigationBar.prefersLargeTitles = true
+        definesPresentationContext = true
 
         setupNavigationBarButtons()
 
         view.addSubview(tableView)
         view.addSubview(emptyStateView)
+        view.addSubview(subscribeIndicator)
 
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -115,14 +138,24 @@ class PodcastsViewController: UIViewController {
 
             emptyStateView.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor, constant: -20),
             emptyStateView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 30),
-            emptyStateView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -30)
+            emptyStateView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -30),
+
+            subscribeIndicator.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            subscribeIndicator.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor)
         ])
 
+        tableView.refreshControl = refreshControl
+
         applyTheme()
-        NotificationCenter.default.addObserver(self,
-                                                selector: #selector(applyTheme),
-                                                name: .VLCThemeDidChangeNotification,
-                                                object: nil)
+        let notificationCenter = NotificationCenter.default
+        notificationCenter.addObserver(self,
+                                       selector: #selector(applyTheme),
+                                       name: .VLCThemeDidChangeNotification,
+                                       object: nil)
+        notificationCenter.addObserver(self,
+                                       selector: #selector(refreshDidEnd),
+                                       name: .VLCPodcastsRefreshDidEnd,
+                                       object: nil)
         store.addObserver(self)
         updateContentVisibility()
     }
@@ -131,6 +164,16 @@ class PodcastsViewController: UIViewController {
         super.viewWillAppear(animated)
         tableView.reloadData()
         updateContentVisibility()
+    }
+
+    @objc private func handleRefresh() {
+        if !store.refreshAllSubscriptions() {
+            refreshControl.endRefreshing()
+        }
+    }
+
+    @objc private func refreshDidEnd() {
+        refreshControl.endRefreshing()
     }
 
     private func setupNavigationBarButtons() {
@@ -150,7 +193,7 @@ class PodcastsViewController: UIViewController {
 
         let addButton = UIBarButtonItem(image: addImage, style: .plain, target: self,
                                          action: #selector(didTapAdd))
-        addButton.accessibilityLabel = NSLocalizedString("PODCAST_ADD_BUTTON", comment: "")
+        addButton.accessibilityLabel = NSLocalizedString("PODCAST_SUBSCRIBE", comment: "")
 
         navigationItem.rightBarButtonItems = [addButton, searchButton]
     }
@@ -164,12 +207,13 @@ class PodcastsViewController: UIViewController {
 
         let isEmpty = store.shows.isEmpty
         tableView.isHidden = isEmpty
-        emptyStateView.isHidden = !isEmpty
+        emptyStateView.isHidden = !isEmpty || isSubscribing
     }
 
     @objc private func applyTheme() {
         view.backgroundColor = PresentationTheme.current.colors.background
         tableView.backgroundColor = PresentationTheme.current.colors.background
+        subscribeIndicator.color = PresentationTheme.current.colors.cellTextColor
     }
 
     @objc private func didTapSearch() {
@@ -203,14 +247,18 @@ class PodcastsViewController: UIViewController {
     private func configureEpisodeCell(_ cell: PodcastEpisodeCell, for episode: PodcastEpisode, at indexPath: IndexPath) {
         let show = store.show(withId: episode.showId)
         cell.configure(episode: episode,
-                       leading: .artwork(name: show?.name ?? "", artworkURL: show?.artworkURL),
+                       name: show?.name ?? "",
+                       artworkURL: episode.artworkURL ?? show?.artworkURL,
                        showName: show?.name,
                        downloading: store.isDownloading(episodeId: episode.id),
-                       onTapLeading: { [weak self] in
+                       onTapArtwork: { [weak self] in
                            self?.openShow(forEpisode: episode)
                        },
                        onDownload: { [weak self] in
                            self?.downloadEpisode(episode, at: indexPath)
+                       },
+                       onCancelDownload: { [weak self] in
+                           self?.cancelDownload(of: episode, at: indexPath)
                        },
                        onDeleteDownload: { [weak self] in
                            self?.confirmDeleteDownload(of: episode, at: indexPath)
@@ -225,18 +273,19 @@ class PodcastsViewController: UIViewController {
         tableView.reloadRows(at: [indexPath], with: .none)
     }
 
+    private func cancelDownload(of episode: PodcastEpisode, at indexPath: IndexPath) {
+        guard store.cancelDownload(episodeId: episode.id, showId: episode.showId) else {
+            return
+        }
+        tableView.reloadRows(at: [indexPath], with: .none)
+    }
+
     private func confirmDeleteDownload(of episode: PodcastEpisode, at indexPath: IndexPath) {
-        let alertController = UIAlertController(title: NSLocalizedString("PODCAST_DELETE_DOWNLOAD_TITLE", comment: ""),
-                                                 message: NSLocalizedString("PODCAST_DELETE_DOWNLOAD_MESSAGE", comment: ""),
-                                                 preferredStyle: .alert)
-        alertController.addAction(UIAlertAction(title: NSLocalizedString("BUTTON_CANCEL", comment: ""), style: .cancel))
-        alertController.addAction(UIAlertAction(title: NSLocalizedString("BUTTON_DELETE", comment: ""),
-                                                style: .destructive) { [weak self] _ in
+        confirmPodcastDownloadDeletion { [weak self] in
             guard let self = self else { return }
             self.store.deleteDownloadedEpisode(episodeId: episode.id, showId: episode.showId)
             self.tableView.reloadRows(at: [indexPath], with: .none)
-        })
-        present(alertController, animated: true)
+        }
     }
 
     @objc private func didTapAdd() {
@@ -255,7 +304,7 @@ class PodcastsViewController: UIViewController {
         }
 
         let cancelAction = UIAlertAction(title: NSLocalizedString("BUTTON_CANCEL", comment: ""), style: .cancel)
-        let addAction = UIAlertAction(title: NSLocalizedString("PODCAST_ADD_BUTTON", comment: ""),
+        let addAction = UIAlertAction(title: NSLocalizedString("PODCAST_SUBSCRIBE", comment: ""),
                                       style: .default) { [weak self, weak alertController] _ in
             guard let self = self else { return }
 
@@ -273,11 +322,7 @@ class PodcastsViewController: UIViewController {
                 return
             }
 
-            self.store.addSubscription(mrl: url) { [weak self] result in
-                if case .failure(let reason) = result {
-                    self?.presentAddSubscriptionError(reason)
-                }
-            }
+            self.subscribe(to: [PodcastFeedRequest(url: url)])
         }
 
         alertController.addAction(cancelAction)
@@ -285,8 +330,105 @@ class PodcastsViewController: UIViewController {
         present(alertController, animated: true)
     }
 
+    func subscribe(to feeds: [PodcastFeedRequest]) {
+        guard !isSubscribing, !feeds.isEmpty else {
+            return
+        }
+
+        loadViewIfNeeded()
+        beginSubscribing()
+
+        guard feeds.count > 1 else {
+            addSubscription(to: feeds[0])
+            return
+        }
+
+        addSubscriptions(feeds, at: 0, failureCount: 0) { [weak self] failureCount in
+            guard let self = self else { return }
+
+            self.endSubscribing()
+
+            guard failureCount > 0 else {
+                return
+            }
+
+            VLCAlertViewController.alertViewManager(title: NSLocalizedString("PODCAST_SUBSCRIBE", comment: ""),
+                                                    errorMessage: String(format: NSLocalizedString("PODCAST_SUBSCRIBE_PARTIAL", comment: ""),
+                                                                         failureCount, feeds.count),
+                                                    viewController: self)
+        }
+    }
+
+    private func addSubscription(to feed: PodcastFeedRequest) {
+        store.addSubscription(mrl: feed.url) { [weak self] result in
+            guard let self = self else { return }
+
+            guard case .failure(let reason) = result else {
+                self.endSubscribing()
+                return
+            }
+
+            guard let fallbackURL = feed.fallbackURL else {
+                self.endSubscribing()
+                self.presentAddSubscriptionError(reason)
+                return
+            }
+
+            self.addSubscription(to: PodcastFeedRequest(url: fallbackURL))
+        }
+    }
+
+    private func addSubscriptions(_ feeds: [PodcastFeedRequest], at index: Int, failureCount: Int,
+                                  completion: @escaping (Int) -> Void) {
+        guard index < feeds.count else {
+            completion(failureCount)
+            return
+        }
+
+        store.addSubscription(mrl: feeds[index].url) { [weak self] result in
+            guard let self = self else { return }
+
+            guard case .failure = result else {
+                self.addSubscriptions(feeds, at: index + 1, failureCount: failureCount,
+                                      completion: completion)
+                return
+            }
+
+            guard let fallbackURL = feeds[index].fallbackURL else {
+                self.addSubscriptions(feeds, at: index + 1, failureCount: failureCount + 1,
+                                      completion: completion)
+                return
+            }
+
+            self.store.addSubscription(mrl: fallbackURL) { [weak self] fallbackResult in
+                guard let self = self else { return }
+
+                var updatedFailureCount = failureCount
+                if case .failure = fallbackResult {
+                    updatedFailureCount += 1
+                }
+                self.addSubscriptions(feeds, at: index + 1, failureCount: updatedFailureCount,
+                                      completion: completion)
+            }
+        }
+    }
+
+    private func beginSubscribing() {
+        isSubscribing = true
+        navigationItem.rightBarButtonItems?.forEach { $0.isEnabled = false }
+        subscribeIndicator.startAnimating()
+        updateContentVisibility()
+    }
+
+    private func endSubscribing() {
+        isSubscribing = false
+        navigationItem.rightBarButtonItems?.forEach { $0.isEnabled = true }
+        subscribeIndicator.stopAnimating()
+        updateContentVisibility()
+    }
+
     private func presentAddSubscriptionError(_ reason: PodcastAddSubscriptionError) {
-        VLCAlertViewController.alertViewManager(title: NSLocalizedString("PODCAST_ADD_BUTTON", comment: ""),
+        VLCAlertViewController.alertViewManager(title: NSLocalizedString("PODCAST_SUBSCRIBE", comment: ""),
                                                 errorMessage: reason.localizedMessage,
                                                 viewController: self)
     }

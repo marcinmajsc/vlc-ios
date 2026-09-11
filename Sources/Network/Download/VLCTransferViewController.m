@@ -8,6 +8,7 @@
  * Authors: Felix Paul Kühne <fkuehne # videolan.org>
  *          Gleb Pinigin <gpinigin # gmail.com>
  *          Pierre Sagaspe <pierre.sagaspe # me.com>
+ *          Pratik Ray <raypratik365@gmail.com>
  *
  * Refer to the COPYING file of the official project for license.
  *****************************************************************************/
@@ -54,7 +55,6 @@
     urlField.clearButtonMode = UITextFieldViewModeNever;
     urlField.autocorrectionType = UITextAutocorrectionTypeNo;
     urlField.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    urlField.keyboardAppearance = UIKeyboardAppearanceAlert;
     urlField.keyboardType = UIKeyboardTypeURL;
     urlField.layer.cornerRadius = 10.0;
     urlField.layer.borderWidth = 1.0;
@@ -175,6 +175,13 @@
             self.urlField.text = [pasteboardValue absoluteString];
         }
     }
+
+    UIMenuItem *pasteAndLoadItem = [[UIMenuItem alloc] initWithTitle:NSLocalizedString(@"BUTTON_PASTE_AND_LOAD", nil)
+                                                              action:@selector(pasteAndLoadAction:)];
+    UIMenuController *sharedMenuController = [UIMenuController sharedMenuController];
+    [sharedMenuController setMenuItems:@[pasteAndLoadItem]];
+    [sharedMenuController update];
+
     [self _reloadTransfers];
     [super viewWillAppear:animated];
 }
@@ -196,6 +203,7 @@
     self.urlField.backgroundColor = colors.cellBackgroundB;
     self.urlField.textColor = colors.cellTextColor;
     self.urlField.layer.borderColor = colors.textfieldBorderColor.CGColor;
+    self.urlField.keyboardAppearance = colors.isDark ? UIKeyboardAppearanceDark : UIKeyboardAppearanceLight;
     self.downloadButton.backgroundColor = colors.orangeUI;
     self.downloadButton.tintColor = [UIColor whiteColor];
     [self.downloadButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
@@ -241,6 +249,21 @@
         container.frame = CGRectMake(0, 0, downloadSize + trailingPad, downloadSize);
     }
     self.urlField.rightView = container;
+}
+
+- (BOOL)canPerformAction:(SEL)action withSender:(id)sender
+{
+    if (action == @selector(pasteAndLoadAction:))
+        return self.urlField.isFirstResponder && [UIPasteboard generalPasteboard].hasStrings;
+
+    return [super canPerformAction:action withSender:sender];
+}
+
+- (void)pasteAndLoadAction:(id)sender
+{
+    self.urlField.text = [UIPasteboard generalPasteboard].string;
+    [self updateFieldAccessories];
+    [self downloadAction:nil];
 }
 
 - (void)downloadAction:(id)sender
@@ -502,7 +525,7 @@
 {
     if (indexPath.section == 0) {
         VLCTransferItem *item = _inProgress[indexPath.row];
-        return !(item.active && item.direction == VLCTransferDirectionUpload);
+        return !(item.active && item.direction == VLCTransferDirectionUpload && item.type == VLCTransferTypeStandard);
     }
     return indexPath.section == 2;
 }

@@ -122,7 +122,7 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
 
     _nameLabel = [[UILabel alloc] init];
     _nameLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    _nameLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
+    _nameLabel.font = [UIFont preferredCustomFontForTextStyle:UIFontTextStyleFootnote].semibolded;
     _nameLabel.numberOfLines = 1;
     _nameLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     [self.contentView addSubview:_nameLabel];
@@ -170,7 +170,7 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
         [_moreButton.widthAnchor constraintEqualToConstant:34.0],
         [_moreButton.heightAnchor constraintEqualToConstant:34.0],
 
-        [_nameLabel.topAnchor constraintEqualToAnchor:_artworkContainer.bottomAnchor constant:8.0],
+        [_nameLabel.topAnchor constraintEqualToAnchor:_artworkContainer.bottomAnchor constant:6.0],
         [_nameLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:2.0],
         [_nameLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-2.0],
         [_nameLabel.bottomAnchor constraintLessThanOrEqualToAnchor:self.contentView.bottomAnchor]
@@ -333,13 +333,22 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
     }
 }
 
+- (void)setRemovalActionGlyphName:(NSString *)removalActionGlyphName
+{
+    _removalActionGlyphName = [removalActionGlyphName copy];
+    if (@available(iOS 14.0, *)) {
+        [self updateMenu];
+    }
+}
+
 - (void)updateMenu API_AVAILABLE(ios(14.0))
 {
     NSString *title = _removalActionTitle.length > 0 ? _removalActionTitle
                                                      : NSLocalizedString(@"REMOVE_FAVORITE", nil);
+    NSString *glyphName = _removalActionGlyphName.length > 0 ? _removalActionGlyphName : @"heart.slash";
     __weak typeof(self) weakSelf = self;
     UIAction *removeAction = [UIAction actionWithTitle:title
-                                                 image:[UIImage systemImageNamed:@"heart.slash"]
+                                                 image:[UIImage systemImageNamed:glyphName]
                                             identifier:nil
                                                handler:^(__kindof UIAction *action) {
         [weakSelf.delegate artworkTileDidRequestRemoval:weakSelf];
@@ -390,6 +399,7 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
     self.badge = VLCArtworkTileBadgeNone;
     self.delegate = nil;
     self.removalActionTitle = nil;
+    self.removalActionGlyphName = nil;
 }
 
 @end

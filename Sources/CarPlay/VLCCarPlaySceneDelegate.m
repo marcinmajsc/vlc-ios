@@ -2,7 +2,7 @@
  * VLCCarPlaySceneDelegate.m
  * VLC for iOS
  *****************************************************************************
- * Copyright (c) 2022-2023 VideoLAN. All rights reserved.
+ * Copyright (c) 2022-2023, 2026 VideoLAN. All rights reserved.
  * $Id$
  *
  * Author: Felix Paul Kühne <fkuehne # videolan.org>
@@ -15,11 +15,13 @@
 #import <CarPlay/CarPlay.h>
 
 #import "VLCCarPlayLibraryController.h"
+#import "CPInterfaceController+VLCTemplateStack.h"
 #import "CPListTemplate+NetworkStreams.h"
 #import "VLCCarPlayPlaylistsController.h"
-#import "VLCCarPlayListLimit.h"
+#import "VLCCarPlayBrowserController.h"
 #import "VLCNowPlayingTemplateObserver.h"
 #import "VLCFavoriteService.h"
+#import "VLCRadioService.h"
 
 #import "VLC-Swift.h"
 
@@ -33,6 +35,7 @@
     VLCNowPlayingTemplateObserver *_nowPlayingTemplateObserver;
     VLCCarPlayLibraryController *_libraryController;
     VLCCarPlayPlaylistsController *_playlistsController;
+    CPListTemplate *_streamListTemplate;
     CPListTemplate *_playQueueTemplate;
     CPListSection *_section;
     VLCPlaybackService *_playbackService;
@@ -62,7 +65,8 @@
     [notificationCenter addObserver:self selector:@selector(displayPlayQueueTemplate) name:VLCDisplayPlayQueueCarPlay object:nil];
     [notificationCenter addObserver:self selector:@selector(resetPlayQueueTemplate) name:VLCPlaybackServicePlaybackDidStop object:nil];
     [notificationCenter addObserver:self selector:@selector(resetPlayQueueTemplate) name:VLCPlaybackServiceShuffleModeUpdated object:nil];
-    [notificationCenter addObserver:self selector:@selector(templatesNeedUpdate) name:VLCFavoriteServiceContentDidChange object:nil];
+    [notificationCenter addObserver:self selector:@selector(streamListNeedsUpdate) name:VLCFavoriteServiceContentDidChange object:nil];
+    [notificationCenter addObserver:self selector:@selector(streamListNeedsUpdate) name:VLCRadioRecentStreamsDidChangeNotification object:nil];
 }
 
 - (void)templateApplicationScene:(CPTemplateApplicationScene *)templateApplicationScene
@@ -74,6 +78,9 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [[CPNowPlayingTemplate sharedTemplate] removeObserver:_nowPlayingTemplateObserver];
     _nowPlayingTemplateObserver = nil;
+    _libraryController = nil;
+    _playlistsController = nil;
+    _streamListTemplate = nil;
     _playQueueTemplate = nil;
     _section = nil;
     _playbackService = nil;
@@ -82,20 +89,28 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
 
 - (CPTabBarTemplate *)generateRootTemplate
 {
-    if (!_libraryController) {
-        _libraryController = [[VLCCarPlayLibraryController alloc] init];
-        _libraryController.interfaceController = _interfaceController;
-    }
-    if (!_playlistsController) {
-        _playlistsController = [[VLCCarPlayPlaylistsController alloc] init];
-        _playlistsController.interfaceController = _interfaceController;
-    }
+    _libraryController = [[VLCCarPlayLibraryController alloc] init];
+    _libraryController.interfaceController = _interfaceController;
+    _playlistsController = [[VLCCarPlayPlaylistsController alloc] init];
+    _playlistsController.interfaceController = _interfaceController;
 
     CPGridTemplate *library = [_libraryController libraryTemplate];
     CPListTemplate *playlists = [_playlistsController playlists];
-    CPListTemplate *streams = [CPListTemplate streamList];
+    _streamListTemplate = [CPListTemplate streamList];
 
-    return [[CPTabBarTemplate alloc] initWithTemplates:@[library, playlists, streams]];
+    return [[CPTabBarTemplate alloc] initWithTemplates:@[library, playlists, _streamListTemplate]];
+}
+
+- (void)streamListNeedsUpdate
+{
+    if (@available(iOS 14.0, *)) {
+        if (_streamListTemplate) {
+            [_streamListTemplate updateSections:[CPListTemplate streamSections]];
+            return;
+        }
+    }
+
+    [self templatesNeedUpdate];
 }
 
 - (void)templatesNeedUpdate
@@ -119,8 +134,7 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
 - (CPListSection *)createListSection
 {
     VLCMediaList *mediaList = _playbackService.isShuffleMode ? _playbackService.shuffledList : _playbackService.mediaList;
-    NSUInteger maximumItemCount = VLCCarPlayMaximumItemCountLimit();
-    NSUInteger itemCount = MIN((NSUInteger)mediaList.count, maximumItemCount);
+    NSUInteger itemCount = MIN((NSUInteger)mediaList.count, [VLCCarPlayBrowserController maximumItemCount]);
     NSMutableArray<CPListItem *> *items = [NSMutableArray arrayWithCapacity:itemCount];
 
     for (NSUInteger index = 0; index < itemCount; index++) {
@@ -167,7 +181,7 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
         _playQueueTemplate.delegate = self;
     }
 
-    [_interfaceController pushTemplate:_playQueueTemplate animated:YES];
+    [_interfaceController pushTemplateWithinDepthLimit:_playQueueTemplate animated:YES];
 }
 
 - (void)resetPlayQueueTemplate

@@ -13,6 +13,9 @@
 
 #import "VLCNetworkListViewController.h"
 #import "VLCNetworkListCell.h"
+#import "VLCPlaybackService.h"
+#import "VLCPlayerDisplayController.h"
+#import "UIScrollView+VLCKeyboardAdjustment.h"
 
 #import "VLC-Swift.h"
 
@@ -87,33 +90,65 @@ NSString *VLCNetworkListCellIdentifier = @"VLCNetworkListCellIdentifier";
 
     _searchData = [[NSMutableArray alloc] init];
     [_searchData removeAllObjects];
+
+    NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
+    [notificationCenter addObserver:self
+                           selector:@selector(adjustForKeyboard:)
+                               name:UIKeyboardWillChangeFrameNotification
+                             object:nil];
+    [notificationCenter addObserver:self
+                           selector:@selector(adjustForKeyboard:)
+                               name:UIKeyboardWillHideNotification
+                             object:nil];
+    [notificationCenter addObserver:self
+                           selector:@selector(updateBottomInsets)
+                               name:VLCPlayerDisplayControllerDisplayMiniPlayer
+                             object:nil];
+    [notificationCenter addObserver:self
+                           selector:@selector(updateBottomInsets)
+                               name:VLCPlayerDisplayControllerHideMiniPlayer
+                             object:nil];
 }
 
-#if TARGET_OS_IOS
-- (void)viewDidAppear:(BOOL)animated
+- (void)updateBottomInsets
 {
-    [super viewDidAppear:animated];
+    UIEdgeInsets contentInsets = UIEdgeInsetsZero;
+    contentInsets.bottom = [self baseBottomInset];
+
+    self.tableView.contentInset = contentInsets;
+    self.tableView.verticalScrollIndicatorInsets = contentInsets;
+}
+
+- (CGFloat)baseBottomInset
+{
+    CGFloat inset = 0.;
 
     // ensure that the last row is not cut-off on iPad by the tab bar
-    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad && self.tabBarController) {
-        UIEdgeInsets contentInsets = UIEdgeInsetsZero;
-        contentInsets.bottom += self.tabBarController.tabBar.frame.size.height;
-
-        self.tableView.contentInset = contentInsets;
-        self.tableView.scrollIndicatorInsets = contentInsets;
+    if (self.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPad && self.tabBarController) {
+        inset += self.tabBarController.tabBar.frame.size.height;
     }
+
+    if (VLCPlaybackService.sharedInstance.playerDisplayController.isMiniPlayerVisible) {
+        inset += VLCAudioMiniPlayer.height;
+    }
+
+    return inset;
 }
-#endif
+
+- (void)adjustForKeyboard:(NSNotification *)aNotification
+{
+    if (!self.viewIfLoaded.window) {
+        return;
+    }
+
+    [self.tableView adjustBottomInsetForKeyboardNotification:aNotification baseInset:[self baseBottomInset]];
+}
 
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
-    if (@available(iOS 11.0 VISIONOS_AVAILABLE, *)) {
-        //iOS 11
-    } else {
-        CGPoint contentOffset = CGPointMake(0, _tableView.tableHeaderView.bounds.size.height);
-        [self.tableView setContentOffset:contentOffset animated:NO];
-    }
+
+    [self updateBottomInsets];
 }
 
 - (void)viewWillDisappear:(BOOL)animated

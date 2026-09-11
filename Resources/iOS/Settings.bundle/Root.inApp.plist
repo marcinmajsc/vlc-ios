@@ -79,7 +79,7 @@
 				<string>3.00x</string>
 				<string>3.50x</string>
 				<string>4.00x</string>
-				<string>Custom Speed</string>
+				<string>SETTINGS_CUSTOM_PLAYBACK_SPEED</string>
 			</array>
 			<key>Values</key>
 			<array>
@@ -97,6 +97,21 @@
 				<real>4</real>
 				<string>custom</string>
 			</array>
+			<key>CustomValue</key>
+			<dict>
+				<key>Sentinel</key>
+				<string>custom</string>
+				<key>ValueKey</key>
+				<string>playback-speed-custom</string>
+				<key>Minimum</key>
+				<real>0.25</real>
+				<key>Maximum</key>
+				<real>8</real>
+				<key>FractionDigits</key>
+				<integer>2</integer>
+				<key>Format</key>
+				<string>PLAYBACK_SPEED_FORMAT</string>
+			</dict>
 		</dict>
 		<dict>
 			<key>Type</key>
@@ -1038,6 +1053,7 @@
 				<string>SETTINGS_NETWORK_CACHING_LEVEL_NORMAL</string>
 				<string>SETTINGS_NETWORK_CACHING_LEVEL_HIGH</string>
 				<string>SETTINGS_NETWORK_CACHING_LEVEL_HIGHEST</string>
+				<string>SETTINGS_NETWORK_CACHING_LEVEL_CUSTOM</string>
 			</array>
 			<key>Values</key>
 			<array>
@@ -1046,7 +1062,19 @@
 				<integer>999</integer>
 				<integer>1667</integer>
 				<integer>3333</integer>
+				<integer>-1</integer>
 			</array>
+			<key>CustomValue</key>
+			<dict>
+				<key>Sentinel</key>
+				<integer>-1</integer>
+				<key>Minimum</key>
+				<integer>100</integer>
+				<key>Maximum</key>
+				<integer>60000</integer>
+				<key>Format</key>
+				<string>SETTINGS_NETWORK_CACHING_CUSTOM_FORMAT</string>
+			</dict>
 		</dict>
 		<dict>
 			<key>DefaultValue</key>
@@ -1134,7 +1162,7 @@
 			<key>Key</key>
 			<string>kVLCSettingSyncMediaLibrary</string>
 			<key>Title</key>
-			<string>SETTINGS_SYNC_MEDIA_LIBRARY</string>
+			<string>SETTINGS_SYNC_MEDIA_LIBRARY_TITLE</string>
 		</dict>
 		<dict>
 			<key>Type</key>

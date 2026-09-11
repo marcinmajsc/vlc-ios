@@ -72,6 +72,14 @@ class MediaCollectionViewCell: BaseCollectionViewCell, UIScrollViewDelegate {
         return delegate as? MediaCollectionViewCellEnqueueDelegate
     }
 
+    private var isEmptyCollection: Bool {
+        if let playlist = media as? VLCMLPlaylist {
+            return playlist.nbMedia() == 0
+        }
+
+        return false
+    }
+
     var ignoreThemeDidChange: Bool = false
     var isEditing: Bool = false
     var isMediaBeingPlayed: Bool = false
@@ -300,19 +308,19 @@ class MediaCollectionViewCell: BaseCollectionViewCell, UIScrollViewDelegate {
         animationImageView.stopAnimating()
         isMediaBeingPlayed = false
 
-        let colors: ColorPalette
+        let textColor: UIColor
         if delegate is QueueViewController {
-            colors = PresentationTheme.darkTheme.colors
+            textColor = QueueViewController.queueTextColor
             newLabel.isHidden = true
         } else {
-            colors = PresentationTheme.current.colors
+            textColor = PresentationTheme.current.colors.cellTextColor
             newLabel.isHidden = !audiotrack.isNew
             if audiotrack.isNew {
                 setMediaNew()
             }
         }
 
-        titleLabel.textColor = isMediaBeingPlayed ? colors.orangeUI : colors.cellTextColor
+        titleLabel.textColor = isMediaBeingPlayed ? PresentationTheme.current.colors.orangeUI : textColor
 
         if isEditing {
             sizeDescriptionLabel.text = String(format: "%@ · %@", descriptionText, audiotrack.formatSize())
@@ -335,7 +343,7 @@ class MediaCollectionViewCell: BaseCollectionViewCell, UIScrollViewDelegate {
     func setNowPlaying(_ isNowPlaying: Bool) {
         isMediaBeingPlayed = isNowPlaying && playbackService.mediaPlayerState != .stopped
 
-        let colors = (delegate is QueueViewController) ? PresentationTheme.darkTheme.colors : PresentationTheme.current.colors
+        let textColor = (delegate is QueueViewController) ? QueueViewController.queueTextColor : PresentationTheme.current.colors.cellTextColor
 
         if isMediaBeingPlayed && !UIAccessibility.isReduceMotionEnabled {
             animateCurrentlyPlayingState()
@@ -345,7 +353,7 @@ class MediaCollectionViewCell: BaseCollectionViewCell, UIScrollViewDelegate {
             thumbnailView.isHidden = false
         }
 
-        titleLabel.textColor = isMediaBeingPlayed ? colors.orangeUI : colors.cellTextColor
+        titleLabel.textColor = isMediaBeingPlayed ? PresentationTheme.current.colors.orangeUI : textColor
         dynamicFontSizeChange()
     }
 
@@ -384,7 +392,7 @@ class MediaCollectionViewCell: BaseCollectionViewCell, UIScrollViewDelegate {
         accessibilityLabel = album.accessibilityText(editing: false)
         sizeDescriptionLabel.text = album.albumArtistName()
         thumbnailView.image = album.thumbnail()
-        scrollView.isScrollEnabled = false
+        scrollView.isScrollEnabled = true
         updateSizeDescriptionLabelConstraint()
     }
 
@@ -398,7 +406,7 @@ class MediaCollectionViewCell: BaseCollectionViewCell, UIScrollViewDelegate {
         sizeDescriptionLabel.text = numberOfAlbums == 0 ? artist.numberOfTracksString() :
         String(format: "%@ · %@", artist.numberOfAlbumsString(), artist.numberOfTracksString())
         thumbnailView.image = artist.thumbnail()
-        scrollView.isScrollEnabled = false
+        scrollView.isScrollEnabled = true
         updateSizeDescriptionLabelConstraint()
     }
 
@@ -585,7 +593,7 @@ class MediaCollectionViewCell: BaseCollectionViewCell, UIScrollViewDelegate {
     }
 
     private func updateSwipeActions() {
-        if scrollView.isScrollEnabled && enqueueDelegate != nil {
+        if scrollView.isScrollEnabled && enqueueDelegate != nil && !isEmptyCollection {
             enqueueButton.isHidden = false
             enqueueButtonWidth.constant = MediaCollectionViewCell.enqueueButtonDefaultWidth
         } else {

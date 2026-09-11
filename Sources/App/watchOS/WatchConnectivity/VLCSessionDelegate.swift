@@ -19,6 +19,7 @@ extension Notification.Name {
     static let dataDidFlow = Notification.Name("DataDidFlow")
     static let activationDidComplete = Notification.Name("ActivationDidComplete")
     static let reachabilityDidChange = Notification.Name("ReachabilityDidChange")
+    static let fileTransferDidStart = Notification.Name(kVLCFileTransferDidStartNotification)
 }
 
 @objcMembers
@@ -204,8 +205,7 @@ class VLCSessionDelegate: NSObject, WCSessionDelegate {
                let iphoneAlbumID = message.payload[kVLCiPhoneAlbumID] as? VLCMLIdentifier,
                let iphoneAlbumName = message.payload[kVLCiPhoneAlbumName] as? String,
                let iphoneArtistID = message.payload[kVLCiPhoneArtistID] as? VLCMLIdentifier,
-               let iphoneArtistName = message.payload[kVLCiPhoneArtistName] as? String
-            {
+               let iphoneArtistName = message.payload[kVLCiPhoneArtistName] as? String {
                 print("mlSyncManager.didReceiveFile timmy")
                 mlSyncManager?.didReceiveFile(
                     iphoneMediaId: iphoneMediaID,
@@ -265,6 +265,9 @@ class VLCSessionDelegate: NSObject, WCSessionDelegate {
         if let error = error {
             message.errorMessage = error.localizedDescription
             postNotificationOnMainQueueAsync(name: .dataDidFlow, object: message)
+            #if os(iOS)
+            VLCAppCoordinator.sharedInstance().transferController.failWatch(fileTransfer, errorDescription: error.localizedDescription)
+            #endif
             return
         }
 
@@ -275,10 +278,12 @@ class VLCSessionDelegate: NSObject, WCSessionDelegate {
 
 //        commandStatus.timedColor = TimedColor(fileTransfer.file.metadata!)
 
-        #if os(watchOS)
-//        Logger.shared.clearLogs()
-        #endif
         postNotificationOnMainQueueAsync(name: .dataDidFlow, object: message)
+
+        #if os(iOS)
+        VLCAppCoordinator.sharedInstance().transferController.finishWatch(fileTransfer, filePath: fileTransfer.file.fileURL.path)
+        #endif
+
         UserDefaults.standard.set(Date(), forKey: kVLCSettingAutomaticallySyncMediaLibraryLastUpdated)
     }
 

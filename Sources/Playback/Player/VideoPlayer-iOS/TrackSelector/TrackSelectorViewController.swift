@@ -40,6 +40,7 @@ class TrackSelectorViewController: UIViewController {
     private var subtitleRows: [TrackSelectorRow] = []
     private var items: [RowItem] = []
     private var hasPerformedInitialScroll = false
+    private var lastPreferredSheetHeight: CGFloat = 0
 
     // MARK: - Views
 
@@ -48,14 +49,6 @@ class TrackSelectorViewController: UIViewController {
         view.clipsToBounds = true
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
-    }()
-
-    private lazy var titleLabel: UILabel = {
-        let label = UILabel()
-        label.font = .systemFont(ofSize: 20, weight: .bold)
-        label.textColor = PresentationTheme.currentExcludingWhite.colors.overlayPrimaryTextColor
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
     }()
 
     private lazy var closeButton: UIButton = {
@@ -129,6 +122,8 @@ class TrackSelectorViewController: UIViewController {
     }()
 
     private var footerConstraints: [NSLayoutConstraint] = []
+    private var segmentedControlLeadingToView: NSLayoutConstraint?
+    private var segmentedControlLeadingToCloseButton: NSLayoutConstraint?
 
     init(delegate: TrackSelectorViewControllerDelegate?) {
         super.init(nibName: nil, bundle: nil)
@@ -176,20 +171,95 @@ class TrackSelectorViewController: UIViewController {
         dismiss(animated: true)
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        updateCloseButtonVisibility()
+    }
+
+    private func updateCloseButtonVisibility() {
+        let shouldShow: Bool
+        if #available(iOS 13.0, *) {
+            shouldShow = (traitCollection.verticalSizeClass == .compact)
+        } else {
+            shouldShow = true
+        }
+
+        guard shouldShow == closeButton.isHidden else {
+            return
+        }
+
+        closeButton.isHidden = !shouldShow
+        if shouldShow {
+            segmentedControlLeadingToView?.isActive = false
+            segmentedControlLeadingToCloseButton?.isActive = true
+        } else {
+            segmentedControlLeadingToCloseButton?.isActive = false
+            segmentedControlLeadingToView?.isActive = true
+        }
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateSheetDetents()
         if !hasPerformedInitialScroll, let indexPath = selectedIndexPath() {
             hasPerformedInitialScroll = true
             tableView.scrollToRow(at: indexPath, at: .none, animated: false)
         }
     }
 
+    private var preferredSheetHeight: CGFloat {
+        if let view = viewIfLoaded, view.bounds.height > 0, tableView.bounds.height > 0 {
+            return view.bounds.height - tableView.bounds.height + tableView.contentSize.height
+        }
+
+        let aboveTable = Self.topInset + Self.segmentedControlHeight + Self.segmentedControlToTable
+        let belowTable = Self.tableToFooter + footerHeight + Self.bottomInset
+        return aboveTable + tableView.estimatedRowHeight * CGFloat(items.count) + belowTable
+    }
+
+    private var footerHeight: CGFloat {
+        if activeTab == .subtitles {
+            return Self.footerRowHeight * 2 + Self.footerRowSpacing
+        }
+        return Self.footerRowHeight
+    }
+
+    private func updateSheetDetents() {
+#if !os(visionOS)
+        let height = preferredSheetHeight
+        guard #available(iOS 16.0, *), abs(height - lastPreferredSheetHeight) > 0.5 else {
+            return
+        }
+
+        lastPreferredSheetHeight = height
+        sheetPresentationController?.animateChanges {
+            self.sheetPresentationController?.invalidateDetents()
+        }
+#endif
+    }
+
+#if !os(visionOS)
+    @available(iOS 16.0, *)
+    private func contentDetent() -> UISheetPresentationController.Detent {
+        return .custom { [weak self] context in
+            guard let self = self else {
+                return context.maximumDetentValue
+            }
+            return min(self.preferredSheetHeight, context.maximumDetentValue)
+        }
+    }
+#endif
+
     private func configureSheetPresentation() {
 #if !os(visionOS)
         if #available(iOS 15.0, *) {
             modalPresentationStyle = .pageSheet
             if let sheet = sheetPresentationController {
-                sheet.detents = [.medium(), .large()]
+                if #available(iOS 16.0, *) {
+                    sheet.detents = [contentDetent(), .large()]
+                } else {
+                    sheet.detents = [.medium(), .large()]
+                }
                 sheet.prefersGrabberVisible = true
                 sheet.preferredCornerRadius = 30
                 sheet.prefersScrollingExpandsWhenScrolledToEdge = false
@@ -212,6 +282,7 @@ class TrackSelectorViewController: UIViewController {
         installBackgroundEffect()
 
         view.addSubview(segmentedControl)
+        view.addSubview(closeButton)
         view.addSubview(tableView)
         view.addSubview(loadButton)
         view.addSubview(downloadButton)
@@ -226,33 +297,30 @@ class TrackSelectorViewController: UIViewController {
             backgroundContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             backgroundContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            segmentedControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             segmentedControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            segmentedControl.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            segmentedControl.heightAnchor.constraint(greaterThanOrEqualToConstant: Self.segmentedControlHeight),
 
-            tableView.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: 12),
+            tableView.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: Self.segmentedControlToTable),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 6),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -6),
         ])
 
-        if #available(iOS 13.0, *) {
-            segmentedControl.topAnchor.constraint(equalTo: guide.topAnchor, constant: 16).isActive = true
-        } else {
-            view.addSubview(titleLabel)
-            view.addSubview(closeButton)
-            NSLayoutConstraint.activate([
-                titleLabel.topAnchor.constraint(equalTo: guide.topAnchor, constant: 14),
-                titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+        let leadingToView = segmentedControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16)
+        segmentedControlLeadingToView = leadingToView
+        leadingToView.isActive = true
 
-                closeButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-                closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-                closeButton.widthAnchor.constraint(equalToConstant: 30),
-                closeButton.heightAnchor.constraint(equalToConstant: 30),
-                closeButton.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 8),
+        closeButton.isHidden = true
+        segmentedControlLeadingToCloseButton = segmentedControl.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor,
+                                                                                        constant: 12)
+        NSLayoutConstraint.activate([
+            segmentedControl.topAnchor.constraint(equalTo: guide.topAnchor, constant: Self.topInset),
 
-                segmentedControl.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 14),
-            ])
-        }
+            closeButton.centerYAnchor.constraint(equalTo: segmentedControl.centerYAnchor),
+            closeButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            closeButton.widthAnchor.constraint(equalToConstant: 30),
+            closeButton.heightAnchor.constraint(equalToConstant: 30),
+        ])
+        updateCloseButtonVisibility()
     }
 
     private func rebuildData() {
@@ -285,12 +353,6 @@ class TrackSelectorViewController: UIViewController {
     }
 
     private func applyTab() {
-        let isSubtitles = (activeTab == .subtitles)
-        if #unavailable(iOS 13.0) {
-            titleLabel.text = isSubtitles ? NSLocalizedString("SUBTITLES", comment: "").capitalized
-                                          : NSLocalizedString("AUDIO", comment: "").capitalized
-        }
-
         layoutFooter()
 
         loadButton.update(title: NSLocalizedString("LOAD_EXTERNAL", comment: ""))
@@ -312,15 +374,17 @@ class TrackSelectorViewController: UIViewController {
             footerConstraints = pairConstraints(left: secondSubtitleButton, right: syncRow)
                 + pairConstraints(left: loadButton, right: downloadButton)
                 + [
-                    loadButton.bottomAnchor.constraint(equalTo: bottom, constant: -16),
-                    secondSubtitleButton.bottomAnchor.constraint(equalTo: loadButton.topAnchor, constant: -12),
-                    tableView.bottomAnchor.constraint(equalTo: secondSubtitleButton.topAnchor, constant: -8),
+                    loadButton.bottomAnchor.constraint(equalTo: bottom, constant: -Self.bottomInset),
+                    secondSubtitleButton.bottomAnchor.constraint(equalTo: loadButton.topAnchor,
+                                                                 constant: -Self.footerRowSpacing),
+                    tableView.bottomAnchor.constraint(equalTo: secondSubtitleButton.topAnchor,
+                                                      constant: -Self.tableToFooter),
                 ]
         } else {
             footerConstraints = pairConstraints(left: loadButton, right: syncRow)
                 + [
-                    loadButton.bottomAnchor.constraint(equalTo: bottom, constant: -16),
-                    tableView.bottomAnchor.constraint(equalTo: loadButton.topAnchor, constant: -8),
+                    loadButton.bottomAnchor.constraint(equalTo: bottom, constant: -Self.bottomInset),
+                    tableView.bottomAnchor.constraint(equalTo: loadButton.topAnchor, constant: -Self.tableToFooter),
                 ]
         }
         NSLayoutConstraint.activate(footerConstraints)
@@ -332,8 +396,8 @@ class TrackSelectorViewController: UIViewController {
             left.trailingAnchor.constraint(equalTo: right.leadingAnchor, constant: -10),
             right.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             left.widthAnchor.constraint(equalTo: right.widthAnchor),
-            left.heightAnchor.constraint(equalToConstant: 56),
-            right.heightAnchor.constraint(equalToConstant: 56),
+            left.heightAnchor.constraint(equalToConstant: Self.footerRowHeight),
+            right.heightAnchor.constraint(equalToConstant: Self.footerRowHeight),
             left.centerYAnchor.constraint(equalTo: right.centerYAnchor),
         ]
     }
@@ -491,6 +555,14 @@ class TrackSelectorViewController: UIViewController {
     }
 
     // MARK: - Helpers
+
+    private static let topInset: CGFloat = 16
+    private static let bottomInset: CGFloat = 16
+    private static let segmentedControlHeight: CGFloat = 44
+    private static let segmentedControlToTable: CGFloat = 12
+    private static let tableToFooter: CGFloat = 8
+    private static let footerRowHeight: CGFloat = 56
+    private static let footerRowSpacing: CGFloat = 12
 
     private static let numberFormatter: NumberFormatter = {
         let formatter = NumberFormatter()

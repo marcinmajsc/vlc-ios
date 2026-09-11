@@ -27,6 +27,8 @@ static NSString *const VLCPlayerDisplayControllerDisplayModeKey = @"VLCPlayerDis
 
 static const CGFloat kVLCMiniPlayerMaximumWidthFactor = 2.0 / 3.0;
 
+const CGFloat kVLCMiniPlayerPlayqueueTopInset = 8.0;
+
 NSString *const VLCPlayerDisplayControllerDisplayMiniPlayer = @"VLCPlayerDisplayControllerDisplayMiniPlayer";
 NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayControllerHideMiniPlayer";
 
@@ -311,6 +313,7 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
     BOOL enforceFullscreen = [[defaults objectForKey:kVLCSettingVideoFullscreenPlayback] boolValue];
 
     VLCMLMedia *media = _playbackController.currentlyPlayingLibraryMedia;
+    BOOL expectsAudioOnlyContent = [notification.userInfo[kVLCPlayerExpectsAudioOnlyContent] isEqual:@YES];
 
     _currentMediaType = [media type];
     _playbackController.fullscreenSessionRequested = _currentMediaType != VLCMLMediaTypeAudio;
@@ -327,7 +330,7 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
 
     switch (self.displayMode) {
         case VLCPlayerDisplayControllerDisplayModeFullscreen:
-            if ((media.type == VLCMLMediaTypeAudio || _playbackController.playAsAudio) &&
+            if ((media.type == VLCMLMediaTypeAudio || _playbackController.playAsAudio || expectsAudioOnlyContent) &&
                 _playbackController.numberOfVideoTracks == 0) {
                 [self _presentAudioPlayerViewIfNeeded];
             } else {
@@ -723,8 +726,9 @@ NSString *const VLCPlayerDisplayControllerHideMiniPlayer = @"VLCPlayerDisplayCon
             [self.view addSubview:miniPlaybackView];
             _bottomConstraint = [miniPlaybackView.topAnchor constraintEqualToAnchor:self.view.bottomAnchor];
 
-            _playqueueBottomConstraint = [miniPlaybackView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor
-                                                                                    constant: 25.0];
+            NSLayoutYAxisAnchor *topAnchor = self.realTopAnchor ?: self.view.safeAreaLayoutGuide.topAnchor;
+            _playqueueBottomConstraint = [miniPlaybackView.topAnchor constraintEqualToAnchor:topAnchor
+                                                                                    constant: kVLCMiniPlayerPlayqueueTopInset];
 
             NSLayoutConstraint* heightConstraint = [miniPlaybackView.heightAnchor constraintEqualToConstant:((UIView<VLCPlaybackServiceDelegate, VLCMiniPlayer>*)self.miniPlaybackView).contentHeight];
             heightConstraint.priority = UILayoutPriorityDefaultHigh;

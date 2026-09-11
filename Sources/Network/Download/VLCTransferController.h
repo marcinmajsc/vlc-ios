@@ -14,12 +14,18 @@
 
 #import <Foundation/Foundation.h>
 #import "VLCTransferItem.h"
-
 NS_ASSUME_NONNULL_BEGIN
 
 extern NSString * const VLCTransferControllerStateDidChangeNotification;
 
 @class VLCMedia;
+@class WCSessionFileTransfer;
+
+@protocol VLCExternalDownloadCanceller <NSObject>
+
+- (void)cancelExternalDownloadWithToken:(NSUInteger)token;
+
+@end
 
 @interface VLCTransferController : NSObject
 
@@ -37,11 +43,21 @@ extern NSString * const VLCTransferControllerStateDidChangeNotification;
 
 #pragma mark - External download source (caller-driven, e.g. subscription caching)
 // The caller performs the download itself and reports state by token, so the
-// item appears in the Transfers list. Cancellation is owned by the caller.
-- (NSUInteger)startExternalDownloadWithName:(NSString *)name;
+// item appears in the Transfers list. The canceller is asked to stop the
+// transfer; the item stays listed until the caller reports the outcome.
+- (NSUInteger)startExternalDownloadWithName:(NSString *)name
+                                  canceller:(nullable id<VLCExternalDownloadCanceller>)canceller;
 - (void)updateExternalDownload:(NSUInteger)token receivedBytes:(long long)received expectedBytes:(long long)expected;
 - (void)finishExternalDownload:(NSUInteger)token filePath:(nullable NSString *)filePath;
 - (void)failExternalDownload:(NSUInteger)token errorDescription:(nullable NSString *)description;
+- (void)cancelExternalDownload:(NSUInteger)token;
+
+#if (TARGET_OS_IOS || TARGET_OS_WATCH) && !NO_WATCH
+#pragma mark - watchOS source
+- (void)observeOutstandingWatchTransfers;
+- (void)finishWatchTransfer:(WCSessionFileTransfer *)fileTransfer filePath:(NSString *)filePath;
+- (void)failWatchTransfer:(WCSessionFileTransfer *)fileTransfer errorDescription:(NSString *)description;
+#endif
 
 #pragma mark - List state (view-controller-facing)
 @property (readonly) NSArray<VLCTransferItem *> *inProgressItems;

@@ -9,6 +9,7 @@
  *          Gleb Pinigin <gpinigin # gmail.com>
  *          Pierre Sagaspe <pierre.sagaspe # me.com>
  *          Adam Viaud <mcnight # mcnight.fr>
+ *          Pratik Ray <raypratik365@gmail.com>
  * Refer to the COPYING file of the official project for license.
  *****************************************************************************/
 
@@ -95,7 +96,6 @@
     urlField.clearButtonMode = UITextFieldViewModeNever;
     urlField.autocorrectionType = UITextAutocorrectionTypeNo;
     urlField.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    urlField.keyboardAppearance = UIKeyboardAppearanceAlert;
     urlField.layer.cornerRadius = 10.0;
     urlField.layer.borderWidth = 1.0;
     [urlField addTarget:self action:@selector(updateFieldAccessories) forControlEvents:UIControlEventEditingChanged | UIControlEventEditingDidBegin | UIControlEventEditingDidEnd];
@@ -304,14 +304,6 @@
     // This will be called every time this VC is opened by the side menu controller
     [self updatePasteboardTextInURLField];
 
-    // Registering a custom menu items for renaming streams and editing their URLs
-    UIMenuItem *renameItem = [[UIMenuItem alloc] initWithTitle:NSLocalizedString(@"BUTTON_RENAME", nil)
-                                                        action:@selector(renameStream:)];
-    UIMenuItem *editURLItem = [[UIMenuItem alloc] initWithTitle:NSLocalizedString(@"BUTTON_EDIT", nil)
-                                                         action:@selector(editURL:)];
-    UIMenuController *sharedMenuController = [UIMenuController sharedMenuController];
-    [sharedMenuController setMenuItems:@[renameItem,editURLItem]];
-    [sharedMenuController update];
     [self updateForTheme];
 
     self.historyTableView.rowHeight = [VLCStreamingHistoryCell heightOfCell];
@@ -332,6 +324,7 @@
     self.urlField.backgroundColor = colors.cellBackgroundB;
     self.urlField.textColor = colors.cellTextColor;
     self.urlField.layer.borderColor = colors.textfieldBorderColor.CGColor;
+    self.urlField.keyboardAppearance = colors.isDark ? UIKeyboardAppearanceDark : UIKeyboardAppearanceLight;
     self.recentsHeaderLabel.textColor = colors.lightTextColor;
     self.openButton.backgroundColor = colors.orangeUI;
     self.openButton.tintColor = [UIColor whiteColor];
@@ -371,6 +364,17 @@
     [self _setRightBarButtonItemsEditing:NO];
 
     [self updateEditButtonState];
+
+    UIMenuItem *renameItem = [[UIMenuItem alloc] initWithTitle:NSLocalizedString(@"BUTTON_RENAME", nil)
+                                                        action:@selector(renameStream:)];
+    UIMenuItem *editURLItem = [[UIMenuItem alloc] initWithTitle:NSLocalizedString(@"BUTTON_EDIT", nil)
+                                                         action:@selector(editURL:)];
+    UIMenuItem *pasteAndOpenItem = [[UIMenuItem alloc] initWithTitle:NSLocalizedString(@"BUTTON_PASTE_AND_OPEN", nil)
+                                                              action:@selector(pasteAndOpenAction:)];
+    UIMenuController *sharedMenuController = [UIMenuController sharedMenuController];
+    [sharedMenuController setMenuItems:@[renameItem, editURLItem, pasteAndOpenItem]];
+    [sharedMenuController update];
+
     [super viewWillAppear:animated];
 }
 
@@ -432,6 +436,21 @@
         container.frame = CGRectMake(0, 0, openSize + trailingPad, openSize);
     }
     self.urlField.rightView = container;
+}
+
+- (BOOL)canPerformAction:(SEL)action withSender:(id)sender
+{
+    if (action == @selector(pasteAndOpenAction:))
+        return self.urlField.isFirstResponder && [UIPasteboard generalPasteboard].hasStrings;
+
+    return [super canPerformAction:action withSender:sender];
+}
+
+- (void)pasteAndOpenAction:(id)sender
+{
+    self.urlField.text = [UIPasteboard generalPasteboard].string;
+    [self updateFieldAccessories];
+    [self openButtonAction:nil];
 }
 
 - (void)openButtonAction:(id)sender
@@ -550,6 +569,7 @@
 
     [alertController addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
         textField.text = streamName;
+        textField.placeholder = NSLocalizedString(@"NETWORK_STREAM_PLACEHOLDER", nil);
         [[NSNotificationCenter defaultCenter] addObserverForName:UITextFieldTextDidChangeNotification
                                                           object:textField
                                                            queue:[NSOperationQueue mainQueue]
@@ -593,6 +613,7 @@
 
     [alertController addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
         textField.text = urlString;
+        textField.placeholder = NSLocalizedString(@"NETWORK_STREAM_URL_PLACEHOLDER", nil);
         [[NSNotificationCenter defaultCenter] addObserverForName:UITextFieldTextDidChangeNotification
                                                           object:textField
                                                            queue:[NSOperationQueue mainQueue]

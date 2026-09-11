@@ -87,7 +87,15 @@ extension VLCMLMedia {
             return nil
         }
 
-        return VLCThumbnailsCache.thumbnail(for: thumbnail())
+        if let image = VLCThumbnailsCache.thumbnail(for: thumbnail()) {
+            return image
+        }
+
+        guard nbSubscriptions() > 0,
+              let show = linkedSubscriptions(with: .default, desc: false)?.first else {
+            return nil
+        }
+        return VLCThumbnailsCache.thumbnail(for: show.artworkMRL)
     }
 
     @objc func placeholderImage() -> UIImage? {
@@ -153,7 +161,7 @@ extension VLCMLMedia {
         attributeSet.local = 1
         attributeSet.playCount = NSNumber(value: playCount())
         if thumbnailStatus() == .available {
-            let image = VLCThumbnailsCache.minimizedThumbnail(for: thumbnail())
+            let image = VLCThumbnailsCache.thumbnail(for: thumbnail(), maxPixelSize: 270)
             attributeSet.thumbnailData = image?.jpegData(compressionQuality: 0.9)
         }
         attributeSet.codecs = codecs()

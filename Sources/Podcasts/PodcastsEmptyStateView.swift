@@ -121,8 +121,7 @@ class PodcastsEmptyStateView: UIView {
         titleLabel.textColor = colors.cellTextColor
         descriptionLabel.textColor = colors.cellDetailTextColor
 
-        addRSSButton.backgroundColor = colors.orangeUI
-        addRSSButton.setTitleColor(colors.background, for: .normal)
+        addRSSButton.styleAsPrimaryAction()
     }
 
     @objc private func didTapAddRSS() {

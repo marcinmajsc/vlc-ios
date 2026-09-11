@@ -13,26 +13,32 @@
 import UIKit
 
 class PodcastDownloadButton: UIButton {
+    private static let downloadImage: UIImage? = {
+        guard #available(iOS 13.0, *) else {
+            return nil
+        }
+        return UIImage(systemName: "arrow.down.circle",
+                       withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular))
+    }()
+
+    private static let downloadedImage: UIImage? = {
+        guard #available(iOS 13.0, *) else {
+            return nil
+        }
+        return UIImage(systemName: "arrow.down.circle.fill",
+                       withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular))
+    }()
+
+    private static let downloadingImage: UIImage? = {
+        guard #available(iOS 13.0, *) else {
+            return nil
+        }
+        return UIImage(systemName: "stop.circle",
+                       withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular))
+    }()
+
     private(set) var isDownloaded = false
     private(set) var isDownloading = false
-
-    private lazy var activityIndicator: UIActivityIndicatorView = {
-        let style: UIActivityIndicatorView.Style
-        #if os(visionOS)
-        // visionOS has no pre-iOS-13 codepath to support, and .gray doesn't exist there at all.
-        style = .medium
-        #else
-        if #available(iOS 13.0, *) {
-            style = .medium
-        } else {
-            style = .gray
-        }
-        #endif
-        let indicator = UIActivityIndicatorView(style: style)
-        indicator.hidesWhenStopped = true
-        indicator.translatesAutoresizingMaskIntoConstraints = false
-        return indicator
-    }()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -48,11 +54,6 @@ class PodcastDownloadButton: UIButton {
         translatesAutoresizingMaskIntoConstraints = false
         contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
         imageView?.contentMode = .scaleAspectFit
-        addSubview(activityIndicator)
-        NSLayoutConstraint.activate([
-            activityIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
-            activityIndicator.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
         applyTheme()
         NotificationCenter.default.addObserver(self,
                                                 selector: #selector(applyTheme),
@@ -66,26 +67,27 @@ class PodcastDownloadButton: UIButton {
         let colors = PresentationTheme.current.colors
 
         if downloading {
-            setImage(nil, for: .normal)
-            activityIndicator.startAnimating()
-            isUserInteractionEnabled = false
-            accessibilityLabel = NSLocalizedString("PODCAST_EPISODE_DOWNLOADING", comment: "")
+            guard #available(iOS 13.0, *) else {
+                setTitle("✕", for: .normal)
+                accessibilityLabel = NSLocalizedString("PODCAST_EPISODE_CANCEL_DOWNLOAD", comment: "")
+                return
+            }
+            setImage(PodcastDownloadButton.downloadingImage, for: .normal)
+            tintColor = colors.orangeUI
+            accessibilityLabel = NSLocalizedString("PODCAST_EPISODE_CANCEL_DOWNLOAD", comment: "")
             return
         }
-        activityIndicator.stopAnimating()
-        isUserInteractionEnabled = true
 
         guard #available(iOS 13.0, *) else {
             setTitle(downloaded ? "✓" : "↓", for: .normal)
             return
         }
 
-        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         if downloaded {
-            setImage(UIImage(systemName: "checkmark.circle.fill", withConfiguration: config), for: .normal)
+            setImage(PodcastDownloadButton.downloadedImage, for: .normal)
             tintColor = colors.orangeUI
         } else {
-            setImage(UIImage(systemName: "arrow.down.circle", withConfiguration: config), for: .normal)
+            setImage(PodcastDownloadButton.downloadImage, for: .normal)
             tintColor = colors.cellDetailTextColor
         }
         accessibilityLabel = downloaded

@@ -28,10 +28,7 @@ class ActionSheetSpecifier: NSObject {
         }
     }
     
-    private lazy var customSpeedHandler: CustomSpeedInputHandler = {
-        let handler = CustomSpeedInputHandler()
-        return handler
-    }()
+    private var customValueHandler: SettingsCustomValueInputHandler?
 
     var selectedIndex: IndexPath {
         guard let preferenceKey = preferenceKey else {
@@ -64,17 +61,20 @@ extension ActionSheetSpecifier: ActionSheetDelegate {
             assertionFailure("No Preference Key Provided")
             return
         }
-        
-        if preferenceKey == kVLCSettingPlaybackSpeedDefaultValue &&
-           settingSpecifier?.specifier[indexPath.row].value as? String == "custom" {
+
+        if let customValue = settingSpecifier?.customValue,
+           let selectedValue = settingSpecifier?.specifier[indexPath.row].value as? NSObject,
+           customValue.sentinel.isEqual(selectedValue) {
 
             if let actionSheet = collectionView.superview?.superview?.superview as? ActionSheet {
                 actionSheet.removeActionSheet()
             }
-            
-            // Use a slight delay to avoid UI conflicts with the dismissal animation
-            DispatchQueue.main.asyncAfter(deadline: .now() + PlaybackSpeedConfig.animationDelay) {
-                self.showCustomSpeedInputAlert()
+
+            let handler = SettingsCustomValueInputHandler(title: headerViewTitle() ?? "", specifier: customValue)
+            customValueHandler = handler
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + SettingsCustomValueInputHandler.animationDelay) {
+                handler.presentInput()
             }
             return
         }
@@ -97,10 +97,6 @@ extension ActionSheetSpecifier: ActionSheetDelegate {
 
     func actionSheetDidFinishClosingAnimation(_ actionSheet: ActionSheet) {
         AppearanceManager.setupUserInterfaceStyle()
-    }
-    
-    private func showCustomSpeedInputAlert() {
-        customSpeedHandler.presentCustomSpeedInput()
     }
 }
 

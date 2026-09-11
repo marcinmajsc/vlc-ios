@@ -103,6 +103,8 @@
 #define kVLCSettingCastingConversionQuality @"sout-chromecast-conversion-quality"
 #define kVLCSettingBackupMediaLibrary @"BackupMediaLibrary"
 #define kVLCSettingBackupMediaLibraryDefaultValue @NO
+#define kVLCSettingPodcastAutomaticDownloads @"PodcastAutomaticDownloads"
+#define kVLCSettingPodcastAutomaticDownloadsDefaultValue @YES
 #define kVLCSettingLastUsedSubtitlesSearchLanguage @"kVLCSettingLastUsedSubtitlesSearchLanguage"
 #define kVLCResetSettings @"kVLCResetSettings"
 #define kVLCSettingAlwaysPlayURLs @"kVLCSettingAlwaysPlayURLs"
@@ -144,6 +146,7 @@
 #define kVLCRestoreLastPlayedMedia @"RestoreLastPlayedMedia"
 
 #define kVLCPlayerOpenInMiniPlayer @"OpenInMiniPlayer"
+#define kVLCPlayerExpectsAudioOnlyContent @"ExpectsAudioOnlyContent"
 #define kVLCPlayerShouldRememberState @"PlayerShouldRememberState"
 #define kVLCPlayerShouldRememberBrightness @"PlayerShouldRememberBrightness"
 #define KVLCPlayerBrightness @"playerbrightness"
@@ -216,6 +219,7 @@
 #define kVLCMediaLibrarySyncID @"kVLCMediaLibrarySyncID"
 #define kVLCiPhoneMediaID @"kVLCiPhoneMediaID"
 #define kVLCiPhoneMediaFileName @"kVLCiPhoneMediaFileName"
+#define kVLCiPhoneMediaFileSize @"kVLCiPhoneMediaFileSize"
 
 #define kVLCiPhoneAlbumID @"kVLCiPhoneAlbumID"
 #define kVLCiPhoneAlbumName @"kVLCiPhoneAlbumName"
@@ -228,3 +232,5 @@
 
 #define kVLCMediaLibraryDBFileName @"medialibrary.db"
 #define kVLCSnapshotMediaLibraryDBFileName @"medialibrary-snapshot.db"
+
+#define kVLCFileTransferDidStartNotification @"kVLCFileTransferDidStartNotification"

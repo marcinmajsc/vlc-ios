@@ -30,6 +30,7 @@
 #if !TARGET_OS_WATCH
 #import "VLCPlayerDisplayController.h"
 #import "VLCAppCoordinator.h"
+#import "UIApplication+VLCTopViewController.h"
 #endif
 
 #import <stdatomic.h>
@@ -81,6 +82,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
     int _majorPositionChangeInProgress;
     float _positionToRestore;
+    float _startPosition;
     BOOL _externalAudioPlaybackDeviceConnected;
 
     NSLock *_playbackSessionManagementLock;
@@ -160,6 +162,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     self = [super init];
     if (self) {
         _fullscreenSessionRequested = YES;
+        _startPosition = -1.;
         // listen to audiosessions and appkit callback
         NSNotificationCenter *defaultCenter = [NSNotificationCenter defaultCenter];
         [defaultCenter addObserver:self selector:@selector(audioSessionRouteChange:)
@@ -229,9 +232,9 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     VLCFullscreenMovieTVViewController *movieVC = [VLCFullscreenMovieTVViewController fullscreenMovieTVViewController];
 
     if (![movieVC isBeingPresented]) {
-        [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:movieVC
-                                                                                     animated:YES
-                                                                                   completion:nil];
+        [[UIApplication sharedApplication].topViewController presentViewController:movieVC
+                                                                          animated:YES
+                                                                        completion:nil];
     }
 #endif
 }
@@ -454,13 +457,22 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         int count = (int)_mediaList.count;
         if (_shuffleMode && count > 0) {
             _itemInMediaListToBePlayedFirst = arc4random_uniform(count - 1);
-            [self shuffleMediaList];
         } else {
             _itemInMediaListToBePlayedFirst = 0;
         }
     }
 
-    VLCMedia *media = [_mediaList mediaAtIndex:_itemInMediaListToBePlayedFirst];
+    if (_shuffleMode && _mediaList.count > 1) {
+        _currentIndex = _itemInMediaListToBePlayedFirst;
+        [self shuffleMediaList];
+        _currentIndex = 0;
+        _shuffledList = nil;
+        [self rebuildShuffledListIfNeeded];
+        _itemInMediaListToBePlayedFirst = 0;
+    }
+
+    VLCMediaList *initialMediaList = (_shuffleMode && _shuffledList.count > 0) ? _shuffledList : _mediaList;
+    VLCMedia *media = [initialMediaList mediaAtIndex:_itemInMediaListToBePlayedFirst];
     media.delegate = self;
     // add options to the media
     if (self.mediaOptionsDictionary) {
@@ -751,7 +763,11 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
 - (void)setPlaybackPosition:(float)position
 {
-    _mediaPlayer.position = position;
+    if (isnan(position)) {
+        return;
+    }
+
+    _mediaPlayer.position = MIN(MAX(position, .0f), 1.f);
     _majorPositionChangeInProgress = 1;
 }
 
@@ -1032,14 +1048,18 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
                 [self->_mediaPlayer performSelector:@selector(setTextRendererFontForceBold:) withObject:[defaults objectForKey:kVLCSettingSubtitlesBoldFont]];
 #pragma clang diagnostic pop
 
+                if (![self _applyStartPositionIfNeeded]) {
 #if !TARGET_OS_TV
-                [self _recoverLastPlaybackState];
+                    [self _recoverLastPlaybackState];
 #endif
+                }
                 [self setNeedsMetadataUpdate];
                 [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidStart object:self userInfo:@{
-                    kVLCPlayerOpenInMiniPlayer: @(self->_openInMiniPlayer)
+                    kVLCPlayerOpenInMiniPlayer: @(self->_openInMiniPlayer),
+                    kVLCPlayerExpectsAudioOnlyContent: @(self.expectsAudioOnlyContent)
                 }];
                 self->_openInMiniPlayer = NO;
+                self.expectsAudioOnlyContent = NO;
             } break;
 
             case VLCMediaPlayerStatePlaying: {
@@ -1145,25 +1165,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     if (_shuffleMode) {
         [self shuffleMediaList];
         _currentIndex = 0;
-
-        @synchronized (_shuffledOrder) {
-            if ([_shuffledList count] == 0) {
-                NSMutableArray<VLCMedia *> *shuffledMedias = [[NSMutableArray alloc] init];
-                NSUInteger mediaListCount = _mediaList.count;
-                NSUInteger shuffledOrderCount = _shuffledOrder.count;
-                for (NSInteger i = _currentIndex; i < mediaListCount; i++) {
-                    if (i < shuffledOrderCount) {
-                        NSUInteger shuffleOrderIndex = [_shuffledOrder[i] unsignedIntegerValue];
-                        if (shuffleOrderIndex < mediaListCount) {
-                            [shuffledMedias addObject:[_mediaList mediaAtIndex:shuffleOrderIndex]];
-                        }
-                    }
-                }
-
-                _shuffledList = [[VLCMediaList alloc] initWithArray:shuffledMedias];
-                _listPlayer.mediaList = _shuffledList;
-            }
-        }
+        [self rebuildShuffledListIfNeeded];
     } else {
         _currentIndex = [_mediaList indexOfMedia:self.currentlyPlayingMedia];
         _shuffledList = nil;
@@ -1204,6 +1206,30 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
             NSInteger n = arc4random_uniform((uint32_t)nElements) + i;
             [_shuffledOrder exchangeObjectAtIndex:i withObjectAtIndex:n];
         }
+    }
+}
+
+- (void)rebuildShuffledListIfNeeded
+{
+    @synchronized (_shuffledOrder) {
+        if ([_shuffledList count] != 0) {
+            return;
+        }
+
+        NSMutableArray<VLCMedia *> *shuffledMedias = [[NSMutableArray alloc] init];
+        NSUInteger mediaListCount = _mediaList.count;
+        NSUInteger shuffledOrderCount = _shuffledOrder.count;
+        for (NSInteger i = _currentIndex; i < mediaListCount; i++) {
+            if (i < shuffledOrderCount) {
+                NSUInteger shuffleOrderIndex = [_shuffledOrder[i] unsignedIntegerValue];
+                if (shuffleOrderIndex < mediaListCount) {
+                    [shuffledMedias addObject:[_mediaList mediaAtIndex:shuffleOrderIndex]];
+                }
+            }
+        }
+
+        _shuffledList = [[VLCMediaList alloc] initWithArray:shuffledMedias];
+        _listPlayer.mediaList = _shuffledList;
     }
 }
 
@@ -1818,10 +1844,22 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     [self _restorePlaybackPosition:_positionToRestore];
 }
 
-- (void)_recoverLastPlaybackState
+- (BOOL)_applyStartPositionIfNeeded
 {
     _positionToRestore = .0;
 
+    if (_startPosition < .0) {
+        return NO;
+    }
+
+    float startPosition = _startPosition;
+    _startPosition = -1.;
+    [self _restorePlaybackPosition:startPosition];
+    return YES;
+}
+
+- (void)_recoverLastPlaybackState
+{
     VLCMedia *media = _mediaPlayer.media;
     VLCMLMedia *libraryMedia = [VLCMLMedia mediaForPlayingMedia:media];
     if (!libraryMedia) return;
@@ -1869,11 +1907,9 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
             [alertController addAction:cancelAction];
             [alertController addAction:continueAction];
 
-            UIViewController *presentingVC = [UIApplication sharedApplication].delegate.window.rootViewController;
-            presentingVC = presentingVC.presentedViewController ?: presentingVC;
-            [presentingVC presentViewController:alertController
-                                       animated:YES
-                                     completion:nil];
+            [[UIApplication sharedApplication].topViewController presentViewController:alertController
+                                                                              animated:YES
+                                                                            completion:nil];
             #elif TARGET_OS_WATCH
             [_swiftUIDialogProvider showContinuePlaybackDialogWithMediaTitle:libraryMedia.title completion:^(BOOL shouldContinue) {
                 if (shouldContinue) {

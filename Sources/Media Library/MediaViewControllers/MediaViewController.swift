@@ -15,6 +15,11 @@ import Foundation
 
 class MediaViewController: VLCPagingViewController<VLCLabelCell> {
 
+    private let tabTitleMargin: CGFloat = 8.0
+    private var tabTitleFont: UIFont {
+        return UIFont.preferredCustomFont(forTextStyle: .headline).bolded
+    }
+
     var mediaLibraryService: MediaLibraryService
     #if os(iOS)
     private lazy var rendererButton: UIButton = VLCAppCoordinator.sharedInstance().rendererDiscovererManager.setupRendererButton()
@@ -85,18 +90,8 @@ class MediaViewController: VLCPagingViewController<VLCLabelCell> {
         return UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(customSetEditing))
     }()
 
-    private lazy var settingsButton: UIBarButtonItem = {
-        var image: UIImage?
-        if #available(iOS 13.0, *) {
-            image = UIImage(systemName: "gearshape")
-        } else {
-            image = UIImage(named: "Settings")
-        }
-        let settingsButton = UIBarButtonItem(image: image, style: .plain, target: self,
-                                             action: #selector(handleSettings))
-        settingsButton.accessibilityLabel = NSLocalizedString("Settings", comment: "")
-        settingsButton.accessibilityIdentifier = VLCAccessibilityIdentifier.settings
-        return settingsButton
+    private lazy var appMenuButton: UIBarButtonItem = {
+        return AppMenuBarButtonItem(presenter: self)
     }()
 
     private var rightBarButtons: [UIBarButtonItem]?
@@ -173,15 +168,6 @@ class MediaViewController: VLCPagingViewController<VLCLabelCell> {
         }
     }
 
-    @objc private func handleSettings() {
-        ParentalControlCoordinator.shared.authorizeIfParentalControlIsEnabled(action: { [weak self] in
-            guard let self = self else { return }
-            let settingsController = SettingsController(mediaLibraryService: self.mediaLibraryService)
-            let settingsNavigationController = UINavigationController(rootViewController: settingsController)
-            self.present(settingsNavigationController, animated: true)
-        })
-    }
-
     // MARK: - PagerTabStripDataSource
 
     override func viewControllers(for pagerTabStripController: PagerTabStripViewController) -> [UIViewController] {
@@ -217,7 +203,7 @@ class MediaViewController: VLCPagingViewController<VLCLabelCell> {
         }
 
         if !isEditing, navigationController?.viewControllers.count == 1 {
-            var items: [UIBarButtonItem] = [settingsButton]
+            var items: [UIBarButtonItem] = [appMenuButton]
             if showButtons, let leftBarButtons = leftBarButtons {
                 items.append(contentsOf: leftBarButtons)
             }
@@ -279,8 +265,19 @@ class MediaViewController: VLCPagingViewController<VLCLabelCell> {
     override func configure(cell: VLCLabelCell, for indicatorInfo: IndicatorInfo) {
         cell.iconLabel.adjustsFontSizeToFitWidth = true
         cell.iconLabel.text = indicatorInfo.title
-        cell.iconLabel.font = UIFont.preferredCustomFont(forTextStyle: .headline).bolded
+        cell.iconLabel.font = tabTitleFont
         cell.accessibilityIdentifier = indicatorInfo.accessibilityIdentifier
+    }
+
+    override func minimumCellWidth(for indicatorInfo: IndicatorInfo?) -> CGFloat {
+        let defaultWidth: CGFloat = super.minimumCellWidth(for: indicatorInfo)
+
+        guard let title = indicatorInfo?.title else {
+            return defaultWidth
+        }
+
+        let titleWidth = (title as NSString).size(withAttributes: [.font: tabTitleFont]).width
+        return max(defaultWidth, ceil(titleWidth) + 2 * tabTitleMargin)
     }
 
     override func updateIndicator(for viewController: PagerTabStripViewController, fromIndex: Int, toIndex: Int, withProgressPercentage progressPercentage: CGFloat, indexWasChanged: Bool) {
@@ -390,7 +387,7 @@ extension MediaViewController {
         navigationItem.leftBarButtonItems = leftBarButtons
 
         if !isEditing, navigationController?.viewControllers.count == 1 {
-            var items: [UIBarButtonItem] = [settingsButton]
+            var items: [UIBarButtonItem] = [appMenuButton]
             if let leftBarButtons = leftBarButtons {
                 items.append(contentsOf: leftBarButtons)
             }

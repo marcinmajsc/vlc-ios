@@ -11,6 +11,24 @@
 
 import UIKit
 
+class EqualizerValueFormatter {
+    private static let formatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = false
+        formatter.maximumFractionDigits = 2
+        return formatter
+    }()
+
+    static func string(forDecibels decibels: Float) -> String {
+        return formatter.string(from: NSNumber(value: decibels)) ?? String(format: "%.2f", decibels)
+    }
+
+    static func stringWithUnit(forDecibels decibels: Float) -> String {
+        return string(forDecibels: decibels) + "dB"
+    }
+}
+
 @objc class EqualizerView: UIView {
 
     // MARK: - EqualizerFrequency structure
@@ -53,7 +71,7 @@ import UIKit
         }
 
         private func setupCurrentValueLabel() {
-            currentValueLabel.text = "0dB"
+            currentValueLabel.text = EqualizerValueFormatter.string(forDecibels: 0)
             currentValueLabel.textAlignment = .center
             currentValueLabel.font = .systemFont(ofSize: 11, weight: .bold)
             currentValueLabel.setContentHuggingPriority(.required, for: .vertical)
@@ -363,7 +381,7 @@ import UIKit
 
             for (i, eqFrequency) in eqFrequencies.enumerated() {
                 eqFrequency.slider.setValue(Float(delegate.amplification(ofBand: UInt32(i))), animated: false)
-                eqFrequency.currentValueLabel.text = "\(Double(Int(eqFrequency.slider.value * 100)) / 100)"
+                eqFrequency.currentValueLabel.text = EqualizerValueFormatter.string(forDecibels: eqFrequency.slider.value)
             }
         }
     }
@@ -405,11 +423,11 @@ extension EqualizerView {
 
         if snapBandsSwitch.isOn {
             for eqFrequency in eqFrequencies {
-                eqFrequency.currentValueLabel.text = "\(Double(Int(eqFrequency.slider.value * 100)) / 100)"
+                eqFrequency.currentValueLabel.text = EqualizerValueFormatter.string(forDecibels: eqFrequency.slider.value)
             }
         } else {
             if let currentValueLabel = eqFrequencies.objectAtIndex(index: index)?.currentValueLabel {
-                currentValueLabel.text = "\(Double(Int(sender.value * 100)) / 100)"
+                currentValueLabel.text = EqualizerValueFormatter.string(forDecibels: sender.value)
             }
         }
     }
@@ -434,6 +452,7 @@ extension EqualizerView {
         alertController.addTextField { textField in
             textField.translatesAutoresizingMaskIntoConstraints = false
             textField.text = NSLocalizedString("DEFAULT_PROFILE_NAME", comment: "")
+            textField.placeholder = NSLocalizedString("CUSTOM_EQUALIZER_PROFILE_PLACEHOLDER", comment: "")
         }
 
         let saveAction = UIAlertAction(title: NSLocalizedString("BUTTON_SAVE", comment: ""), style: .default) { _ in
@@ -470,7 +489,7 @@ extension EqualizerView {
             self.hideEqualizerIconIfNeeded()
         }
 
-        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
+        let cancelAction = UIAlertAction(title: NSLocalizedString("BUTTON_CANCEL", comment: ""), style: .cancel)
 
         alertController.addAction(saveAction)
         alertController.addAction(cancelAction)
@@ -580,6 +599,7 @@ extension EqualizerView: EqualizerPresetSelectorDelegate {
             alertController.addTextField { textField in
                 textField.translatesAutoresizingMaskIntoConstraints = false
                 textField.text = self.presetSelectorView?.presetsTableView.cellForRow(at: index)?.textLabel?.text
+                textField.placeholder = NSLocalizedString("CUSTOM_EQUALIZER_PROFILE_PLACEHOLDER", comment: "")
             }
 
             action = UIAlertAction(title: NSLocalizedString("BUTTON_RENAME", comment: ""), style: .default) { _ in

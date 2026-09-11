@@ -24,6 +24,7 @@
 #import <CocoaHTTPServer/HTTPErrorResponse.h>
 #import <CocoaHTTPServer/HTTPRedirectResponse.h>
 #import "NSString+SupportedMedia.h"
+#import "UIApplication+VLCTopViewController.h"
 #import "VLCHTTPUploaderController.h"
 #import "VLCTransferController.h"
 #import "VLCMetaData.h"
@@ -386,7 +387,7 @@ static NSMutableDictionary *authentifiedHosts;
 
 - (NSObject<HTTPResponse> *)_httpGETDownloadForPath:(NSString *)path
 {
-    NSString *filePath = [[path stringByReplacingOccurrencesOfString:@"/download/" withString:@""] stringByRemovingPercentEncoding];
+    NSString *filePath = [@"/" stringByAppendingPathComponent:[[path substringFromIndex:@"/download/".length] stringByRemovingPercentEncoding]];
     if (![self fileIsInDocumentFolder:filePath]) {
        //return nil which gets handled as resource not found
         return nil;
@@ -465,6 +466,12 @@ static NSMutableDictionary *authentifiedHosts;
                         stringByReplacingOccurrencesOfString:@"'" withString:@"&#039;"];
 }
 
+- (NSString *)downloadPathForFilePath:(NSString *)filePath
+                    allowedCharacters:(NSCharacterSet *)allowedCharacters
+{
+    return [[filePath substringFromIndex:1] stringByAddingPercentEncodingWithAllowedCharacters:allowedCharacters];
+}
+
 - (NSString *)createHTMLMediaObjectFromMedia:(VLCMLMedia *)media
 {
     float progress = media.progress;
@@ -488,8 +495,8 @@ static NSMutableDictionary *authentifiedHosts;
             </div> \
             </a> \
             </div>",
-            [[media mainFile].mrl.path
-             stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLFragmentAllowedCharacterSet],
+            [self downloadPathForFilePath:[media mainFile].mrl.path
+                        allowedCharacters:NSCharacterSet.URLFragmentAllowedCharacterSet],
             media.identifier,
             progressHTML,
             [self escapeTags:media.title],
@@ -639,21 +646,23 @@ static NSMutableDictionary *authentifiedHosts;
             VLCMLMedia *file = (VLCMLMedia *)mediaObject;
             NSString *pathSub = [self _checkIfSubtitleWasFound:[file mainFile].mrl.path];
             if (pathSub)
-                pathSub = [NSString stringWithFormat:@"http://%@/download/%@", hostName, pathSub];
+                pathSub = [NSString stringWithFormat:@"http://%@/download/%@", hostName,
+                           [self downloadPathForFilePath:pathSub allowedCharacters:characterSet]];
             [mediaInXml addObject:[NSString stringWithFormat:@"<Media title=\"%@\" thumb=\"http://%@/Thumbnail/%lld\" duration=\"%@\" size=\"%@\" pathfile=\"http://%@/download/%@\" pathSubtitle=\"%@\"/>",
                                    [file.title stringByAddingPercentEncodingWithAllowedCharacters:characterSet],
                                    hostName,
                                    file.identifier,
                                    [file mediaDuration], [file formatSize],
                                    hostName,
-                                   [[file mainFile].mrl.path stringByAddingPercentEncodingWithAllowedCharacters:characterSet], pathSub]];
+                                   [self downloadPathForFilePath:[file mainFile].mrl.path allowedCharacters:characterSet], pathSub]];
         } else if ([mediaObject isKindOfClass:[VLCMLPlaylist class]]) {
             VLCMLPlaylist *playlist = (VLCMLPlaylist *)mediaObject;
             NSArray *playlistItems = [playlist media];
             for (VLCMLMedia *file in playlistItems) {
                 NSString *pathSub = [self _checkIfSubtitleWasFound:[file mainFile].mrl.path];
                 if (pathSub)
-                    pathSub = [NSString stringWithFormat:@"http://%@/download/%@", hostName, pathSub];
+                    pathSub = [NSString stringWithFormat:@"http://%@/download/%@", hostName,
+                               [self downloadPathForFilePath:pathSub allowedCharacters:characterSet]];
                 [mediaInXml addObject:[NSString stringWithFormat:@"<Media title=\"%@\" thumb=\"http://%@/Thumbnail/%lld\" duration=\"%@\" size=\"%@\" pathfile=\"http://%@/download/%@\" pathSubtitle=\"%@\"/>",
                                        [file.title stringByAddingPercentEncodingWithAllowedCharacters:characterSet],
                                        hostName,
@@ -661,7 +670,7 @@ static NSMutableDictionary *authentifiedHosts;
                                        [file mediaDuration],
                                        [file formatSize],
                                        hostName,
-                                       [[file mainFile].mrl.path stringByAddingPercentEncodingWithAllowedCharacters:characterSet], pathSub]];
+                                       [self downloadPathForFilePath:[file mainFile].mrl.path allowedCharacters:characterSet], pathSub]];
             }
         } else if ([mediaObject isKindOfClass:[VLCMLAlbum class]]) {
             VLCMLAlbum *album = (VLCMLAlbum *)mediaObject;
@@ -675,7 +684,7 @@ static NSMutableDictionary *authentifiedHosts;
                                        [track mediaDuration],
                                        [track formatSize],
                                        hostName,
-                                       [[track mainFile].mrl.path stringByAddingPercentEncodingWithAllowedCharacters:characterSet]]];
+                                       [self downloadPathForFilePath:[track mainFile].mrl.path allowedCharacters:characterSet]]];
             }
         } else if ([mediaObject isKindOfClass:[VLCMLMediaGroup class]]) {
             VLCMLMediaGroup *group = (VLCMLMediaGroup *)mediaObject;
@@ -683,7 +692,8 @@ static NSMutableDictionary *authentifiedHosts;
             for (VLCMLMedia *video in groupVideos) {
                 NSString *pathSub = [self _checkIfSubtitleWasFound:[video mainFile].mrl.path];
                 if (pathSub)
-                    pathSub = [NSString stringWithFormat:@"http://%@/download/%@", hostName, pathSub];
+                    pathSub = [NSString stringWithFormat:@"http://%@/download/%@", hostName,
+                               [self downloadPathForFilePath:pathSub allowedCharacters:characterSet]];
                 [mediaInXml addObject:[NSString stringWithFormat:@"<Media title=\"%@\" thumb=\"http://%@/Thumbnail/%lld\" duration=\"%@\" size=\"%@\" pathfile=\"http://%@/download/%@\" pathSubtitle=\"%@\"/>",
                                        [video.title stringByAddingPercentEncodingWithAllowedCharacters:characterSet],
                                        hostName,
@@ -691,7 +701,7 @@ static NSMutableDictionary *authentifiedHosts;
                                        [video mediaDuration],
                                        [video formatSize],
                                        hostName,
-                                       [[video mainFile].mrl.path stringByAddingPercentEncodingWithAllowedCharacters:characterSet], pathSub]];
+                                       [self downloadPathForFilePath:[video mainFile].mrl.path allowedCharacters:characterSet], pathSub]];
             }
         }
     } // end of forloop
@@ -1075,14 +1085,14 @@ static NSMutableDictionary *authentifiedHosts;
     [alertController addAction:[UIAlertAction actionWithTitle:NSLocalizedString(@"BUTTON_CANCEL", nil)
                                                         style:UIAlertActionStyleCancel
                                                       handler:nil]];
-    [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:alertController animated:YES completion:nil];
+    [[UIApplication sharedApplication].topViewController presentViewController:alertController animated:YES completion:nil];
 #else
     [VLCAlertViewController alertViewManagerWithTitle:NSLocalizedString(@"DISK_FULL", nil)
                                          errorMessage:[NSString stringWithFormat:
                                                        NSLocalizedString(@"DISK_FULL_FORMAT", nil),
                                                        filename,
                                                        [[UIDevice currentDevice] model]]
-                                       viewController:[(VLCAppDelegate *)[UIApplication sharedApplication].delegate window].rootViewController];
+                                       viewController:[UIApplication sharedApplication].topViewController];
 #endif
 }
 

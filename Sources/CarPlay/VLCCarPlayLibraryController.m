@@ -10,11 +10,11 @@
  *****************************************************************************/
 
 #import "VLCCarPlayLibraryController.h"
+#import "CPInterfaceController+VLCTemplateStack.h"
 #import "VLCCarPlayArtistsController.h"
 #import "VLCCarPlayAlbumsController.h"
 #import "CPListTemplate+Genres.h"
 #import "VLCCarPlayFoldersController.h"
-#import "UIImage+PaddedImage.h"
 #import "VLC-Swift.h"
 
 #pragma clang diagnostic push
@@ -29,36 +29,25 @@
 
 - (CPGridTemplate *)libraryTemplate
 {
-    if (!_artistsController) {
-        _artistsController = [[VLCCarPlayArtistsController alloc] init];
-        _artistsController.interfaceController = self.interfaceController;
-    }
-    if (!_albumsController) {
-        _albumsController = [[VLCCarPlayAlbumsController alloc] init];
-        _albumsController.interfaceController = self.interfaceController;
-    }
-    if (!_foldersController) {
-        _foldersController = [[VLCCarPlayFoldersController alloc] init];
-        _foldersController.interfaceController = self.interfaceController;
-    }
-
-    CGSize iconSize = CGSizeMake(80.0, 80.0);
-    if (@available(iOS 14.0, *)) {
-        iconSize = [CPListItem maximumImageSize];
-    }
+    _artistsController = [[VLCCarPlayArtistsController alloc] init];
+    _artistsController.interfaceController = self.interfaceController;
+    _albumsController = [[VLCCarPlayAlbumsController alloc] init];
+    _albumsController.interfaceController = self.interfaceController;
+    _foldersController = [[VLCCarPlayFoldersController alloc] init];
+    _foldersController.interfaceController = self.interfaceController;
 
     NSArray<CPGridButton *> *buttons = @[
         [self buttonWithTitle:NSLocalizedString(@"ARTISTS", nil)
-                        image:[UIImage paddedImageForSymbol:@"music.mic" ofSize:iconSize]
+                       symbol:@"music.mic"
                      template:^{ return [self->_artistsController artistList]; }],
         [self buttonWithTitle:NSLocalizedString(@"ALBUMS", nil)
-                        image:[UIImage paddedImageForSymbol:@"square.stack" ofSize:iconSize]
+                       symbol:@"square.stack"
                      template:^{ return [self->_albumsController albumList]; }],
         [self buttonWithTitle:NSLocalizedString(@"GENRES", nil)
-                        image:[UIImage paddedImageForSymbol:@"tag" ofSize:iconSize]
+                       symbol:@"tag"
                      template:^{ return [CPListTemplate genreList]; }],
         [self buttonWithTitle:NSLocalizedString(@"FOLDERS", nil)
-                        image:[UIImage paddedImageForSymbol:@"folder" ofSize:iconSize]
+                       symbol:@"folder"
                      template:^{ return [self->_foldersController folderList]; }],
     ];
 
@@ -70,13 +59,13 @@
 }
 
 - (CPGridButton *)buttonWithTitle:(NSString *)title
-                            image:(UIImage *)image
+                           symbol:(NSString *)symbol
                          template:(CPListTemplate *(^)(void))templateProvider
 {
     return [[CPGridButton alloc] initWithTitleVariants:@[title]
-                                                 image:image
+                                                 image:[VLCCarPlayBrowserController placeholderForSymbol:symbol]
                                                handler:^(CPGridButton * _Nonnull button) {
-        [self.interfaceController pushTemplate:templateProvider() animated:YES];
+        [self.interfaceController pushTemplateWithinDepthLimit:templateProvider() animated:YES];
     }];
 }
 

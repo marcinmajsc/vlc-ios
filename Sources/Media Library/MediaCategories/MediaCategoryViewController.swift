@@ -88,7 +88,12 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     var isSectionable: Bool = false
 
     var isSectioned: Bool {
-        return isSectionable && model.sortModel.currentSort == .alpha
+        guard isSectionable else {
+            return false
+        }
+
+        let currentSort = model.sortModel.currentSort
+        return currentSort == .alpha || currentSort == .default
     }
 
     private let mediaGridCellNibIdentifier = "MediaGridCollectionCell"
@@ -141,6 +146,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     }()
 
     private weak var albumHeader: AlbumHeader?
+    private var isAlbumArtworkBehindStatusBar: Bool = false
     private lazy var albumFlowLayout = AlbumHeaderLayout()
 
     private weak var playlistHeader: PlaylistHeader?
@@ -237,8 +243,9 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 
         if let folderModel = model as? FolderModel {
             let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path
-            if folderModel.currentFolder.mrl.path != documentsPath {
-                emptyView.folderName = folderModel.currentFolder.name
+            if let currentFolder = folderModel.currentFolder,
+               currentFolder.mrl.path != documentsPath {
+                emptyView.folderName = currentFolder.name
             }
             emptyView.isAudioFolder = folderModel.isAudio
             emptyView.contentType = .emptyFolder
@@ -253,6 +260,10 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     }()
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
+        if isAlbumArtworkBehindStatusBar {
+            return .lightContent
+        }
+
         return PresentationTheme.current.colors.statusBarStyle
     }
 
@@ -410,7 +421,13 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             }
 
             navigationItem.titleView?.isHidden = hideNavigationItemTitle
-            albumHeader.updateUserInterfaceStyle(isStatusBarVisible: !hideNavigationItemTitle)
+
+            if isAlbumArtworkBehindStatusBar != hideNavigationItemTitle {
+                isAlbumArtworkBehindStatusBar = hideNavigationItemTitle
+#if os(iOS)
+                setNeedsStatusBarAppearanceUpdate()
+#endif
+            }
         }
     }
 
@@ -570,9 +587,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
            model.mediaCollection is VLCMLAlbum {
             statusBarView.removeFromSuperview()
             view.addSubview(searchBar)
-            if #unavailable(iOS 26.0) {
-                AppearanceManager.setupUserInterfaceStyle(theme: PresentationTheme.current)
-            }
         }
     }
 
@@ -1308,7 +1322,8 @@ private extension MediaCategoryViewController {
 
         // Inside a folder that has been removed from the disk
         if let folderModel = model as? FolderModel,
-           !FileManager.default.fileExists(atPath: folderModel.currentFolder.mrl.path) {
+           let currentFolder = folderModel.currentFolder,
+           !FileManager.default.fileExists(atPath: currentFolder.mrl.path) {
             navigationController?.popViewController(animated: true)
         }
     }
@@ -1916,7 +1931,8 @@ private extension MediaCategoryViewController {
                         kVLCiPhoneAlbumID: media.albumId,
                         kVLCiPhoneAlbumName: albumTitle,
                         kVLCiPhoneArtistID: media.artistId,
-                        kVLCiPhoneArtistName: artistName
+                        kVLCiPhoneArtistName: artistName,
+                        kVLCiPhoneMediaFileSize: media.mainFile()?.size() ?? 0
                     ]
 
                     print("Transferring file to watch: \(media.title) (\(mrl)) with payload \n\(payload)")
@@ -2128,7 +2144,7 @@ extension MediaCategoryViewController {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, referenceSizeForHeaderInSection section: Int) -> CGSize {
 
         if isSectioned {
-            return .init(width: collectionView.frame.size.width, height: 40)
+            return .init(width: collectionView.safeAreaLayoutGuide.layoutFrame.width, height: 40)
         }
 
         guard let model = model as? CollectionModel else {
@@ -2331,10 +2347,9 @@ extension MediaCategoryViewController: UICollectionViewDelegateFlowLayout {
             //so we need the frame.size width. For rotation on iOS 11 this approach doesn't work because at the time when this is called
             //we don't have yet the updated safeare layout frame. This is addressed by relayouting from viewSafeAreaInsetsDidChange
 
-            // In case of nested views, the safe area may not be updated.
-            // Getting its parent's safe area gives us the true updated safe area.
-            let toWidth = parent?.view.safeAreaLayoutGuide.layoutFrame.width ?? collectionView.safeAreaLayoutGuide.layoutFrame.width
-            cachedCellSize = model.cellType.cellSizeForWidth(toWidth, safeAreaInsets: collectionView.safeAreaInsets)
+            let toWidth = collectionView.safeAreaLayoutGuide.layoutFrame.width
+            let safeAreaInsets = collectionView.window?.safeAreaInsets ?? collectionView.safeAreaInsets
+            cachedCellSize = model.cellType.cellSizeForWidth(toWidth, safeAreaInsets: safeAreaInsets)
         }
         return cachedCellSize
     }
@@ -2426,7 +2441,6 @@ extension MediaCategoryViewController: ActionSheetSortSectionHeaderDelegate {
         var isVideoModel = false
 
         if isFolder {
-            let baseFolder = mediaLibraryService.medialib.folder(atMrl: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!)!
             // Set UserDefaults for folder grid layout based on isAudio flag
             if let folderModel = model as? FolderModel {
                 if folderModel.isAudio {
@@ -2436,7 +2450,8 @@ extension MediaCategoryViewController: ActionSheetSortSectionHeaderDelegate {
                 }
             } else {
                 secondModel = model
-                model = FolderModel(medialibrary: self.mediaLibraryService, isAudio: false, folder: baseFolder)
+                model = FolderModel(medialibrary: self.mediaLibraryService, isAudio: false,
+                                    folder: mediaLibraryService.baseFolder())
             }
         } else if model is FolderModel && secondModel is MediaGroupViewModel {
             model = secondModel

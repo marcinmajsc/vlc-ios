@@ -84,12 +84,14 @@ NS_SWIFT_NAME(PlaybackService)
 @property (nonatomic, readonly) BOOL isPlaying;
 @property (nonatomic, readonly) BOOL playerIsSetup;
 @property (nonatomic, readwrite) BOOL playAsAudio;
+@property (nonatomic, readwrite) BOOL expectsAudioOnlyContent;
 @property (nonatomic, readwrite) VLCRepeatMode repeatMode;
 @property (nonatomic, assign, getter=isShuffleMode) BOOL shuffleMode;
 @property (nonatomic, readwrite) float playbackRate; // default = 1.0
 @property (nonatomic, readonly) CGFloat defaultPlaybackRate; // user-configured default speed
 @property (nonatomic, readwrite) float audioDelay; // in milliseconds, default = 0.0
 @property (nonatomic, readwrite) float playbackPosition; // in seconds, default = 0.0
+@property (nonatomic, readwrite) float startPosition; // [0;1] applied when the next media opens, negative to enforce none
 @property (nonatomic, readwrite) float subtitleDelay; // in milliseconds, default = 0.0
 @property (nonatomic, readonly) VLCPlaybackServiceAdjustFilter *adjustFilter;
 @property (nonatomic, readonly) CGFloat yaw; //  between ]-180;180]
@@ -205,7 +207,9 @@ NS_SWIFT_NAME(PlaybackService)
 - (NSIndexPath *)selectedEqualizerProfile;
 #endif
 
-- (void) saveCurrentlyPlayingMediaIdentifier;
-- (void) restoreLastPlayedMediaList;
+#if !TARGET_OS_WATCH
+- (void)saveCurrentlyPlayingMediaIdentifier;
+#endif
+
 NS_ASSUME_NONNULL_END
 @end

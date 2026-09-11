@@ -11,10 +11,11 @@
  *****************************************************************************/
 
 #import "CPListTemplate+NetworkStreams.h"
-#import "VLCCarPlayListLimit.h"
-#import "UIImage+PaddedImage.h"
+#import "VLCCarPlayBrowserController.h"
 #import "VLCPlaybackService.h"
 #import "VLCFavoriteService.h"
+#import "VLCRadioService.h"
+#import "VLCNetworkImageView.h"
 #import "VLCAppCoordinator.h"
 
 #pragma clang diagnostic push
@@ -24,15 +25,36 @@
 
 + (CPListTemplate *)streamList
 {
-    NSUInteger remainingItemCount = VLCCarPlayMaximumItemCountLimit();
-    NSMutableArray<CPListSection *> *sections = [[NSMutableArray alloc] initWithCapacity:2];
+    CPListTemplate *template = [[CPListTemplate alloc] initWithTitle:NSLocalizedString(@"STREAMS", nil)
+                                                            sections:[self streamSections]];
+    template.tabTitle = NSLocalizedString(@"STREAMS", nil);
+    template.tabImage = [UIImage systemImageNamed:@"antenna.radiowaves.left.and.right"];
+    return template;
+}
 
-    NSArray *radioStations = [self listOfFavoritedRadioStationsWithLimit:remainingItemCount];
++ (NSArray<CPListSection *> *)streamSections
+{
+    NSUInteger remainingItemCount = [VLCCarPlayBrowserController maximumItemCount];
+    NSMutableArray<CPListSection *> *sections = [[NSMutableArray alloc] initWithCapacity:3];
+
+    VLCFavoriteService *favoriteService = [VLCAppCoordinator sharedInstance].favoriteService;
+    NSArray *radioStations = [self listOfRadioStations:[favoriteService favoritesInGroupWithIdentifier:VLCFavoriteGroupRadio]
+                                             withLimit:remainingItemCount];
     if (radioStations.count > 0) {
         [sections addObject:[[CPListSection alloc] initWithItems:radioStations
                                                           header:NSLocalizedString(@"RADIO", nil)
                                                sectionIndexTitle:nil]];
         remainingItemCount -= radioStations.count;
+    }
+
+    VLCRadioService *radioService = [VLCAppCoordinator sharedInstance].radioService;
+    NSArray *recentStations = [self listOfRadioStations:radioService.recentStreams
+                                              withLimit:remainingItemCount];
+    if (recentStations.count > 0) {
+        [sections addObject:[[CPListSection alloc] initWithItems:recentStations
+                                                          header:NSLocalizedString(@"RECENTS", nil)
+                                               sectionIndexTitle:nil]];
+        remainingItemCount -= recentStations.count;
     }
 
     NSArray *recentStreams = [self listOfNetworkStreamsWithLimit:remainingItemCount];
@@ -42,38 +64,36 @@
                                                sectionIndexTitle:nil]];
     }
 
-    CPListTemplate *template = [[CPListTemplate alloc] initWithTitle:NSLocalizedString(@"STREAMS", nil)
-                                                            sections:sections];
-    template.tabTitle = NSLocalizedString(@"STREAMS", nil);
-    template.tabImage = [UIImage systemImageNamed:@"antenna.radiowaves.left.and.right"];
-    return template;
+    return sections;
 }
 
-+ (CGSize)listItemIconSize
++ (CPListItem *)listItemForFavorite:(VLCFavorite *)favorite image:(UIImage *)image
 {
-    if (@available(iOS 14.0, *)) {
-        return [CPListItem maximumImageSize];
-    }
-    return CGSizeMake(80.0, 80.0);
+    CPListItem *listItem = [[CPListItem alloc] initWithText:favorite.userVisibleName
+                                                 detailText:favorite.url.host
+                                                      image:image];
+    listItem.handler = ^(id <CPSelectableListItem> item,
+                         dispatch_block_t completionBlock) {
+        VLCAppCoordinator *coordinator = [VLCAppCoordinator sharedInstance];
+        [coordinator.favoriteService playFavorite:favorite];
+        [coordinator.radioService markStreamPlayed:favorite];
+        completionBlock();
+    };
+    return listItem;
 }
 
-+ (CPListItem *)listItemWithTitle:(NSString *)title
-                       detailText:(nullable NSString *)detailText
-                            image:(UIImage *)image
-                              URL:(NSURL *)url
-                       artworkURL:(nullable NSURL *)artworkURL
++ (CPListItem *)listItemForStreamURL:(NSURL *)url
+                               title:(NSString *)title
+                          detailText:(nullable NSString *)detailText
+                               image:(UIImage *)image
 {
     CPListItem *listItem = [[CPListItem alloc] initWithText:title
                                                  detailText:detailText
                                                       image:image];
-    listItem.userInfo = url;
     listItem.handler = ^(id <CPSelectableListItem> item,
                          dispatch_block_t completionBlock) {
-        VLCMedia *media = [VLCMedia mediaWithURL:item.userInfo];
+        VLCMedia *media = [VLCMedia mediaWithURL:url];
         media.metaData.title = title;
-        if (artworkURL) {
-            media.metaData.artworkURL = artworkURL;
-        }
         VLCMediaList *medialist = [[VLCMediaList alloc] init];
         [medialist addMedia:media];
 
@@ -83,31 +103,25 @@
     return listItem;
 }
 
-+ (NSArray *)listOfFavoritedRadioStationsWithLimit:(NSUInteger)limit
++ (NSArray *)listOfRadioStations:(NSArray<VLCFavorite *> *)stations withLimit:(NSUInteger)limit
 {
-    VLCFavoriteService *favoriteService = [VLCAppCoordinator sharedInstance].favoriteService;
-    NSArray<VLCFavorite *> *favorites = [favoriteService favoritesInGroupWithIdentifier:VLCFavoriteGroupRadio];
-    NSUInteger count = MIN(favorites.count, limit);
+    NSUInteger count = MIN(stations.count, limit);
     NSMutableArray *itemList = [[NSMutableArray alloc] initWithCapacity:count];
 
     NSString *symbol = @"antenna.radiowaves.left.and.right";
     if (@available(iOS 16.0, *)) {
         symbol = @"radio";
     }
-    UIImage *radioIcon = [UIImage paddedImageForSymbol:symbol ofSize:[self listItemIconSize]];
+    UIImage *radioIcon = [VLCCarPlayBrowserController placeholderForSymbol:symbol];
 
     for (NSUInteger x = 0; x < count; x++) {
-        VLCFavorite *favorite = favorites[x];
+        VLCFavorite *favorite = stations[x];
         if (!favorite.playable) {
             continue;
         }
 
+        CPListItem *listItem = [self listItemForFavorite:favorite image:radioIcon];
         NSURL *artworkURL = favorite.artworkURL;
-        CPListItem *listItem = [self listItemWithTitle:favorite.userVisibleName
-                                            detailText:favorite.url.host
-                                                 image:radioIcon
-                                                   URL:favorite.url
-                                            artworkURL:artworkURL];
         if (artworkURL) {
             if (@available(iOS 14.0, *)) {
                 [self setArtworkFromURL:artworkURL onListItem:listItem];
@@ -120,9 +134,28 @@
     return itemList;
 }
 
++ (UIImage *)artworkScaledToIconSize:(UIImage *)artwork
+{
+    CGSize iconSize = [VLCCarPlayBrowserController listItemIconSize];
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:iconSize];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext * _Nonnull context) {
+        CGSize artworkSize = artwork.size;
+        CGFloat scale = MIN(iconSize.width / artworkSize.width, iconSize.height / artworkSize.height);
+        CGSize scaledSize = CGSizeMake(artworkSize.width * scale, artworkSize.height * scale);
+        [artwork drawInRect:CGRectMake((iconSize.width - scaledSize.width) / 2.0,
+                                       (iconSize.height - scaledSize.height) / 2.0,
+                                       scaledSize.width, scaledSize.height)];
+    }];
+}
+
 + (void)setArtworkFromURL:(NSURL *)artworkURL onListItem:(CPListItem *)listItem API_AVAILABLE(ios(14.0))
 {
-    CGSize iconSize = [self listItemIconSize];
+    UIImage *cachedArtwork = [VLCNetworkImageView cachedImageForURL:artworkURL];
+    if (cachedArtwork) {
+        [listItem setImage:[self artworkScaledToIconSize:cachedArtwork]];
+        return;
+    }
+
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:artworkURL
                                                             completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSHTTPURLResponse *httpResponse = [response isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse *)response : nil;
@@ -134,17 +167,9 @@
         if (!artwork) {
             return;
         }
+        [[VLCNetworkImageView sharedImageCache] setObject:artwork forKey:artworkURL];
 
-        UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:iconSize];
-        UIImage *scaledArtwork = [renderer imageWithActions:^(UIGraphicsImageRendererContext * _Nonnull context) {
-            CGSize artworkSize = artwork.size;
-            CGFloat scale = MIN(iconSize.width / artworkSize.width, iconSize.height / artworkSize.height);
-            CGSize scaledSize = CGSizeMake(artworkSize.width * scale, artworkSize.height * scale);
-            [artwork drawInRect:CGRectMake((iconSize.width - scaledSize.width) / 2.0,
-                                           (iconSize.height - scaledSize.height) / 2.0,
-                                           scaledSize.width, scaledSize.height)];
-        }];
-
+        UIImage *scaledArtwork = [self artworkScaledToIconSize:artwork];
         dispatch_async(dispatch_get_main_queue(), ^{
             [listItem setImage:scaledArtwork];
         });
@@ -174,18 +199,17 @@
     NSUInteger count = MIN(recentURLs.count, limit);
     NSMutableArray *itemList = [[NSMutableArray alloc] initWithCapacity:count];
 
-    UIImage *streamIcon = [UIImage paddedImageForSymbol:@"antenna.radiowaves.left.and.right" ofSize:[self listItemIconSize]];
+    UIImage *streamIcon = [VLCCarPlayBrowserController placeholderForSymbol:@"antenna.radiowaves.left.and.right"];
 
     for (NSUInteger x = 0; x < count; x++) {
         NSString *recentURLString = recentURLs[x];
         NSString *content = [recentURLString stringByRemovingPercentEncoding];
         NSString *possibleTitle = recentURLTitles[@(x).stringValue];
 
-        [itemList addObject:[self listItemWithTitle:possibleTitle ?: [content lastPathComponent]
-                                         detailText:content
-                                              image:streamIcon
-                                                URL:[NSURL URLWithString:recentURLString]
-                                            artworkURL:nil]];
+        [itemList addObject:[self listItemForStreamURL:[NSURL URLWithString:recentURLString]
+                                                 title:possibleTitle ?: [content lastPathComponent]
+                                            detailText:content
+                                                 image:streamIcon]];
     }
 
     return itemList;

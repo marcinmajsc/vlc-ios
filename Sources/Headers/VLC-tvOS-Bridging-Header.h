@@ -17,6 +17,7 @@
 
 #import "VLCPlaybackService+MediaLibrary.h"
 #import "VLCSubscriptionCacher.h"
+#import "VLCArtworkCacher.h"
 #import "VLCConstants.h"
 #import "VLCMigrationCursor.h"
 #import "VLCServerListTVViewController.h"
@@ -34,6 +35,7 @@
 #import "VLCNetworkImageView.h"
 #import "PlaylistMediaViewController.h"
 #import "CAAnimation+VLCWiggle.h"
+#import "UIApplication+VLCTopViewController.h"
 #import "VLCDeletionCapableViewController.h"
 #import "VLCThumbnailsCache.h"
 #import "VLCMovieTVCollectionViewCell.h"

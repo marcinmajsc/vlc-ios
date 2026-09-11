@@ -55,15 +55,13 @@ struct SettingsItem: Equatable {
         case isLoading
         case toggle(Toggle)
         case showActionSheet(title: String, preferenceKey: String, hasInfo: Bool)
-        case about
-        case donation
-        case documentation
         case openPrivacySettings
         case forceRescanAlert
         case exportMediaLibrary
         case exportSettings
         case displayResetAlert
         case syncMediaLibraryAlert
+        case transfers
     }
 
     final class Toggle: Equatable {
@@ -149,7 +147,6 @@ struct SettingsSection: Equatable {
 
     static func sections(isLabActivated: Bool, isBackingUp: Bool, isForwardBackwardEqual: Bool, isTapSwipeEqual: Bool) -> [SettingsSection] {
         [
-            InformationOptions.section(),
             AppearanceOptions.section(),
             PlaybackOptions.section(),
             PrivacyOptions.section(),
@@ -157,6 +154,7 @@ struct SettingsSection: Equatable {
             VideoOptions.section(),
             SubtitlesOptions.section(),
             AudioOptions.section(),
+            PodcastOptions.section(),
             CastingOptions.section(),
             MediaLibraryOptions.section(isBackingUp: isBackingUp),
             NetworkOptions.section(),
@@ -165,36 +163,6 @@ struct SettingsSection: Equatable {
             WatchOS.section(),
             Reset.section(),
         ].compactMap { $0 }
-    }
-}
-
-// MARK: - InformationOptions
-
-enum InformationOptions {
-    static var about: SettingsItem {
-        .init(title: "SETTINGS_ABOUT",
-              subtitle: nil,
-              action: .about)
-    }
-
-    static var donate: SettingsItem {
-        .init(title: "SETTINGS_DONATE",
-              subtitle: "SETTINGS_DONATE_LONG",
-              action: .donation)
-    }
-
-    static var documentation: SettingsItem {
-        .init(title: "SETTINGS_DOCUMENTATION",
-              subtitle: nil,
-              action: .documentation)
-    }
-
-    static func section() -> SettingsSection? {
-        .init(title: "SETTINGS_INFORMATION_TITLE", items: [
-            about,
-            documentation,
-            donate,
-        ])
     }
 }
 
@@ -677,6 +645,22 @@ enum AudioOptions {
     }
 }
 
+// MARK: - PodcastOptions
+
+enum PodcastOptions {
+    static var automaticDownloads: SettingsItem {
+        .toggle(title: "SETTINGS_PODCASTS_AUTOMATIC_DOWNLOADS",
+                subtitle: "SETTINGS_PODCASTS_AUTOMATIC_DOWNLOADS_SUBTITLE",
+                preferenceKey: kVLCSettingPodcastAutomaticDownloads)
+    }
+
+    static func section() -> SettingsSection? {
+        .init(title: "SETTINGS_PODCASTS_TITLE", items: [
+            automaticDownloads,
+        ])
+    }
+}
+
 // MARK: - MediaLibraryOptions
 
 enum MediaLibraryOptions {
@@ -836,7 +820,7 @@ enum Lab {
 enum WatchOS {
     static var mediaLibrarySync: SettingsItem {
         let k = kVLCSettingSyncMediaLibrary
-        return .init(title: "SETTINGS_SYNC_MEDIA_LIBRARY",
+        return .init(title: "SETTINGS_SYNC_MEDIA_LIBRARY_TITLE",
                      subtitle: Localizer.getSubtitle(for: k),
                      action: .syncMediaLibraryAlert,
                      isTitleEmphasized: true
@@ -845,15 +829,22 @@ enum WatchOS {
 
     static var mediaLibraryAutoSync: SettingsItem {
         let k = kVLCSettingAutomaticallySyncMediaLibrary
-        return .init(title: "SETTINGS_AUTOMATICALLY_SYNC_MEDIA_LIBRARY",
+        return .init(title: "SETTINGS_AUTOMATICALLY_SYNC_MEDIA_LIBRARY_TITLE",
                      subtitle: Localizer.getSubtitle(for: k),
-                     action: .showActionSheet(title: "SETTINGS_AUTOMATICALLY_SYNC_MEDIA_LIBRARY", preferenceKey: k, hasInfo: true))
+                     action: .showActionSheet(title: "SETTINGS_AUTOMATICALLY_SYNC_MEDIA_LIBRARY_TITLE", preferenceKey: k, hasInfo: true))
+    }
+
+    static var transfers: SettingsItem {
+        .init(title: "SETTINGS_WATCHOS_TRANSFERS_TITLE",
+              subtitle: "SETTINGS_WATCHOS_TRANSFERS_SUBTITLE",
+              action: .transfers)
     }
 
     static func section() -> SettingsSection? {
         .init(title: "SETTINGS_WATCHOS_TITLE", items: [
             mediaLibrarySync,
-            mediaLibraryAutoSync
+            mediaLibraryAutoSync,
+            transfers
         ])
     }
 }

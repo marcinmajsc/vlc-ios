@@ -84,7 +84,7 @@ static CGFloat const kVLCBrowseMinTileWidth = 105.0;
 static CGFloat const kVLCBrowseMinChipWidth = 163.0;
 static NSInteger const kVLCBrowseChipColumnsCompact = 2;
 static NSInteger const kVLCBrowseChipColumnsRegular = 4;
-static CGFloat const kVLCBrowseCaptionArea = 28.0;
+static CGFloat const kVLCBrowseCaptionArea = 22.0;
 static CGFloat const kVLCBrowseChipHeight = 44.0;
 static CGFloat const kVLCBrowseTileCornerRadius = 9.0;
 static CGFloat const kVLCBrowseSectionSpacing = 16.0;
@@ -174,6 +174,7 @@ static CGFloat const kVLCBrowseSectionSpacing = 16.0;
     _collectionView.dataSource = self;
     _collectionView.delegate = self;
     _collectionView.alwaysBounceVertical = YES;
+    _collectionView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentAlways;
 
     [_collectionView registerClass:[VLCArtworkTile class]
         forCellWithReuseIdentifier:VLCArtworkTile.reuseIdentifier];
@@ -204,19 +205,7 @@ static CGFloat const kVLCBrowseSectionSpacing = 16.0;
     _savedServerList = [[VLCAppCoordinator sharedInstance] savedServerList];
     _httpUploaderController = [[VLCAppCoordinator sharedInstance] httpUploaderController];
 
-    UIImage *settingsImage;
-    if (@available(iOS 13.0, *)) {
-        settingsImage = [UIImage systemImageNamed:@"gearshape"];
-    } else {
-        settingsImage = [UIImage imageNamed:@"Settings"];
-    }
-    UIBarButtonItem *settingsButton = [[UIBarButtonItem alloc] initWithImage:settingsImage
-                                                                      style:UIBarButtonItemStylePlain
-                                                                     target:self
-                                                                     action:@selector(showSettings)];
-    settingsButton.accessibilityLabel = NSLocalizedString(@"Settings", nil);
-    settingsButton.accessibilityIdentifier = VLCAccessibilityIdentifier.settings;
-    self.navigationItem.leftBarButtonItem = settingsButton;
+    self.navigationItem.leftBarButtonItem = [[VLCAppMenuBarButtonItem alloc] initWithPresenter:self];
 
     NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
     [notificationCenter addObserver:self selector:@selector(themeDidChange) name:kVLCThemeDidChangeNotification object:nil];
@@ -609,7 +598,9 @@ static CGFloat const kVLCBrowseSectionSpacing = 16.0;
     if ((NSUInteger)indexPath.item >= _chips.count) {
         VLCBrowseSharingBandCell *band = [collectionView dequeueReusableCellWithReuseIdentifier:VLCBrowseSharingBandCell.reuseIdentifier
                                                                                   forIndexPath:indexPath];
-        [band configureWithAddresses:[self sharingAddresses] joinedToChip:[self sharingChipIsTrailing]];
+        [band configureWithAddresses:[self sharingAddresses]
+                        joinedToChip:[self sharingChipIsTrailing]
+                           chipWidth:[self chipWidth]];
         return band;
     }
 
@@ -656,8 +647,7 @@ static CGFloat const kVLCBrowseSectionSpacing = 16.0;
         }
         case VLCBrowseSectionOpen: {
             if ((NSUInteger)indexPath.item >= _chips.count) {
-                CGFloat height = [VLCBrowseSharingBandCell heightForAddressCount:[self sharingAddresses].count
-                                                                    joinedToChip:[self sharingChipIsTrailing]];
+                CGFloat height = [VLCBrowseSharingBandCell heightForAddressCount:[self sharingAddresses].count];
                 return CGSizeMake([self availableWidth], height);
             }
             return CGSizeMake([self chipWidth], kVLCBrowseChipHeight);
@@ -903,7 +893,7 @@ referenceSizeForHeaderInSection:(NSInteger)section
         case VLCBrowseChipNetworkStream:
             return NSLocalizedString(@"BROWSE_NETWORK_STREAM", nil);
         case VLCBrowseChipDownloads:
-            return NSLocalizedString(@"BROWSE_DOWNLOADS", nil);
+            return NSLocalizedString(@"TRANSFERS", nil);
         case VLCBrowseChipWiFiSharing:
             return NSLocalizedString(@"BROWSE_WIFI_SHARING", nil);
     }
@@ -998,24 +988,25 @@ referenceSizeForHeaderInSection:(NSInteger)section
         return;
     }
 
-    _sharingExpanded = expanded;
-
     /* the chip keeps its position and only changes its corners, so the L reads as one growing shape */
     [cell configureJoinedToBand:expanded && [self sharingChipIsTrailing]];
 
     NSIndexPath *bandIndexPath = [NSIndexPath indexPathForItem:_chips.count inSection:VLCBrowseSectionOpen];
     [_collectionView performBatchUpdates:^{
+        self->_sharingExpanded = expanded;
         if (expanded) {
             [self->_collectionView insertItemsAtIndexPaths:@[bandIndexPath]];
         } else {
             [self->_collectionView deleteItemsAtIndexPaths:@[bandIndexPath]];
         }
     } completion:^(BOOL finished) {
-        if (expanded) {
-            [self->_collectionView scrollToItemAtIndexPath:bandIndexPath
-                                          atScrollPosition:UICollectionViewScrollPositionBottom
-                                                  animated:YES];
+        if (!expanded || bandIndexPath.item >= [self->_collectionView numberOfItemsInSection:VLCBrowseSectionOpen]) {
+            return;
         }
+
+        [self->_collectionView scrollToItemAtIndexPath:bandIndexPath
+                                      atScrollPosition:UICollectionViewScrollPositionBottom
+                                              animated:YES];
     }];
 }
 
@@ -1129,15 +1120,6 @@ referenceSizeForHeaderInSection:(NSInteger)section
         [self connectToServer];
     }]];
     [self presentViewController:alertController animated:YES completion:nil];
-}
-
-- (void)showSettings
-{
-    [[ParentalControlCoordinator sharedInstance] authorizeIfParentalControlIsEnabledWithAction:^{
-        SettingsController *settingsController = [[SettingsController alloc] initWithMediaLibraryService:self->_medialibraryService];
-        UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:settingsController];
-        [self presentViewController:navigationController animated:YES completion:nil];
-    } fail:nil];
 }
 
 #pragma mark - appearance

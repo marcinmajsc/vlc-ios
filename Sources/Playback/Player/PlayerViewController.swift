@@ -312,7 +312,7 @@ class PlayerViewController: UIViewController {
 
     private let isBrightnessControlAvailable: Bool
 
-    private var isGestureActive: Bool = false
+    private(set) var isGestureActive: Bool = false
 
     private var currentPanType: PlayerPanType = .none
 
@@ -454,29 +454,26 @@ class PlayerViewController: UIViewController {
         }
 
         view.transform = .identity
-#if os(iOS)
-        //update the system brightness value before player appears
-        if let screen = screenForCurrentWindow() {
-            playerScreen = screen
-            systemBrightness = screen.brightness
-        }
-
-        //update the value of brightness control view
-        //In case of remember brightness option is disabled, this will update the brightness bar with current brightness.
-        if !playerController.isRememberBrightnessEnabled && isBrightnessControlAvailable {
-            brightnessControlView.updateIcon(level: brightnessControl.fetchAndGetDeviceValue())
-        }
-#endif
     }
 
 #if os(iOS)
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 
-        if playerController.isRememberBrightnessEnabled && isBrightnessControlAvailable {
-            if let brightness = userDefaults.value(forKey: KVLCPlayerBrightness) as? CGFloat {
+        // The window is only attached once the presentation finished, so the
+        // screen cannot be resolved any earlier than this.
+        if let screen = screenForCurrentWindow() {
+            playerScreen = screen
+            systemBrightness = screen.brightness
+        }
+
+        if isBrightnessControlAvailable {
+            if playerController.isRememberBrightnessEnabled,
+               let brightness = userDefaults.value(forKey: KVLCPlayerBrightness) as? CGFloat {
                 animateBrightness(to: brightness)
-                self.brightnessControl.value = Float(brightness)
+                brightnessControl.value = Float(brightness)
+            } else {
+                brightnessControlView.updateIcon(level: brightnessControl.fetchAndGetDeviceValue())
             }
         }
 
@@ -1116,7 +1113,7 @@ class PlayerViewController: UIViewController {
             break
         }
 
-        if recognizer.state == .ended {
+        if recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed {
             var animations : (() -> Void)?
 
 #if os(iOS)
@@ -1156,6 +1153,8 @@ class PlayerViewController: UIViewController {
                     self.isGestureActive = false
                     self.setControlsHidden(true, animated: true)
                 })
+            } else {
+                isGestureActive = false
             }
 #else
             self.isGestureActive = false
@@ -1326,6 +1325,40 @@ extension PlayerViewController: MediaNavigationBarDelegate {
     func mediaNavigationBarDidCloseLongPress(_ mediaNavigationBar: MediaNavigationBar) {
         playbackService.stopPlayback()
     }
+
+    func mediaNavigationBarDidToggleFavorite(_ mediaNavigationBar: MediaNavigationBar) {
+        guard let stream = favoritableStream() else {
+            return
+        }
+
+        let favoriteService = VLCAppCoordinator.sharedInstance().favoriteService
+        if favoriteService.isFavoriteURL(stream.url) {
+            favoriteService.remove(stream)
+        } else {
+            favoriteService.add(stream)
+        }
+
+        updateFavoriteButton()
+    }
+
+    func updateFavoriteButton() {
+        guard let stream = favoritableStream() else {
+            mediaNavigationBar.updateFavoriteButton(isFavoritable: false, isFavorite: false)
+            return
+        }
+
+        let isFavorite = VLCAppCoordinator.sharedInstance().favoriteService.isFavoriteURL(stream.url)
+        mediaNavigationBar.updateFavoriteButton(isFavoritable: true, isFavorite: isFavorite)
+    }
+
+    // a radio station is added to the recent streams when it starts, so the radio service knows every station that can play
+    private func favoritableStream() -> VLCFavorite? {
+        guard let url = playbackService.currentlyPlayingMedia?.url else {
+            return nil
+        }
+
+        return VLCAppCoordinator.sharedInstance().radioService.recentStream(for: url)
+    }
 }
 
 // MARK: - MediaMoreOptionsActionSheetDelegate
@@ -1446,6 +1479,7 @@ extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
             } else if action == .rename {
                 alertController.addTextField(configurationHandler: { field in
                     field.text = message
+                    field.placeholder = NSLocalizedString("BOOKMARK_PLACEHOLDER", comment: "")
                     field.returnKeyType = .done
                 })
 

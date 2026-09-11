@@ -13,12 +13,25 @@ import Foundation
 
 enum SettingsSpecifierCache {
     private static var specifiersByKey: [String: NSDictionary]?
+    private static let settingsBundle: Bundle? = Bundle.main.path(forResource: "Settings", ofType: "bundle").flatMap(Bundle.init(path:))
 
     static func specifier(for preferenceKey: String) -> NSDictionary? {
         if specifiersByKey == nil {
             specifiersByKey = load()
         }
         return specifiersByKey?[preferenceKey]
+    }
+
+    static func localizedString(for key: String) -> String {
+        let localized = settingsBundle?.localizedString(forKey: key, value: key, table: "Root") ?? key
+        return localized == key ? Bundle.main.localizedString(forKey: key, value: key, table: nil) : localized
+    }
+
+    static func customValue(for preferenceKey: String) -> CustomValueSpecifier? {
+        guard let dictionary = specifier(for: preferenceKey)?["CustomValue"] as? NSDictionary else {
+            return nil
+        }
+        return CustomValueSpecifier(preferenceKey: preferenceKey, dictionary: dictionary)
     }
 
     static func titlesAndValues(for preferenceKey: String) -> (titles: [String], values: NSArray)? {
@@ -78,29 +91,37 @@ extension NSObject {
             }
         }
 
-        return SettingSpecifier(title: title, preferenceKey: preferenceKey, infobuttonvalue: infobuttonvalue, defaultValue: defaultValue, specifier: specifier)
+        return SettingSpecifier(title: title,
+                                preferenceKey: preferenceKey,
+                                infobuttonvalue: infobuttonvalue,
+                                defaultValue: defaultValue,
+                                specifier: specifier,
+                                customValue: SettingsSpecifierCache.customValue(for: preferenceKey))
     }
 
     func getSubtitle(for preferenceKey: String) -> String? {
-        if preferenceKey == kVLCSettingPlaybackSpeedDefaultValue {
-            let value = UserDefaults.standard.object(forKey: preferenceKey)
-            if let stringValue = value as? String, stringValue == "custom" {
-                let customSpeed = UserDefaults.standard.float(forKey: "playback-speed-custom")
-                return PlaybackSpeedFormatter.string(forSpeed: customSpeed)
-            }
-        }
-
         guard let userDefaultValue = UserDefaults.standard.value(forKey: preferenceKey),
             let (titles, values) = SettingsSpecifierCache.titlesAndValues(for: preferenceKey) else {
             return nil
         }
 
+        let customValue = SettingsSpecifierCache.customValue(for: preferenceKey)
         let userDefaultAsString = String(describing: userDefaultValue)
+
+        if let customValue = customValue, String(describing: customValue.sentinel) == userDefaultAsString {
+            return customValue.formattedString(for: customValue.storedValue)
+        }
+
         for (title, value) in zip(titles, values) {
             if String(describing: value) == userDefaultAsString {
                 return title
             }
         }
+
+        if let customValue = customValue {
+            return customValue.formattedString(for: customValue.storedValue)
+        }
+
         return nil
     }
 
@@ -116,6 +137,12 @@ extension NSObject {
                 return index
             }
         }
+
+        if let customValue = SettingsSpecifierCache.customValue(for: preferenceKey) {
+            let index = values.index(of: customValue.sentinel)
+            return index == NSNotFound ? nil : index
+        }
+
         return nil
     }
 }
