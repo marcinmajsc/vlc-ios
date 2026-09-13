@@ -52,6 +52,9 @@
     if (shortcutItem) {
         [[VLCAppCoordinator sharedInstance] handleShortcutItem:shortcutItem];
     }
+    if ([session.role isEqualToString:UIWindowSceneSessionRoleApplication]) {
+        [[VLCAppCoordinator sharedInstance].mediaLibraryService restoreLastPlayedMediaList];
+    }
 }
 
 - (void)sceneDidDisconnect:(UIScene *)scene

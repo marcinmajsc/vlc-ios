@@ -147,12 +147,9 @@
                                                                                  localizedSubtitle:nil
                                                                                               icon:[UIApplicationShortcutIcon iconWithTemplateImageName:@"Playlist"]
                                                                                           userInfo:nil];
-    UIApplicationShortcutItem *browseItem = [[UIApplicationShortcutItem alloc] initWithType:kVLCApplicationShortcutNetwork
-                                                                             localizedTitle:NSLocalizedString(@"BROWSE",nil)
-                                                                          localizedSubtitle:nil
-                                                                                       icon:[UIApplicationShortcutIcon iconWithTemplateImageName:@"Network"]
-                                                                                   userInfo:nil];
-    application.shortcutItems = @[localVideoItem, localAudioItem, localplaylistItem, browseItem];
+    /* iOS shows at most four quick actions and the tab coordinator prepends the dynamic last
+       played item once the media library is up, so there is room for three static ones only */
+    application.shortcutItems = @[localVideoItem, localAudioItem, localplaylistItem];
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
@@ -167,11 +164,8 @@
         [self.window makeKeyAndVisible];
         [VLCAppearanceManager setupAppearanceWithTheme:PresentationTheme.current];
         [self setupTabBarAppearance];
-    }
-
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
         [[VLCAppCoordinator sharedInstance].mediaLibraryService restoreLastPlayedMediaList];
-    });
+    }
 
 #if TARGET_OS_IOS && !NO_WATCH
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{

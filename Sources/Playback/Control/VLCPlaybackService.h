@@ -22,6 +22,7 @@ extern NSString *const VLCPlaybackServicePlaybackWillStop;
 extern NSString *const VLCPlaybackServicePlaybackDidStop;
 extern NSString *const VLCPlaybackServicePlaybackDidFail;
 extern NSString *const VLCPlaybackServicePlaybackMetadataDidChange;
+extern NSString *const VLCPlaybackServicePlaybackRateDidChange;
 extern NSString *const VLCPlaybackServicePlaybackPositionUpdated;
 extern NSString *const VLCPlaybackServicePlaybackModeUpdated;
 extern NSString *const VLCPlaybackServiceShuffleModeUpdated;
@@ -149,6 +150,7 @@ NS_SWIFT_NAME(PlaybackService)
 - (void)nextFrame;
 - (void)previousFrame;
 - (void)toggleRepeatMode;
+- (void)changePlaybackRateByFactor:(float)factor;
 
 - (void)setABLoopFromPosition:(double)from toPosition:(double)to;
 - (void)resetABLoop;

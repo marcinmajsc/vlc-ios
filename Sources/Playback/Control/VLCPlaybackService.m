@@ -47,12 +47,16 @@ NSString *const VLCPlaybackServicePlaybackDidResume = @"VLCPlaybackServicePlayba
 NSString *const VLCPlaybackServicePlaybackWillStop = @"VLCPlaybackServicePlaybackWillStop";
 NSString *const VLCPlaybackServicePlaybackDidStop = @"VLCPlaybackServicePlaybackDidStop";
 NSString *const VLCPlaybackServicePlaybackMetadataDidChange = @"VLCPlaybackServicePlaybackMetadataDidChange";
+NSString *const VLCPlaybackServicePlaybackRateDidChange = @"VLCPlaybackServicePlaybackRateDidChange";
 NSString *const VLCPlaybackServicePlaybackDidFail = @"VLCPlaybackServicePlaybackDidFail";
 NSString *const VLCPlaybackServicePlaybackPositionUpdated = @"VLCPlaybackServicePlaybackPositionUpdated";
 NSString *const VLCPlaybackServicePlaybackModeUpdated = @"VLCPlaybackServicePlaybackModeUpdated";
 NSString *const VLCPlaybackServiceShuffleModeUpdated = @"VLCPlaybackServiceShuffleModeUpdated";
 NSString *const VLCPlaybackServicePlaybackDidMoveOnToNextItem = @"VLCPlaybackServicePlaybackDidMoveOnToNextItem";
 NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
+
+static const float kVLCPlaybackRateMinimum = 0.25f;
+static const float kVLCPlaybackRateMaximum = 8.0f;
 
 #if TARGET_OS_TV
 @interface VLCPlaybackService () <VLCMediaPlayerDelegate, VLCMediaDelegate, VLCMediaListPlayerDelegate, VLCDrawable, VLCPictureInPictureDrawable>
@@ -409,7 +413,7 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
     [_mediaPlayer setDelegate:self];
     CGFloat defaultPlaybackSpeed = self.defaultPlaybackRate;
     if (defaultPlaybackSpeed != 0.)
-        [_mediaPlayer setRate: defaultPlaybackSpeed];
+        [self setPlaybackRate:defaultPlaybackSpeed];
     int deinterlace = [[defaults objectForKey:kVLCSettingDeinterlace] intValue];
     [_mediaPlayer setDeinterlace:deinterlace withFilter:@"blend"];
 
@@ -733,7 +737,12 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 - (void)setPlaybackRate:(float)playbackRate
 {
     [_mediaPlayer setRate:playbackRate];
-    _metadata.playbackRate = @(_mediaPlayer.rate);
+}
+
+- (void)changePlaybackRateByFactor:(float)factor
+{
+    float rate = _mediaPlayer.rate * factor;
+    self.playbackRate = MIN(MAX(rate, kVLCPlaybackRateMinimum), kVLCPlaybackRateMaximum);
 }
 
 - (CGFloat)defaultPlaybackRate
@@ -1127,6 +1136,14 @@ NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
         if ([self.delegate respondsToSelector:@selector(mediaPlayerBufferingChanged:forPlaybackService:)]) {
             [self.delegate mediaPlayerBufferingChanged:progress forPlaybackService:self];
         }
+    });
+}
+
+- (void)mediaPlayerRateChanged:(float)rate
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self->_metadata updatePlaybackStateFromMediaPlayer:self->_mediaPlayer];
+        [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackRateDidChange object:self];
     });
 }
 

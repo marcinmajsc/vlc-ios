@@ -78,6 +78,9 @@ class TabBarCoordinator: NSObject {
         super.init()
         setup()
         NotificationCenter.default.addObserver(self, selector: #selector(updateTheme), name: .VLCThemeDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDidEnterBackgroundNotification),
+                                               name: UIApplication.didEnterBackgroundNotification, object: nil)
+        mediaLibraryService.observable.addObserver(self)
     }
 
     // MARK: - Setup methods
@@ -266,6 +269,8 @@ class TabBarCoordinator: NSObject {
 
     @objc func handleShortcutItem(_ item: UIApplicationShortcutItem) {
         switch item.type {
+        case kVLCApplicationShortcutLastPlayed:
+            handleLastPlayedShortcut()
         case kVLCApplicationShortcutLocalVideo:
             tabBarController.selectedIndex = tabBarController.viewControllers?.firstIndex(where: { vc -> Bool in
                 vc is VideoViewController
@@ -285,6 +290,116 @@ class TabBarCoordinator: NSObject {
         default:
             assertionFailure("unhandled shortcut")
         }
+    }
+
+    private func handleLastPlayedShortcut() {
+        guard !KeychainCoordinator.passcodeService.hasSecret,
+              let lastMedia = mediaLibraryService.lastPlayedMedia() else {
+            return
+        }
+
+        let album = lastMedia.type() == .audio ? lastMedia.album : nil
+        if let album = album {
+            openAlbum(album)
+        }
+
+        // the queue on disk is only written when backgrounding, hence stale while anything plays
+        guard !PlaybackService.sharedInstance().playerIsSetup else {
+            return
+        }
+
+        let openInMiniPlayer = album != nil
+        mediaLibraryService.restoreLastPlayedMediaList(onDemand: true,
+                                                      openInMiniPlayer: openInMiniPlayer) {
+            PlaybackService.sharedInstance().play(lastMedia, openInMiniPlayer: openInMiniPlayer)
+        }
+    }
+
+    private func openAlbum(_ album: VLCMLAlbum) {
+        let navigationController: UINavigationController
+        let mediaViewController: MediaViewController
+
+        if let albumsIndex = tabBarController.viewControllers?.firstIndex(where: {
+            ($0 as? UINavigationController)?.viewControllers.first is AlbumsViewController
+        }),
+           let albumsNavigationController = tabBarController.viewControllers?[albumsIndex] as? UINavigationController,
+           let albumsViewController = albumsNavigationController.viewControllers.first as? AlbumsViewController {
+            tabBarController.selectedIndex = albumsIndex
+            navigationController = albumsNavigationController
+            mediaViewController = albumsViewController
+        } else {
+            guard let audioIndex = tabBarController.viewControllers?.firstIndex(where: {
+                ($0 as? UINavigationController)?.viewControllers.first is AudioViewController
+            }),
+                  let audioNavigationController = tabBarController.viewControllers?[audioIndex] as? UINavigationController,
+                  let audioViewController = audioNavigationController.viewControllers.first as? AudioViewController else {
+                return
+            }
+
+            tabBarController.selectedIndex = audioIndex
+            navigationController = audioNavigationController
+            mediaViewController = audioViewController
+        }
+
+        navigationController.popToRootViewController(animated: false)
+        mediaViewController.loadViewIfNeeded()
+        guard let categoryViewController = mediaViewController.viewControllers.first(where: {
+            $0 is AlbumCategoryViewController
+        }) as? MediaCategoryViewController else {
+            return
+        }
+        categoryViewController.pushCollectionViewController(for: album)
+    }
+}
+
+// MARK: - Last played quick action
+
+extension TabBarCoordinator: MediaLibraryObserver {
+    func medialibrary(_ medialibrary: MediaLibraryService, historyChangedOfType type: VLCMLHistoryType) {
+        let subtitle = lastPlayedShortcutSubtitle()
+        DispatchQueue.main.async {
+            self.updateLastPlayedShortcutItem(subtitle: subtitle)
+        }
+    }
+
+    @objc func handleDidEnterBackgroundNotification() {
+        updateLastPlayedShortcutItem(subtitle: lastPlayedShortcutSubtitle())
+    }
+
+    private func lastPlayedShortcutSubtitle() -> String? {
+        guard mediaLibraryService.isMediaLibrarySetup,
+              !KeychainCoordinator.passcodeService.hasSecret,
+              let lastMedia = mediaLibraryService.lastPlayedMedia() else {
+            return nil
+        }
+
+        return lastMedia.album?.title ?? lastMedia.title
+    }
+
+    private func updateLastPlayedShortcutItem(subtitle: String?) {
+        let application = UIApplication.shared
+        let currentItems = application.shortcutItems ?? []
+        let currentItem = currentItems.first { $0.type == kVLCApplicationShortcutLastPlayed }
+
+        // we only ever create this item with a subtitle, so it stands in for the whole state
+        guard subtitle != currentItem?.localizedSubtitle else {
+            return
+        }
+
+        var shortcutItems = currentItems.filter {
+            $0.type != kVLCApplicationShortcutLastPlayed
+        }
+
+        if let subtitle = subtitle {
+            let item = UIApplicationShortcutItem(type: kVLCApplicationShortcutLastPlayed,
+                                                 localizedTitle: NSLocalizedString("LAST_PLAYED", comment: ""),
+                                                 localizedSubtitle: subtitle,
+                                                 icon: UIApplicationShortcutIcon(type: .play),
+                                                 userInfo: nil)
+            shortcutItems.insert(item, at: 0)
+        }
+
+        application.shortcutItems = shortcutItems
     }
 }
 
