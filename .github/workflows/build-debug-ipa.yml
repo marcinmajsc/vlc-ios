@@ -5,18 +5,18 @@ on:
 
 jobs:
   build-debug-ipa:
-    runs-on: macos-26-intel
+    runs-on: xcode-27
     env:
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
-      - name: Use Xcode 26.6
+      - name: Use Xcode 27.0
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+          sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
 
       - name: Show tool versions
         run: |
