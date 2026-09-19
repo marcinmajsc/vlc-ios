@@ -12,16 +12,27 @@
 
 #import "VLCOnAirRailCell.h"
 #import "VLCAddTile.h"
-#import "VLCArtworkTile.h"
-#import "VLCFavoriteService.h"
 
 static CGFloat const kVLCOnAirRailGap = 12.0;
 static CGFloat const kVLCOnAirRailSideMargin = 20.0;
 static CGFloat const kVLCOnAirRailNameArea = 22.0;
-static CGFloat const kVLCOnAirRailCompactTileSide = 72.0;
-static CGFloat const kVLCOnAirRailRegularTileSide = 108.0;
-static CGFloat const kVLCOnAirRailRegularWidthThreshold = 600.0;
+static CGFloat const kVLCOnAirRailSubtitleArea = 15.0;
+static CGFloat const kVLCOnAirRailTileSide = 72.0;
 static CGFloat const kVLCOnAirRailTileCornerRadius = 9.0;
+
+@implementation VLCOnAirRailItem
+
+- (instancetype)initWithName:(NSString *)name artworkURL:(NSURL *)artworkURL
+{
+    self = [super init];
+    if (self) {
+        _name = name;
+        _artworkURL = artworkURL;
+    }
+    return self;
+}
+
+@end
 
 @interface VLCOnAirRailCell () <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout>
 @end
@@ -29,10 +40,10 @@ static CGFloat const kVLCOnAirRailTileCornerRadius = 9.0;
 @implementation VLCOnAirRailCell
 {
     UICollectionView *_collectionView;
-    NSArray<VLCFavorite *> *_favorites;
-    NSUInteger _favoriteCount;
+    NSArray<VLCOnAirRailItem *> *_items;
+    NSUInteger _itemCount;
+    BOOL _showsSubtitles;
     BOOL _showsAddTile;
-    CGFloat _tileSide;
 }
 
 + (NSString *)reuseIdentifier
@@ -40,21 +51,21 @@ static CGFloat const kVLCOnAirRailTileCornerRadius = 9.0;
     return @"VLCOnAirRailCell";
 }
 
-+ (CGFloat)tileSideForWidth:(CGFloat)width
++ (CGFloat)heightWithSubtitles:(BOOL)showsSubtitles
 {
-    return width >= kVLCOnAirRailRegularWidthThreshold ? kVLCOnAirRailRegularTileSide
-                                                       : kVLCOnAirRailCompactTileSide;
+    return [self heightWithTileSide:kVLCOnAirRailTileSide subtitles:showsSubtitles];
 }
 
-+ (CGFloat)heightForWidth:(CGFloat)width
++ (CGFloat)heightWithTileSide:(CGFloat)tileSide subtitles:(BOOL)showsSubtitles
 {
-    return [self tileSideForWidth:width] + kVLCOnAirRailNameArea;
+    return tileSide + kVLCOnAirRailNameArea + (showsSubtitles ? kVLCOnAirRailSubtitleArea : 0.0);
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier
 {
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
     if (self) {
+        _tileSide = kVLCOnAirRailTileSide;
         self.backgroundColor = [UIColor clearColor];
         self.contentView.backgroundColor = [UIColor clearColor];
         self.backgroundView = [[UIView alloc] init];
@@ -93,15 +104,20 @@ static CGFloat const kVLCOnAirRailTileCornerRadius = 9.0;
     return self;
 }
 
-- (void)configureWithFavorites:(NSArray<VLCFavorite *> *)favorites
-                  showsAddTile:(BOOL)showsAddTile
-                referenceWidth:(CGFloat)referenceWidth
+- (void)prepareForReuse
 {
-    _favorites = favorites;
-    _favoriteCount = favorites.count;
-    _showsAddTile = showsAddTile;
-    _tileSide = [VLCOnAirRailCell tileSideForWidth:referenceWidth];
+    [super prepareForReuse];
     [_collectionView setContentOffset:CGPointZero animated:NO];
+}
+
+- (void)configureWithItems:(NSArray<VLCOnAirRailItem *> *)items
+            showsSubtitles:(BOOL)showsSubtitles
+              showsAddTile:(BOOL)showsAddTile
+{
+    _items = items;
+    _itemCount = items.count;
+    _showsSubtitles = showsSubtitles;
+    _showsAddTile = showsAddTile;
     [_collectionView reloadData];
 }
 
@@ -109,12 +125,12 @@ static CGFloat const kVLCOnAirRailTileCornerRadius = 9.0;
 
 - (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section
 {
-    return _favoriteCount + (_showsAddTile ? 1 : 0);
+    return _itemCount + (_showsAddTile ? 1 : 0);
 }
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath
 {
-    if ((NSUInteger)indexPath.item >= _favoriteCount) {
+    if ((NSUInteger)indexPath.item >= _itemCount) {
         VLCAddTile *addTile = [collectionView dequeueReusableCellWithReuseIdentifier:VLCAddTile.reuseIdentifier
                                                                        forIndexPath:indexPath];
         addTile.outlineCornerRadius = kVLCOnAirRailTileCornerRadius;
@@ -124,10 +140,15 @@ static CGFloat const kVLCOnAirRailTileCornerRadius = 9.0;
 
     VLCArtworkTile *tile = [collectionView dequeueReusableCellWithReuseIdentifier:VLCArtworkTile.reuseIdentifier
                                                                      forIndexPath:indexPath];
-    VLCFavorite *favorite = _favorites[indexPath.item];
+    VLCOnAirRailItem *item = _items[indexPath.item];
     tile.artworkCornerRadius = kVLCOnAirRailTileCornerRadius;
-    tile.badge = VLCArtworkTileBadgePlay;
-    [tile configureWithName:favorite.userVisibleName artworkURL:favorite.artworkURL];
+    tile.badge = item.badge;
+    tile.subtitle = _showsSubtitles ? item.subtitle : nil;
+    tile.accessoryGlyphName = item.accessoryGlyphName;
+    tile.accessibilityLabel = item.accessoryLabel ? [NSString stringWithFormat:@"%@, %@", item.name, item.accessoryLabel]
+                                                  : item.name;
+
+    [tile configureWithName:item.name artworkURL:item.artworkURL];
     return tile;
 }
 
@@ -137,17 +158,19 @@ static CGFloat const kVLCOnAirRailTileCornerRadius = 9.0;
                   layout:(UICollectionViewLayout *)collectionViewLayout
   sizeForItemAtIndexPath:(NSIndexPath *)indexPath
 {
-    return CGSizeMake(_tileSide, _tileSide + kVLCOnAirRailNameArea);
+    return CGSizeMake(_tileSide, [VLCOnAirRailCell heightWithTileSide:_tileSide subtitles:_showsSubtitles]);
 }
 
 - (void)collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath
 {
-    if ((NSUInteger)indexPath.item >= _favoriteCount) {
-        [self.delegate railCellDidSelectAddTile:self];
+    if ((NSUInteger)indexPath.item < _itemCount) {
+        [self.delegate railCell:self didSelectItemAtIndex:indexPath.item];
         return;
     }
 
-    [self.delegate railCell:self didSelectItemAtIndex:indexPath.item];
+    if ([self.delegate respondsToSelector:@selector(railCellDidSelectAddTile:)]) {
+        [self.delegate railCellDidSelectAddTile:self];
+    }
 }
 
 @end

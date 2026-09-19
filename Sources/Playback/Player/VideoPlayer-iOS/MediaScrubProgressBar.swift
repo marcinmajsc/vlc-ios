@@ -132,7 +132,7 @@ class MediaScrubProgressBar: UIStackView {
     private func initAccessibility() {
         isAccessibilityElement = true
         accessibilityLabel = NSLocalizedString("PLAYBACK_POSITION", comment: "")
-        accessibilityTraits = .updatesFrequently
+        accessibilityTraits = [.adjustable, .updatesFrequently]
 
         let forward = UIAccessibilityCustomAction
             .create(name: NSLocalizedString("FWD_BUTTON", comment: ""),
@@ -174,6 +174,16 @@ class MediaScrubProgressBar: UIStackView {
         return true
     }
 
+    override func accessibilityIncrement() {
+        _ = handleAccessibilityForward()
+        updateAccessibilityValue()
+    }
+
+    override func accessibilityDecrement() {
+        _ = handleAccessibilityBackward()
+        updateAccessibilityValue()
+    }
+
     @objc func updateInterfacePosition() {
         if !isScrubbing {
             progressSlider.value = playbackService.playbackPosition
@@ -186,6 +196,7 @@ class MediaScrubProgressBar: UIStackView {
         elapsedTimeLabel.setNeedsLayout()
 
         updateAccessibilityValue()
+        updateLiveStreamState()
     }
 
     func updateCurrentTime() {
@@ -273,7 +284,12 @@ class MediaScrubProgressBar: UIStackView {
         setupMarkConstraints(for: bMark, at: bMarkPosition)
     }
 
-    func setLiveStream(_ isLive: Bool) {
+    func updateLiveStreamState() {
+        let isLive = playbackService.metadata.isLiveStream && !playbackService.isSeekable
+        guard liveLabel.isHidden == isLive else {
+            return
+        }
+
         liveLabel.isHidden = !isLive
         horizontalStack.isHidden = isLive
         progressSlider.isHidden = isLive

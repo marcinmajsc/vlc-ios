@@ -13,11 +13,9 @@
 @class MediaLibraryService;
 
 @interface VLCNetworkImageView : UIImageView
-+ (NSCache *)sharedImageCache;
-+ (void)setSharedImageCache:(NSCache *)sharedCache;
-+ (UIImage *)cachedImageForURL:(NSURL *)url;
 @property (nonatomic) NSURLSessionDataTask *downloadTask;
 - (void)setImageWithURL:(NSURL *)url;
+- (void)setImageWithURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize;
 - (void)cancelLoading;
 #if TARGET_OS_TV
 - (void)requestCachedThumbnail:(VLCMLMedia *)media;

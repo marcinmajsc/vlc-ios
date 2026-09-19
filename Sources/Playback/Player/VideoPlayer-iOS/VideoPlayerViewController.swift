@@ -836,8 +836,9 @@ class VideoPlayerViewController: PlayerViewController {
         let currentPos = recognizer.location(in: view)
 
         // Limit the gesture to avoid conflicts with top and bottom player controls
-        if currentPos.y > mediaScrubProgressBar.frame.origin.y
-            || currentPos.y < mediaNavigationBar.frame.origin.y {
+        if !playerController.isControlsHidden
+            && (currentPos.y > mediaScrubProgressBar.frame.origin.y
+                || currentPos.y < mediaNavigationBar.frame.origin.y) {
             recognizer.state = .ended
         }
 
@@ -1264,7 +1265,7 @@ extension VideoPlayerViewController {
         mediaNavigationBar.setMediaTitleLabelText("")
         updateFavoriteButton()
         videoPlayerControls.updatePlayPauseButton(toState: playbackService.mediaPlayerState == .playing)
-        mediaScrubProgressBar.setLiveStream(playbackService.metadata.isLiveStream && !playbackService.isSeekable)
+        mediaScrubProgressBar.updateLiveStreamState()
 
         // FIXME: -
         resetIdleTimer()
@@ -1344,7 +1345,7 @@ extension VideoPlayerViewController {
 
         mediaNavigationBar.setMediaTitleLabelText(metadata.title)
         updateFavoriteButton()
-        mediaScrubProgressBar.setLiveStream(metadata.isLiveStream && !playbackService.isSeekable)
+        mediaScrubProgressBar.updateLiveStreamState()
 
         if playbackService.isPlayingOnExternalScreen() {
 #if os(iOS)

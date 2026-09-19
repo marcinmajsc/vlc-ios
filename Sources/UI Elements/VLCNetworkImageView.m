@@ -14,60 +14,72 @@
 #endif
 
 #import "VLCNetworkImageView.h"
+#import "VLCThumbnailsCache.h"
 
 @implementation VLCNetworkImageView
-
-static NSCache *sharedImageCache = nil;
-
-+ (void)setSharedImageCache:(NSCache *)sharedCache {
-    sharedImageCache = sharedCache;
-}
-
-+ (NSCache *)sharedImageCache {
-    if (!sharedImageCache) {
-        sharedImageCache = [[NSCache alloc] init];
-        [sharedImageCache setCountLimit:50];
-    }
-    return sharedImageCache;
-}
-
-+ (UIImage *)cachedImageForURL:(NSURL *)url {
-    if (url == nil) {
-        return nil;
-    }
-
-    return [[self sharedImageCache] objectForKey:url];
+{
+    NSURL *_localImageURL;
+    NSURL *_pendingURL;
 }
 
 - (void)cancelLoading {
     [self.downloadTask cancel];
     self.downloadTask = nil;
+    _localImageURL = nil;
+    _pendingURL = nil;
 }
 
 - (void)setImageWithURL:(NSURL *)url {
+    [self setImageWithURL:url maxPixelSize:0.];
+}
+
+- (void)setImageWithURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize {
     if (url == nil) {
         return;
     }
 
     [self cancelLoading];
-    UIImage *cachedImage = [self.class cachedImageForURL:url];
+    if (maxPixelSize <= 0.) {
+        _pendingURL = url;
+        [self setNeedsLayout];
+        return;
+    }
+
+    if (url.isFileURL) {
+        [self loadLocalImageWithURL:url maxPixelSize:maxPixelSize];
+        return;
+    }
+
+    UIImage *cachedImage = [VLCThumbnailsCache cachedImageForURL:url maxPixelSize:maxPixelSize];
     if (cachedImage) {
         self.image = cachedImage;
     } else {
-        [self downloadImageWithURL:url];
+        [self downloadImageWithURL:url maxPixelSize:maxPixelSize];
     }
 }
 
-- (void)downloadImageWithURL:(NSURL *)url {
+- (void)loadLocalImageWithURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize {
+    _localImageURL = url;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        UIImage *image = [VLCThumbnailsCache thumbnailForURL:url maxPixelSize:maxPixelSize];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (image && [self->_localImageURL isEqual:url]) {
+                self.image = image;
+                self->_localImageURL = nil;
+            }
+        });
+    });
+}
+
+- (void)downloadImageWithURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize {
     __weak typeof(self) weakSelf = self;
     NSURLSession *sharedSession = [NSURLSession sharedSession];
     self.downloadTask = [sharedSession dataTaskWithURL:url completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
         if (!data) {
             return;
         }
-        UIImage *image = [UIImage imageWithData:data];
+        UIImage *image = [VLCThumbnailsCache imageFromData:data forURL:url maxPixelSize:maxPixelSize];
         if (!image) { return; }
-        [[[weakSelf class] sharedImageCache] setObject:image forKey:url];
         [[NSOperationQueue mainQueue] addOperationWithBlock:^{
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if ([strongSelf.downloadTask.originalRequest.URL isEqual:url]) {
@@ -102,6 +114,22 @@ static NSCache *sharedImageCache = nil;
     }
 }
 #endif
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (!_pendingURL) {
+        return;
+    }
+
+    CGSize size = self.bounds.size;
+    CGFloat maxPixelSize = MAX(size.width, size.height) * self.traitCollection.displayScale;
+    if (maxPixelSize <= 0.) {
+        return;
+    }
+
+    NSURL *url = _pendingURL;
+    [self setImageWithURL:url maxPixelSize:maxPixelSize];
+}
 
 - (void)setImage:(UIImage *)image {
     [super setImage:image];

@@ -18,7 +18,7 @@
 #import "VLCFavoriteService.h"
 #import "VLCPlaybackService.h"
 #import "VLCMetadata.h"
-#import "VLCNetworkImageView.h"
+#import "VLCThumbnailsCache.h"
 #import "VLCPlayerDisplayController.h"
 #import "VLCRadioListViewController.h"
 #import "VLCRadioService.h"
@@ -99,7 +99,6 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
        forCellReuseIdentifier:VLCOnAirRailCell.reuseIdentifier];
     [_tableView registerClass:[VLCOnAirPromptCell class]
        forCellReuseIdentifier:VLCOnAirPromptCell.reuseIdentifier];
-    [PodcastsOnAirBridge registerShowsCellWith:_tableView];
 
     UIRefreshControl *refreshControl = [[UIRefreshControl alloc] init];
     [refreshControl addTarget:self action:@selector(handleRefresh:) forControlEvents:UIControlEventValueChanged];
@@ -495,33 +494,13 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
         return cell;
     }
 
-    if (section == VLCOnAirSectionRadio && [self sectionHasRail:section]) {
+    if ([self sectionHasRail:section]) {
         VLCOnAirRailCell *cell = [tableView dequeueReusableCellWithIdentifier:VLCOnAirRailCell.reuseIdentifier
                                                                  forIndexPath:indexPath];
         cell.delegate = self;
-        [cell configureWithFavorites:_radioFavorites
-                        showsAddTile:YES
-                      referenceWidth:CGRectGetWidth(tableView.bounds)];
-        return cell;
-    }
-
-    if (section == VLCOnAirSectionRadioRecent && [self sectionHasRail:section]) {
-        VLCOnAirRailCell *cell = [tableView dequeueReusableCellWithIdentifier:VLCOnAirRailCell.reuseIdentifier
-                                                                 forIndexPath:indexPath];
-        cell.delegate = self;
-        [cell configureWithFavorites:_recentStreams
-                        showsAddTile:NO
-                      referenceWidth:CGRectGetWidth(tableView.bounds)];
-        return cell;
-    }
-
-    if (section == VLCOnAirSectionPodcasts && [self sectionHasRail:section]) {
-        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:PodcastsOnAirBridge.showsCellReuseIdentifier
-                                                                 forIndexPath:indexPath];
-        __weak typeof(self) weakSelf = self;
-        [PodcastsOnAirBridge configureShowsCell:cell onSelectShowId:^(NSString *showId) {
-            [weakSelf showPodcastShowWithId:showId];
-        }];
+        [cell configureWithItems:[self railItemsForSection:section]
+                  showsSubtitles:section == VLCOnAirSectionPodcasts
+                    showsAddTile:section == VLCOnAirSectionRadio];
         return cell;
     }
 
@@ -530,6 +509,28 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
     cell.delegate = self;
     [self configurePromptCell:cell forSection:section];
     return cell;
+}
+
+- (NSArray<VLCFavorite *> *)streamsForSection:(VLCOnAirSection)section
+{
+    return section == VLCOnAirSectionRadioRecent ? _recentStreams : _radioFavorites;
+}
+
+- (NSArray<VLCOnAirRailItem *> *)railItemsForSection:(VLCOnAirSection)section
+{
+    if (section == VLCOnAirSectionPodcasts) {
+        return PodcastsOnAirBridge.showRailItems;
+    }
+
+    NSArray<VLCFavorite *> *streams = [self streamsForSection:section];
+    NSMutableArray<VLCOnAirRailItem *> *items = [NSMutableArray arrayWithCapacity:streams.count];
+    for (VLCFavorite *stream in streams) {
+        VLCOnAirRailItem *item = [[VLCOnAirRailItem alloc] initWithName:stream.userVisibleName
+                                                             artworkURL:stream.artworkURL];
+        item.badge = VLCArtworkTileBadgePlay;
+        [items addObject:item];
+    }
+    return items;
 }
 
 - (void)configurePromptCell:(VLCOnAirPromptCell *)cell forSection:(VLCOnAirSection)section
@@ -548,6 +549,7 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
             title = [self isZeroState] ? NSLocalizedString(@"ONAIR_PODCASTS_ZERO_BODY", nil)
                                        : NSLocalizedString(@"ONAIR_PODCASTS_EMPTY_BODY", nil);
             primaryTitle = NSLocalizedString(@"ONAIR_PASTE_RSS", nil);
+            secondaryTitle = NSLocalizedString(@"BROWSE", nil);
             break;
         case VLCOnAirSectionTV:
             title = NSLocalizedString(@"ONAIR_TV_EMPTY_BODY", nil);
@@ -606,8 +608,8 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
 {
     VLCOnAirSection section = [self sectionAtIndex:indexPath.section];
-    if ((section == VLCOnAirSectionRadio || section == VLCOnAirSectionRadioRecent) && [self sectionHasRail:section]) {
-        return [VLCOnAirRailCell heightForWidth:CGRectGetWidth(tableView.bounds)];
+    if ([self sectionHasRail:section]) {
+        return [VLCOnAirRailCell heightWithSubtitles:section == VLCOnAirSectionPodcasts];
     }
 
     return UITableViewAutomaticDimension;
@@ -717,24 +719,25 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
 
 #pragma mark - cell delegates
 
-- (NSArray<VLCFavorite *> *)itemsForRailCell:(VLCOnAirRailCell *)cell
-{
-    NSIndexPath *indexPath = [_tableView indexPathForCell:cell];
-    if (indexPath && [self sectionAtIndex:indexPath.section] == VLCOnAirSectionRadioRecent) {
-        return _recentStreams;
-    }
-
-    return _radioFavorites;
-}
-
 - (void)railCell:(VLCOnAirRailCell *)cell didSelectItemAtIndex:(NSInteger)index
 {
-    NSArray<VLCFavorite *> *items = [self itemsForRailCell:cell];
-    if (index >= (NSInteger)items.count) {
+    NSIndexPath *indexPath = [_tableView indexPathForCell:cell];
+    if (!indexPath) {
         return;
     }
 
-    [self playFavorite:items[index]];
+    VLCOnAirSection section = [self sectionAtIndex:indexPath.section];
+    if (section == VLCOnAirSectionPodcasts) {
+        [self showPodcastShowAtIndex:index];
+        return;
+    }
+
+    NSArray<VLCFavorite *> *streams = [self streamsForSection:section];
+    if (index >= (NSInteger)streams.count) {
+        return;
+    }
+
+    [self playFavorite:streams[index]];
 }
 
 - (void)railCellDidSelectAddTile:(VLCOnAirRailCell *)cell
@@ -768,7 +771,7 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
             [self showRadio];
             break;
         case VLCOnAirSectionPodcasts:
-            [self showPodcasts];
+            index == 0 ? [self showPodcasts] : [self showPodcastDirectory];
             break;
         case VLCOnAirSectionTV:
             index == 0 ? [self showTVDirectory] : [self showAddM3U];
@@ -803,7 +806,7 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
         return;
     }
 
-    [VLCPlaybackService.sharedInstance.metadata prepareArtworkImage:[VLCNetworkImageView cachedImageForURL:favorite.artworkURL]
+    [VLCPlaybackService.sharedInstance.metadata prepareArtworkImage:[VLCThumbnailsCache cachedImageForURL:favorite.artworkURL]
                                                              forURL:favorite.artworkURL];
 
     [[[VLCAppCoordinator sharedInstance] favoriteService] playFavorite:favorite];
@@ -827,9 +830,14 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
     [self.navigationController pushViewController:podcastsViewController animated:YES];
 }
 
-- (void)showPodcastShowWithId:(NSString *)showId
+- (void)showPodcastDirectory
 {
-    UIViewController *detailViewController = [PodcastsOnAirBridge makeShowDetailViewControllerForShowId:showId];
+    [self.navigationController pushViewController:[PodcastsOnAirBridge makeDirectoryViewController] animated:YES];
+}
+
+- (void)showPodcastShowAtIndex:(NSInteger)index
+{
+    UIViewController *detailViewController = [PodcastsOnAirBridge makeShowDetailViewControllerForShowAt:index];
     if (!detailViewController) {
         return;
     }

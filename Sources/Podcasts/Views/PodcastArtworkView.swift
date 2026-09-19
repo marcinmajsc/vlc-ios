@@ -20,8 +20,8 @@ class PodcastArtworkView: UIView {
         return label
     }()
 
-    private let artworkView: UIImageView = {
-        let imageView = UIImageView()
+    private let artworkView: VLCNetworkImageView = {
+        let imageView = VLCNetworkImageView()
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
         imageView.isHidden = true
@@ -30,8 +30,6 @@ class PodcastArtworkView: UIView {
     }()
 
     private var artworkURL: URL?
-    private var requestedArtworkURL: URL?
-    private var requestedArtworkPixelSize = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -61,71 +59,45 @@ class PodcastArtworkView: UIView {
 
     func configure(initials: String, color: UIColor, textColor: UIColor,
                    cornerRadius: CGFloat, fontSize: CGFloat) {
-        initialsLabel.text = initials
-        initialsLabel.textColor = textColor
-        initialsLabel.font = .systemFont(ofSize: fontSize, weight: .medium)
-        backgroundColor = color
-        layer.cornerRadius = cornerRadius
-
+        applyPlaceholder(initials: initials, color: color, textColor: textColor,
+                         cornerRadius: cornerRadius, fontSize: fontSize)
         artworkURL = nil
-        requestedArtworkURL = nil
-        requestedArtworkPixelSize = 0
-        artworkView.image = nil
-        artworkView.isHidden = true
+        clearArtwork()
     }
 
     func configure(name: String, artworkURL: URL? = nil, cornerRadius: CGFloat, fontSize: CGFloat) {
-        configure(initials: VLCPlaceholderArtwork.initials(forName: name),
-                  color: VLCPlaceholderArtwork.backgroundColor(forName: name),
-                  textColor: VLCPlaceholderArtwork.foregroundColor(forName: name),
-                  cornerRadius: cornerRadius,
-                  fontSize: fontSize)
+        applyPlaceholder(initials: VLCPlaceholderArtwork.initials(forName: name),
+                         color: VLCPlaceholderArtwork.backgroundColor(forName: name),
+                         textColor: VLCPlaceholderArtwork.foregroundColor(forName: name),
+                         cornerRadius: cornerRadius,
+                         fontSize: fontSize)
 
-        guard let artworkURL = artworkURL, artworkURL.isFileURL else {
+        if artworkURL == self.artworkURL && (artworkURL?.isFileURL != true || artworkView.image != nil) {
             return
         }
-
         self.artworkURL = artworkURL
-        artworkView.layer.cornerRadius = cornerRadius
-        setNeedsLayout()
-    }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        loadArtworkIfNeeded()
-    }
-
-    private func loadArtworkIfNeeded() {
+        clearArtwork()
         guard let artworkURL = artworkURL else {
             return
         }
+        artworkView.isHidden = false
+        artworkView.setImageWith(artworkURL)
+    }
 
-        let scale = traitCollection.displayScale > 0 ? traitCollection.displayScale : 2
-        let maxPixelSize = max(bounds.width, bounds.height) * scale
-        guard maxPixelSize > 0 else {
-            return
-        }
+    private func applyPlaceholder(initials: String, color: UIColor, textColor: UIColor,
+                                  cornerRadius: CGFloat, fontSize: CGFloat) {
+        initialsLabel.text = initials
+        initialsLabel.textColor = textColor
+        initialsLabel.font = .systemFont(ofSize: fontSize, weight: .heavy)
+        backgroundColor = color
+        layer.cornerRadius = cornerRadius
+        artworkView.layer.cornerRadius = cornerRadius
+    }
 
-        let pixelSize = Int(maxPixelSize)
-        guard artworkURL != requestedArtworkURL || pixelSize != requestedArtworkPixelSize else {
-            return
-        }
-        requestedArtworkURL = artworkURL
-        requestedArtworkPixelSize = pixelSize
-
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let image = VLCThumbnailsCache.thumbnail(for: artworkURL, maxPixelSize: maxPixelSize)
-            if image == nil {
-                APLog("podcast artwork: failed to load \(artworkURL.path)")
-            }
-            DispatchQueue.main.async {
-                guard let self = self, self.requestedArtworkURL == artworkURL,
-                      self.requestedArtworkPixelSize == pixelSize, let image = image else {
-                    return
-                }
-                self.artworkView.image = image
-                self.artworkView.isHidden = false
-            }
-        }
+    private func clearArtwork() {
+        artworkView.cancelLoading()
+        artworkView.image = nil
+        artworkView.isHidden = true
     }
 }
