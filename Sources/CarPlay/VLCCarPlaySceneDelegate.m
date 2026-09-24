@@ -25,9 +25,6 @@
 
 #import "VLC-Swift.h"
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wpartial-availability"
-
 @interface VLCCarPlaySceneDelegate() <CPTemplateApplicationSceneDelegate, CPMediaLibraryObserverDelegate, CPListTemplateDelegate>
 {
     CPInterfaceController *_interfaceController;
@@ -37,7 +34,6 @@
     VLCCarPlayPlaylistsController *_playlistsController;
     CPListTemplate *_streamListTemplate;
     CPListTemplate *_playQueueTemplate;
-    CPListSection *_section;
     VLCPlaybackService *_playbackService;
     BOOL _templateUpdateScheduled;
 }
@@ -54,7 +50,7 @@
     _mediaLibraryObserver.observerDelegate = self;
     [_mediaLibraryObserver observeLibrary];
 
-    [_interfaceController setRootTemplate:[self generateRootTemplate] animated:YES];
+    [_interfaceController setRootTemplate:[self generateRootTemplate] animated:YES completion:nil];
 
     _nowPlayingTemplateObserver = [VLCNowPlayingTemplateObserver new];
     [[CPNowPlayingTemplate sharedTemplate] addObserver:_nowPlayingTemplateObserver];
@@ -82,7 +78,6 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
     _playlistsController = nil;
     _streamListTemplate = nil;
     _playQueueTemplate = nil;
-    _section = nil;
     _playbackService = nil;
     _templateUpdateScheduled = NO;
 }
@@ -103,11 +98,9 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
 
 - (void)streamListNeedsUpdate
 {
-    if (@available(iOS 14.0, *)) {
-        if (_streamListTemplate) {
-            [_streamListTemplate updateSections:[CPListTemplate streamSections]];
-            return;
-        }
+    if (_streamListTemplate) {
+        [_streamListTemplate updateSections:[CPListTemplate streamSections]];
+        return;
     }
 
     [self templatesNeedUpdate];
@@ -127,7 +120,7 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
             return;
         }
 
-        [self->_interfaceController setRootTemplate:[self generateRootTemplate] animated:NO];
+        [self->_interfaceController setRootTemplate:[self generateRootTemplate] animated:NO completion:nil];
     });
 }
 
@@ -151,13 +144,9 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
 {
     VLCMediaList *mediaList = _playbackService.isShuffleMode ? _playbackService.shuffledList : _playbackService.mediaList;
     NSUInteger selectedIndex = NSNotFound;
-    if (@available(iOS 14.0, *)) {
-        NSIndexPath *indexPath = [listTemplate indexPathForItem:item];
-        if (indexPath) {
-            selectedIndex = (NSUInteger)indexPath.row;
-        }
-    } else {
-        selectedIndex = [_section indexOfItem:item];
+    NSIndexPath *indexPath = [listTemplate indexPathForItem:item];
+    if (indexPath) {
+        selectedIndex = (NSUInteger)indexPath.row;
     }
 
     if (selectedIndex == NSNotFound || selectedIndex >= (NSUInteger)mediaList.count) {
@@ -169,15 +158,15 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
     completionHandler();
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self->_interfaceController popTemplateAnimated:YES];
+        [self->_interfaceController popTemplateAnimated:YES completion:nil];
     });
 }
 
 - (void)displayPlayQueueTemplate
 {
     if (!_playQueueTemplate) {
-        _section = [self createListSection];
-        _playQueueTemplate = [[CPListTemplate alloc] initWithTitle:NSLocalizedString(@"QUEUE_LABEL", "") sections:@[_section]];
+        CPListSection *section = [self createListSection];
+        _playQueueTemplate = [[CPListTemplate alloc] initWithTitle:NSLocalizedString(@"QUEUE_LABEL", "") sections:@[section]];
         _playQueueTemplate.delegate = self;
     }
 
@@ -187,9 +176,6 @@ didDisconnectInterfaceController:(CPInterfaceController *)interfaceController
 - (void)resetPlayQueueTemplate
 {
     _playQueueTemplate = nil;
-    _section = nil;
 }
 
 @end
-
-#pragma clang diagnostic pop

@@ -274,16 +274,7 @@ class MediaLibraryService: NSObject {
         desiredThumbnailWidth = UInt(thumbnailSize)
         desiredThumbnailHeight = UInt(thumbnailSize / 1.2)
         #else
-        let displayScale: CGFloat
-#if os(visionOS)
-        displayScale = UITraitCollection.current.displayScale
-#else
-        if #available(iOS 13.0, *) {
-            displayScale = UITraitCollection.current.displayScale
-        } else {
-            displayScale = UIScreen.main.scale
-        }
-#endif
+        let displayScale: CGFloat = UITraitCollection.current.displayScale
         let scaledCellWidth = MediaLibraryService.desiredCellWidth * displayScale
         desiredThumbnailWidth = UInt(scaledCellWidth)
         desiredThumbnailHeight = UInt(scaledCellWidth / 1.6)
@@ -399,14 +390,6 @@ private extension MediaLibraryService {
 
         FileManager.default.createFile(atPath: "\(path)/\(NSLocalizedString("MEDIALIBRARY_FILES_PLACEHOLDER", comment: ""))", contents: nil, attributes: nil)
         try? FileManager.default.removeItem(atPath: "\(path)/\(NSLocalizedString("MEDIALIBRARY_ADDING_PLACEHOLDER", comment: ""))")
-
-#if os(iOS)
-        if #unavailable(iOS 13.0) {
-            DispatchQueue.global(qos: .userInitiated).async {
-                InboxManager.drainSharedInbox()
-            }
-        }
-#endif
 
         privateMediaLib.reload()
         privateMediaLib.discover(onEntryPoint: "file://" + path)
@@ -616,7 +599,14 @@ private extension MediaLibraryService {
         mlMedia.secondarySubtitleTrackIndex = Int64(player.indexOfCurrentSecondaryVideoSubtitleTrack)
         mlMedia.chapterIndex = Int64(player.indexOfCurrentChapter)
         mlMedia.titleIndex = Int64(player.indexOfCurrentTitle)
-        mlMedia.setMetadataOf(VLCMLMetadataType.speed, intValue: Int64(player.playbackRate * 100))
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: kVLCSettingPlaybackSpeedAppliesToAll) {
+            mlMedia.setMetadataOf(VLCMLMetadataType.speed, intValue: Int64((player.playbackRate * 100).rounded()))
+        }
+        mlMedia.setMetadataOf(VLCMLMetadataType.subtitleDelay, intValue: Int64(player.subtitleDelay))
+        if defaults.bool(forKey: kVLCSettingSaveAudioDelay) {
+            mlMedia.setMetadataOf(VLCMLMetadataType.audioDelay, intValue: Int64(player.audioDelay))
+        }
 
         if mlMedia.type() != .audio {
             if let thumbnailURL = mlMedia.thumbnail() {

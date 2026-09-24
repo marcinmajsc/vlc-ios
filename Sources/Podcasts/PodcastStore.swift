@@ -50,14 +50,14 @@ final class PodcastStore: NSObject {
     private var lastPlayedEpisodeId: String?
 
     private var pendingFeedURLs: Set<URL> = []
-    private var addedFeedTitleKeys: Set<String> = []
+    private var addedFeedURLs: Set<URL> = []
 
     private var cachedContinueListeningEpisodes: [PodcastEpisode]?
     private var cachedResumeEpisode: [PodcastEpisode]?
     private var cachedLatestEpisodes: [PodcastEpisode]?
     private var cachedShows: [PodcastShow]?
     private var cachedShowsById: [String: PodcastShow] = [:]
-    private var cachedShowIdsByTitleKey: [String: String] = [:]
+    private var cachedShowIdsByFeedURL: [URL: String] = [:]
 
     private static let derivedEpisodeCaches: [ReferenceWritableKeyPath<PodcastStore, [PodcastEpisode]?>] = [
         \.cachedContinueListeningEpisodes, \.cachedResumeEpisode, \.cachedLatestEpisodes
@@ -243,22 +243,21 @@ final class PodcastStore: NSObject {
         return cachedShowsById[showId]
     }
 
-    func show(matchingTitle title: String) -> PodcastShow? {
+    func show(forFeedURL feedURL: URL) -> PodcastShow? {
         rebuildShowsCacheIfNeeded()
-        guard let showId = cachedShowIdsByTitleKey[PodcastStore.titleKey(for: title)] else {
+        guard let showId = cachedShowIdsByFeedURL[feedURL] else {
             return nil
         }
         return cachedShowsById[showId]
     }
 
-    @objc(subscriptionStateForFeedURL:title:)
-    func subscriptionState(forFeedURL feedURL: URL, title: String) -> PodcastSubscriptionState {
+    @objc(subscriptionStateForFeedURL:)
+    func subscriptionState(forFeedURL feedURL: URL) -> PodcastSubscriptionState {
         if pendingFeedURLs.contains(feedURL) {
             return .pending
         }
-        let key = PodcastStore.titleKey(for: title)
         rebuildShowsCacheIfNeeded()
-        return cachedShowIdsByTitleKey[key] != nil || addedFeedTitleKeys.contains(key) ? .subscribed : .available
+        return cachedShowIdsByFeedURL[feedURL] != nil || addedFeedURLs.contains(feedURL) ? .subscribed : .available
     }
 
     func episodeCount(forShowId showId: String) -> Int {
@@ -307,7 +306,6 @@ final class PodcastStore: NSObject {
     // MARK: - Mutations
 
     func addSubscription(mrl: URL,
-                         title: String? = nil,
                          completion: @escaping (Result<Void, PodcastAddSubscriptionError>) -> Void) {
         guard let subscriptionModel = subscriptionModel else {
             completion(.failure(.unknown))
@@ -319,8 +317,8 @@ final class PodcastStore: NSObject {
 
         subscriptionModel.addSubscription(mrl: mrl) { result in
             self.pendingFeedURLs.remove(mrl)
-            if case .success = result, let title = title {
-                self.addedFeedTitleKeys.insert(PodcastStore.titleKey(for: title))
+            if case .success = result {
+                self.addedFeedURLs.insert(mrl)
             }
             self.notifyReload()
             completion(result)
@@ -482,7 +480,7 @@ final class PodcastStore: NSObject {
     // An episode that has yet to be downloaded is fetched to the cache first and starts playing off
     // the partial file, which by then is far enough ahead for the rest to arrive in time.
     func playEpisode(episodeId: String, showId: String, startPosition: Float = -1) {
-        guard downloadedFileURL(episodeId: episodeId, showId: showId) == nil else {
+        guard media(forEpisodeId: episodeId)?.isCached() != true else {
             playbackRequest = nil
             play(episodeId: episodeId, showId: showId, startPosition: startPosition)
             return
@@ -615,7 +613,7 @@ final class PodcastStore: NSObject {
     }
 
     func downloadedFileURL(episodeId: String, showId: String) -> URL? {
-        guard let media = media(forEpisodeId: episodeId) else {
+        guard let media = media(forEpisodeId: episodeId), media.isCached() else {
             return nil
         }
         return media.files.first { $0.type() == .cache }?.mrl
@@ -645,7 +643,7 @@ final class PodcastStore: NSObject {
         guard let mediaLibraryService = mediaLibraryService,
               let media = media(forEpisodeId: episodeId),
               pendingCacheMediaIds.contains(media.identifier()),
-              downloadedFileURL(episodeId: episodeId, showId: showId) == nil else {
+              !media.isCached() else {
             return false
         }
 
@@ -688,12 +686,14 @@ final class PodcastStore: NSObject {
             return cachedShows
         }
 
-        let shows = (subscriptionModel?.subscriptions ?? []).map(PodcastStore.podcastShow)
+        let subscriptions = subscriptionModel?.subscriptions ?? []
+        let shows = subscriptions.map(PodcastStore.podcastShow)
         cachedShows = shows
         cachedShowsById = Dictionary(uniqueKeysWithValues: shows.map { ($0.id, $0) })
-        cachedShowIdsByTitleKey = Dictionary(shows.map { (PodcastStore.titleKey(for: $0.name), $0.id) },
-                                             uniquingKeysWith: { first, _ in first })
-        addedFeedTitleKeys.subtract(cachedShowIdsByTitleKey.keys)
+        cachedShowIdsByFeedURL = Dictionary(subscriptions.compactMap { subscription in
+            subscription.mrl.map { ($0, String(subscription.identifier())) }
+        }, uniquingKeysWith: { first, _ in first })
+        addedFeedURLs.subtract(cachedShowIdsByFeedURL.keys)
         return shows
     }
 
@@ -701,13 +701,7 @@ final class PodcastStore: NSObject {
         invalidateDerivedEpisodeCaches()
         cachedShows = nil
         cachedShowsById.removeAll()
-        cachedShowIdsByTitleKey.removeAll()
-    }
-
-    // The media library does not expose a subscription's feed URL yet, so feeds are matched on their name.
-    private static func titleKey(for title: String) -> String {
-        return title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        cachedShowIdsByFeedURL.removeAll()
     }
 
     private func invalidateDerivedEpisodeCaches() {
@@ -748,7 +742,6 @@ final class PodcastStore: NSObject {
         let progress = media.progress > 0 ? Double(media.progress) : nil
         // A media the library never played reports the epoch rather than no date at all.
         let lastPlayed = media.lastPlayedDate()
-        let downloaded = media.files.contains { $0.type() == .cache }
         let subscriptionEpisode = media.subscriptionEpisode
         let notesHTML = subscriptionEpisode?.showNotes ?? media.shortSummary
         return PodcastEpisode(id: String(media.identifier()),
@@ -759,7 +752,7 @@ final class PodcastStore: NSObject {
                                durationValue: media.duration(),
                                progress: progress,
                                lastPlayedDate: lastPlayed.timeIntervalSince1970 > 0 ? lastPlayed : nil,
-                               downloaded: downloaded,
+                               downloaded: media.isCached(),
                                playCount: media.playCount(),
                                seasonNumber: subscriptionEpisode?.seasonNumber ?? 0,
                                episodeNumber: subscriptionEpisode?.episodeNumber ?? 0,
@@ -843,9 +836,7 @@ extension PodcastStore: MediaLibraryObserver {
             guard let self = self, self.automaticDownloadsEnabled else {
                 return
             }
-            if #available(iOS 13.0, *) {
-                PodcastBackgroundRefresher.sharedInstance().scheduleDownloadTask()
-            }
+            PodcastBackgroundRefresher.sharedInstance().scheduleDownloadTask()
             guard UIApplication.shared.applicationState == .active else {
                 return
             }
@@ -919,7 +910,7 @@ extension PodcastStore: MediaLibraryObserver {
             self.subscriptionModel?.refresh()
             self.cachedShows = nil
             self.cachedShowsById.removeAll()
-            self.cachedShowIdsByTitleKey.removeAll()
+            self.cachedShowIdsByFeedURL.removeAll()
             self.scheduleArtworkReload()
         }
     }

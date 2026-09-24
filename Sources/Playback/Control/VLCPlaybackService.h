@@ -27,6 +27,7 @@ extern NSString *const VLCPlaybackServicePlaybackPositionUpdated;
 extern NSString *const VLCPlaybackServicePlaybackModeUpdated;
 extern NSString *const VLCPlaybackServiceShuffleModeUpdated;
 extern NSString *const VLCPlaybackServicePlaybackDidMoveOnToNextItem;
+extern NSString *const VLCPlaybackServiceSleepTimerDidChange;
 extern NSString *const VLCLastPlaylistPlayedMedia;
 
 @class VLCPlaybackService;
@@ -121,7 +122,9 @@ NS_SWIFT_NAME(PlaybackService)
 @property (readonly) BOOL isNextMediaAvailable;
 @property (readonly) NSNumber *playbackTime;
 @property (nonatomic, readonly) NSDictionary *mediaOptionsDictionary;
-@property (nonatomic, readonly) NSTimer *sleepTimer;
+@property (nonatomic, readonly, nullable) NSTimer *sleepTimer;
+@property (nonatomic, readonly) NSTimeInterval sleepTimerInterval;
+@property (nonatomic) BOOL stopAfterCurrentItem;
 
 @property (nonatomic, readwrite) CGFloat preAmplification;
 
@@ -151,6 +154,8 @@ NS_SWIFT_NAME(PlaybackService)
 - (void)previousFrame;
 - (void)toggleRepeatMode;
 - (void)changePlaybackRateByFactor:(float)factor;
+- (float)restorePlaybackRateForCurrentMedia;
+- (void)savePlaybackRateForCurrentMedia;
 
 - (void)setABLoopFromPosition:(double)from toPosition:(double)to;
 - (void)resetABLoop;
@@ -189,6 +194,7 @@ NS_SWIFT_NAME(PlaybackService)
 
 - (void)setNeedsMetadataUpdate;
 - (void)scheduleSleepTimerWithInterval:(NSTimeInterval)timeInterval;
+- (void)cancelSleepTimer;
 - (void)performNavigationAction:(VLCMediaPlaybackNavigationAction)action;
 - (void)playMediaList:(VLCMediaList *)mediaList firstIndex:(NSInteger)index subtitlesFilePath:(nullable NSString *)subsFilePath;
 - (void)playMediaList:(VLCMediaList *)mediaList firstIndex:(NSInteger)index subtitlesFilePath:(nullable NSString *)subsFilePath completion:(void (^ __nullable)(BOOL success))completion;

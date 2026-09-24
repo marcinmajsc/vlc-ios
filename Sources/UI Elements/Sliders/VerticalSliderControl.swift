@@ -290,13 +290,13 @@ class VerticalSliderControl: UIControl {
 
         let increment = UIAccessibilityCustomAction
             .create(name: NSLocalizedString("VERTICAL_SLIDER_CONTROL_INCREMENT_ACTION", comment: ""),
-                    image: .with(systemName: "arrow.up"),
+                    image: UIImage(systemName: "arrow.up"),
                     target: self,
                     selector: #selector(handleAccessibilityIncrement))
 
         let decrement = UIAccessibilityCustomAction
             .create(name: NSLocalizedString("VERTICAL_SLIDER_CONTROL_DECREMENT_ACTION", comment: ""),
-                    image: .with(systemName: "arrow.down"),
+                    image: UIImage(systemName: "arrow.down"),
                     target: self,
                     selector: #selector(handleAccessibilityDecrement))
 
@@ -456,98 +456,6 @@ class VerticalSliderControl: UIControl {
         let newVal = lerp(from: range.lowerBound, to: range.upperBound, t: newPct)
         updateValueAndNotify(newVal, animated: true)
         return true
-    }
-}
-
-// MARK: - DemoViewController
-/// Demonstrates the use of the vertical slider control.
-/// A native slider is also displayed; adjusting one should adjust the other
-/// automatically.
-///
-/// Requires iOS 13
-@available(iOS 13.0, *)
-class VerticalSliderControl_DemoViewController: UIViewController {
-    private let slider: VerticalSliderControl = {
-        let slider = VerticalSliderControl()
-        slider.translatesAutoresizingMaskIntoConstraints = false
-        return slider
-    }()
-
-    private let sdkSlider: UISlider = {
-        let slider = UISlider()
-        slider.translatesAutoresizingMaskIntoConstraints = false
-        return slider
-    }()
-
-    private let label: UILabel = {
-        let label = UILabel()
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
-    }()
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        view.backgroundColor = .systemBackground
-
-        slider.backgroundColor = .systemBlue
-        slider.maximumValueImage = UIImage(systemName: "arrow.up.circle")?
-            .withTintColor(.black, renderingMode: .alwaysOriginal)
-        slider.minimumValueImage = UIImage(systemName: "arrow.down.circle")?
-            .withTintColor(.black, renderingMode: .alwaysOriginal)
-        slider.minimumValueInsets = UIEdgeInsets(top: 7, left: 2, bottom: 7, right: 2)
-        slider.maximumValueInsets = UIEdgeInsets(top: 7, left: 2, bottom: 7, right: 2)
-
-        slider.thumbImage = UIImage(systemName: "circle.fill")?
-            .withTintColor(.black.withAlphaComponent(0.3), renderingMode: .alwaysOriginal)
-
-        sdkSlider.backgroundColor = .systemGreen
-        sdkSlider.maximumValueImage = UIImage(systemName: "arrow.up.circle")
-        sdkSlider.minimumValueImage = UIImage(systemName: "arrow.down.circle")
-        let thumb = UIImage(systemName: "circle.fill")?
-            .withTintColor(.black.withAlphaComponent(0.3), renderingMode: .alwaysOriginal)
-        sdkSlider.setThumbImage(thumb, for: [])
-
-        view.addSubview(slider)
-        view.addSubview(sdkSlider)
-        view.addSubview(label)
-        NSLayoutConstraint.activate([
-            slider.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            slider.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-
-            sdkSlider.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            sdkSlider.widthAnchor.constraint(equalToConstant: 200),
-            sdkSlider.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -40),
-
-            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            label.topAnchor.constraint(equalTo: slider.bottomAnchor, constant: 20)
-
-        ])
-
-        slider.addTarget(self, action: #selector(sliderDidChange), for: .valueChanged)
-        sdkSlider.addTarget(self, action: #selector(sdkSliderDidChange), for: .valueChanged)
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        sdkSlider.value = 0.375
-        sdkSlider.sendActions(for: .valueChanged)
-    }
-
-    @objc func sliderDidChange() {
-        let value = slider.value
-        sdkSlider.value = value
-        updateLabel()
-    }
-
-    @objc func sdkSliderDidChange() {
-        let value = sdkSlider.value
-        slider.setValue(value, animated: false)
-        updateLabel()
-    }
-
-    func updateLabel() {
-        label.text = String(format: "%.3f", slider.value)
     }
 }
 

@@ -118,13 +118,7 @@ class MediaPlayerActionSheet: ActionSheet {
     }
 
     private func getTitle(of childView: UIView) -> String {
-        if childView is VideoFiltersView {
-            return ActionSheetCellIdentifier.filter.description
-        } else if childView is PlaybackSpeedView {
-            return ActionSheetCellIdentifier.playback.description
-        } else if childView is SleepTimerView {
-            return ActionSheetCellIdentifier.sleepTimer.description
-        } else if childView is EqualizerView {
+        if childView is EqualizerView {
             return ActionSheetCellIdentifier.equalizer.description
         } else if childView is ChapterView {
             return ActionSheetCellIdentifier.chapters.description
@@ -133,12 +127,6 @@ class MediaPlayerActionSheet: ActionSheet {
         } else {
             return getDefaultHeaderTitle()
         }
-    }
-
-    private func changeBackground(alpha: CGFloat) {
-        UIView.animate(withDuration: 0.3, animations: {
-            self.backgroundView.backgroundColor = UIColor.black.withAlphaComponent(alpha)
-        })
     }
 
     private func add(childView child: UIView) {
@@ -161,9 +149,6 @@ class MediaPlayerActionSheet: ActionSheet {
             (completed) in
             child.addGestureRecognizer(self.leftToRightGesture)
             self.currentChildView = child
-            if child is VideoFiltersView || child is PlaybackSpeedView {
-                self.changeBackground(alpha: 0)
-            }
 
             self.headerView.previousButton.addTarget(self, action: #selector(self.removeCurrentChild), for: .touchUpInside)
         }
@@ -183,10 +168,6 @@ class MediaPlayerActionSheet: ActionSheet {
         }) { (completed) in
             child.removeFromSuperview()
             child.removeGestureRecognizer(self.leftToRightGesture)
-
-            if child is VideoFiltersView || child is PlaybackSpeedView {
-                self.changeBackground(alpha: 0.6)
-            }
         }
     }
 
@@ -201,9 +182,7 @@ class MediaPlayerActionSheet: ActionSheet {
     }
 
     func setTheme() {
-        if #available(iOS 13.0, *) {
-            overrideUserInterfaceStyle = .dark
-        }
+        overrideUserInterfaceStyle = .dark
         collectionWrapperView.backgroundColor = PresentationTheme.currentExcludingWhite.colors.background
         collectionView.backgroundColor = PresentationTheme.currentExcludingWhite.colors.background
         headerView.backgroundColor = PresentationTheme.currentExcludingWhite.colors.background
@@ -284,9 +263,12 @@ class MediaPlayerActionSheet: ActionSheet {
                 } else if let abRepeatView = item as? ABRepeatView {
                     self.removeActionSheet()
                     actionSheet.moreOptionsDelegate?.mediaMoreOptionsActionSheetPresentABRepeatView(with: abRepeatView)
-                } else if let playbackSpeedView = item as? PlaybackSpeedView {
-                    playbackSpeedView.setupSliderAndButtons()
-                    self.add(childView: playbackSpeedView)
+                } else if item == actionSheet.playbackSpeedPlaceholderView {
+                    actionSheet.closeAndPresentCard(for: .playback)
+                } else if item == actionSheet.sleepTimerPlaceholderView {
+                    actionSheet.closeAndPresentCard(for: .sleepTimer)
+                } else if item == actionSheet.videoFiltersPlaceholderView {
+                    actionSheet.closeAndPresentCard(for: .filter)
                 } else {
                     self.add(childView: item)
                 }
@@ -405,6 +387,10 @@ extension MediaPlayerActionSheet: ActionSheetDelegate {
     
     func headerViewTitle() -> String? {
         return mediaPlayerActionSheetDelegate?.mediaPlayerActionSheetHeaderTitle()
+    }
+
+    func actionSheetDidFinishClosingAnimation(_ actionSheet: ActionSheet) {
+        (self as? MediaMoreOptionsActionSheet)?.presentPendingCard()
     }
 }
 

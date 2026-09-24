@@ -21,7 +21,6 @@ import UIKit
                                  enable: Bool)
     func setEditingStateChanged(for viewController: MediaCategoryViewController, editing: Bool)
     func updateNavigationBarButtons(for viewController: MediaCategoryViewController, isEditing: Bool)
-    @available(iOS 14.0, *)
     func generateMenu(for viewController: MediaCategoryViewController) -> UIMenu
     func updateSelectAllButton(for viewController: MediaCategoryViewController)
 }
@@ -126,18 +125,13 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     }()
 
     private var cachedCellSize = CGSize.zero
-    private var toSize = CGSize.zero
     private var longPressGesture: UILongPressGestureRecognizer!
     weak var delegate: MediaCategoryViewControllerDelegate?
 
     private lazy var statusBarView: UIView = {
         let statusBarFrame: CGRect
 #if os(iOS)
-        if #available(iOS 13.0, *) {
-            statusBarFrame = view.window?.windowScene?.statusBarManager?.statusBarFrame ?? .zero
-        } else {
-            statusBarFrame = UIApplication.shared.statusBarFrame
-        }
+        statusBarFrame = view.window?.windowScene?.statusBarManager?.statusBarFrame ?? .zero
 #else
         statusBarFrame = CGRect(x: 0, y: 0, width: 500, height: 100) // view.window?.windowScene?.statusBarManager?.statusBarFrame ?? .zero
 #endif
@@ -189,61 +183,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     private var hasLaunchedBefore: Bool {
         return userDefaults.bool(forKey: kVLCHasLaunchedBefore)
     }
-
-    @objc private lazy var sortActionSheet: ActionSheet = {
-        var header: ActionSheetSortSectionHeader
-        var isVideoModel: Bool = false
-        var collectionModelName: String = ""
-
-        if let model = model as? CollectionModel {
-            if model.mediaCollection is VLCMLMediaGroup || model.mediaCollection is VideoModel {
-                isVideoModel = true
-            }
-            collectionModelName = String(describing: type(of: model.mediaCollection)) + model.name
-        } else if let model = model as? MediaGroupViewModel {
-            isVideoModel = true
-            collectionModelName = model.name
-        } else if let model = model as? VideoModel {
-            isVideoModel = true
-            collectionModelName = secondModel.name
-        } else {
-            collectionModelName = model.name
-        }
-
-        header = ActionSheetSortSectionHeader(model: model.sortModel,
-                                              isVideoModel: isVideoModel,
-                                              currentModelType: collectionModelName)
-
-        if model is ArtistModel {
-            header.updateHeaderForArtists()
-        } else if let model = model as? CollectionModel,
-                  let mediaCollection = model.mediaCollection as? VLCMLAlbum,
-                  !mediaCollection.isUnknownAlbum() {
-            header.updateHeaderForAlbums()
-        }
-
-        let actionSheet = ActionSheet(header: header)
-        header.delegate = self
-        actionSheet.delegate = self
-        actionSheet.dataSource = self
-        actionSheet.modalPresentationStyle = .custom
-        actionSheet.setAction { [weak self] item in
-            guard let sortingCriteria = item as? VLCMLSortingCriteria else {
-                return
-            }
-            self?.executeSortAction(with: sortingCriteria,
-                                    desc: header.actionSwitch.isOn)
-        }
-        return actionSheet
-    }()
-
-    private lazy var sortBarButton: UIBarButtonItem = {
-        return UIBarButtonItem(customView: setupSortButton())
-    }()
-
-    private lazy var editBarButton: UIBarButtonItem = {
-        return setupEditBarButton()
-    }()
 
     private lazy var clearHistoryButton: UIBarButtonItem = {
         return setupClearHistoryButton()
@@ -436,12 +375,10 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             backgroundColor = .clear
         }
 
-        if #available(iOS 13.0, *) {
-            let standardAppearance = navigationItem.standardAppearance
-            let scrollEdgeAppearance = navigationItem.scrollEdgeAppearance
-            standardAppearance?.backgroundColor = backgroundColor
-            scrollEdgeAppearance?.backgroundColor = backgroundColor
-        }
+        let standardAppearance = navigationItem.standardAppearance
+        let scrollEdgeAppearance = navigationItem.scrollEdgeAppearance
+        standardAppearance?.backgroundColor = backgroundColor
+        scrollEdgeAppearance?.backgroundColor = backgroundColor
 
         if let artworkHeader = artworkHeader,
            let navBar = navigationController?.navigationBar {
@@ -585,10 +522,8 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 
         let usesArtworkHeader = self.usesArtworkHeader
         if usesArtworkHeader {
-            if #available(iOS 13.0, *) {
-                self.navigationItem.standardAppearance = AppearanceManager.navigationBarArtworkAppearance()
-                self.navigationItem.scrollEdgeAppearance = AppearanceManager.navigationBarArtworkAppearance()
-            }
+            self.navigationItem.standardAppearance = AppearanceManager.navigationBarArtworkAppearance()
+            self.navigationItem.scrollEdgeAppearance = AppearanceManager.navigationBarArtworkAppearance()
             updateCollectionViewForArtworkHeader()
         }
         DispatchQueue.main.async { [weak self] in
@@ -791,10 +726,8 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 
     private func setNavbarAppearance() {
         if #unavailable(iOS 26.0) {
-            if #available(iOS 13.0, *) {
-                navigationController?.navigationBar.standardAppearance = AppearanceManager.navigationbarAppearance()
-                navigationController?.navigationBar.scrollEdgeAppearance = AppearanceManager.navigationbarAppearance()
-            }
+            navigationController?.navigationBar.standardAppearance = AppearanceManager.navigationbarAppearance()
+            navigationController?.navigationBar.scrollEdgeAppearance = AppearanceManager.navigationbarAppearance()
             navigationController?.navigationBar.barTintColor = PresentationTheme.current.colors.navigationbarColor
         }
 #if os(iOS)
@@ -900,7 +833,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         cachedCellSize = .zero
-        toSize = size
         collectionView?.collectionViewLayout.invalidateLayout()
 
         coordinator.animate(alongsideTransition: { [weak self] _ in
@@ -968,13 +900,11 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 
         collectionView?.dataSource = editing ? editController : self
         collectionView?.delegate = editing ? editController : self
-        if #available(iOS 14.0, *) {
-            /// Those changes are highly recommended in order to prevent a UICollectionView gesture
-            /// issue when cells are embedding a UIScrollView
-            /// See https://code.videolan.org/umxprime/collection-view-bug
-            collectionView.allowsSelectionDuringEditing = editing
-            collectionView.allowsMultipleSelectionDuringEditing = editing
-        }
+        /// Those changes are highly recommended in order to prevent a UICollectionView gesture
+        /// issue when cells are embedding a UIScrollView
+        /// See https://code.videolan.org/umxprime/collection-view-bug
+        collectionView.allowsSelectionDuringEditing = editing
+        collectionView.allowsMultipleSelectionDuringEditing = editing
 
         editController.resetSelections(resetUI: true)
         displayEditToolbar()
@@ -1045,9 +975,18 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 #endif
 
     func indicatorInfo(for pagerTabStripController: PagerTabStripViewController) -> IndicatorInfo {
-        var uiTestAccessibilityIdentifier = model is TrackModel ? VLCAccessibilityIdentifier.songs : nil
-        if model is ArtistModel {
+        let uiTestAccessibilityIdentifier: String?
+        switch model {
+        case is TrackModel, is CollectionModel:
+            uiTestAccessibilityIdentifier = VLCAccessibilityIdentifier.songs
+        case is ArtistModel:
             uiTestAccessibilityIdentifier = VLCAccessibilityIdentifier.artists
+        case is AlbumModel:
+            uiTestAccessibilityIdentifier = VLCAccessibilityIdentifier.albums
+        case is GenreModel:
+            uiTestAccessibilityIdentifier = VLCAccessibilityIdentifier.genres
+        default:
+            uiTestAccessibilityIdentifier = nil
         }
         return IndicatorInfo(title: model.indicatorName, accessibilityIdentifier: uiTestAccessibilityIdentifier)
     }
@@ -1427,16 +1366,6 @@ private extension MediaCategoryViewController {
 // MARK: - NavigationItem
 
 extension MediaCategoryViewController {
-    private func setupEditBarButton() -> UIBarButtonItem {
-        let editButton = UIBarButtonItem(image: UIImage(named: "edit"),
-                                         style: .plain, target: self,
-                                         action: #selector(handleEditingInsideCollection))
-        editButton.tintColor = PresentationTheme.current.colors.orangeUI
-        editButton.accessibilityLabel = NSLocalizedString("BUTTON_EDIT", comment: "")
-        editButton.accessibilityHint = NSLocalizedString("BUTTON_EDIT_HINT", comment: "")
-        return editButton
-    }
-
     private func setupSelectAllButton() -> UIBarButtonItem {
         let selectAll = UIBarButtonItem(image: UIImage(named: "emptySelectAll"),
                                         style: .plain, target: self,
@@ -1454,23 +1383,6 @@ extension MediaCategoryViewController {
         return clearHistory
     }
 
-    private func setupSortButton() -> UIButton {
-        // Fetch sortButton configuration from MediaVC
-        let sortButton = UIButton(frame: CGRect(x: 0, y: 0, width: 50, height: 50))
-        sortButton.setImage(UIImage(named: "sort"), for: .normal)
-        sortButton.addTarget(self,
-                             action: #selector(handleSort),
-                             for: .touchUpInside)
-        sortButton
-            .addGestureRecognizer(UILongPressGestureRecognizer(target: self,
-                                                               action: #selector(handleSortLongPress(sender:))))
-
-        sortButton.tintColor = PresentationTheme.current.colors.orangeUI
-        sortButton.accessibilityLabel = NSLocalizedString("BUTTON_SORT", comment: "")
-        sortButton.accessibilityHint = NSLocalizedString("BUTTON_SORT_HINT", comment: "")
-        return sortButton
-    }
-
     private func leftBarButtonItem() -> [UIBarButtonItem] {
         var leftBarButtonItems = [UIBarButtonItem]()
 
@@ -1481,23 +1393,13 @@ extension MediaCategoryViewController {
     private func rightBarButtonItems() -> [UIBarButtonItem] {
         var rightBarButtonItems = [UIBarButtonItem]()
 
-        if #available(iOS 14.0, *) {
-            let menu = delegate?.generateMenu(for: self)
-            if #available(iOS 26.0, *) {
-                rightBarButtonItems.append(UIBarButtonItem(image:
-                                                            UIImage(systemName: "ellipsis"),
-                                                           menu: menu))
-            } else {
-                rightBarButtonItems.append(UIBarButtonItem(image:
-                                                            UIImage(systemName: "ellipsis.circle"),
-                                                           menu: menu))
-            }
+        let menu = delegate?.generateMenu(for: self)
+        if #available(iOS 26.0, *) {
+            rightBarButtonItems.append(UIBarButtonItem(image: UIImage(systemName: "ellipsis"),
+                                                       menu: menu))
         } else {
-            rightBarButtonItems.append(editBarButton)
-            // Sort is not available for Playlists
-            if let model = model as? CollectionModel, !(model.mediaCollection is VLCMLPlaylist) {
-                rightBarButtonItems.append(sortBarButton)
-            }
+            rightBarButtonItems.append(UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"),
+                                                       menu: menu))
         }
 #if os(iOS)
         if !rendererButton.isHidden {
@@ -1560,33 +1462,7 @@ extension MediaCategoryViewController {
                          forKey: "\(kVLCSortDescendingDefault)\(model.name)")
         userDefaults.set(sortingCriteria.rawValue,
                          forKey: "\(kVLCSortDefault)\(model.name)")
-        sortActionSheet.removeActionSheet()
         reloadData()
-    }
-
-    @objc func handleSort() {
-        var currentSortIndex: Int = 0
-        for (index, criteria) in
-                model.sortModel.sortingCriteria.enumerated()
-        where criteria == model.sortModel.currentSort {
-            currentSortIndex = index
-            break
-        }
-        present(sortActionSheet, animated: false) {
-            [sortActionSheet, currentSortIndex] in
-            sortActionSheet.collectionView.selectItem(at:
-                                                        IndexPath(row: currentSortIndex, section: 0), animated: false,
-                                                      scrollPosition: .centeredVertically)
-        }
-    }
-
-    @objc func handleSortLongPress(sender: UILongPressGestureRecognizer) {
-        if sender.state == .began {
-#if os(iOS)
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-#endif
-            handleSortShortcut()
-        }
     }
 
     @objc func handleClearHistory() {
@@ -1611,10 +1487,6 @@ extension MediaCategoryViewController {
         editController.selectAll()
         selectAllBarButton.image = isAllSelected ? UIImage(named: "allSelected")
         : UIImage(named: "emptySelectAll")
-    }
-
-    @objc func handleSortShortcut() {
-        model.sort(by: model.sortModel.currentSort, desc: !model.sortModel.desc)
     }
 
     @objc func handleEditingInsideCollection() {
@@ -1804,7 +1676,6 @@ private extension MediaCategoryViewController {
         mediaLibraryService.setCurrentlyPlayingCollection(with: model, for: index)
     }
 
-    @available(iOS 13.0, *)
     private func generateUIMenuForContent(at indexPath: IndexPath) -> UIMenu {
         let index = indexPath.row
         let modelContent = getObject(at: indexPath)
@@ -2169,7 +2040,6 @@ extension MediaCategoryViewController {
         selectedItem(at: indexPath)
     }
 
-    @available(iOS 13.0, *)
     override func collectionView(_ collectionView: UICollectionView,
                                  contextMenuConfigurationForItemAt indexPath: IndexPath,
                                  point: CGPoint) -> UIContextMenuConfiguration? {
@@ -2206,7 +2076,6 @@ extension MediaCategoryViewController {
         return configuration
     }
 
-    @available(iOS 13.0, *)
     override func collectionView(_ collectionView: UICollectionView, willPerformPreviewActionForMenuWith configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionCommitAnimating) {
         guard let indexPath = configuration.identifier as? IndexPath else { return }
 
@@ -2284,6 +2153,8 @@ extension MediaCategoryViewController {
                 assert(media.mainFile() != nil, "The mainfile is nil")
             }
         }
+
+        mediaCell.accessibilityIdentifier = VLCAccessibilityIdentifier.mediaCell
 
         if let mediaCell = mediaCell as? MediaCollectionViewCell {
             mediaCell.delegate = self
@@ -2401,10 +2272,6 @@ extension MediaCategoryViewController {
 extension MediaCategoryViewController: UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
         if cachedCellSize == .zero {
-            //For iOS 10 when rotating we take the value from willTransition to size, for the first layout pass that value is 0 though,
-            //so we need the frame.size width. For rotation on iOS 11 this approach doesn't work because at the time when this is called
-            //we don't have yet the updated safeare layout frame. This is addressed by relayouting from viewSafeAreaInsetsDidChange
-
             let toWidth = collectionView.safeAreaLayoutGuide.layoutFrame.width
             let safeAreaInsets = collectionView.window?.safeAreaInsets ?? collectionView.safeAreaInsets
             cachedCellSize = model.cellType.cellSizeForWidth(toWidth, safeAreaInsets: safeAreaInsets)
@@ -2437,56 +2304,9 @@ extension MediaCategoryViewController: UICollectionViewDelegateFlowLayout {
     }
 }
 
-// MARK: - VLCActionSheetDelegate
+// MARK: - Layout and sort options
 
-extension MediaCategoryViewController: ActionSheetDelegate {
-    func headerViewTitle() -> String? {
-        return NSLocalizedString("HEADER_TITLE_SORT", comment: "")
-    }
-
-    // This provide the item to send to the selection action
-    func itemAtIndexPath(_ indexPath: IndexPath) -> Any? {
-        let enabledSortCriteria = model.sortModel.sortingCriteria
-
-        if indexPath.row < enabledSortCriteria.count {
-            return enabledSortCriteria[indexPath.row]
-        }
-        assertionFailure("VLCMediaCategoryViewController: VLCActionSheetDelegate: IndexPath out of range")
-        return nil
-    }
-}
-
-// MARK: - VLCActionSheetDataSource
-
-extension MediaCategoryViewController: ActionSheetDataSource {
-    func numberOfRows() -> Int {
-        return model.sortModel.sortingCriteria.count
-    }
-
-    func actionSheet(collectionView: UICollectionView,
-                     cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        guard let cell = collectionView.dequeueReusableCell(
-            withReuseIdentifier: ActionSheetCell.identifier,
-            for: indexPath) as? ActionSheetCell else {
-            assertionFailure("VLCMediaCategoryViewController: VLCActionSheetDataSource: Unable to dequeue reusable cell")
-            return UICollectionViewCell()
-        }
-
-        let sortingCriterias = model.sortModel.sortingCriteria
-
-        guard indexPath.row < sortingCriterias.count else {
-            assertionFailure("VLCMediaCategoryViewController: VLCActionSheetDataSource: IndexPath out of range")
-            return cell
-        }
-
-        cell.name.text = String(describing: sortingCriterias[indexPath.row])
-        return cell
-    }
-}
-
-// MARK: - ActionSheetSortSectionHeaderDelegate
-
-extension MediaCategoryViewController: ActionSheetSortSectionHeaderDelegate {
+extension MediaCategoryViewController {
     private func getTypeName(of mediaCollection: MediaCollectionModel) -> String {
         return String(describing: type(of: mediaCollection))
     }
@@ -2555,23 +2375,6 @@ extension MediaCategoryViewController: ActionSheetSortSectionHeaderDelegate {
         cachedCellSize = .zero
         model.sort(by: model.sortModel.currentSort, desc: model.sortModel.desc)
         reloadData()
-    }
-
-    func actionSheetSortSectionHeader(_ header: ActionSheetSortSectionHeader, onSwitchIsOnChange: Bool, type: ActionSheetSortHeaderOptions) {
-        var prefix: String = ""
-        var suffix: String = ""
-        if type == .descendingOrder {
-            model.sort(by: model.sortModel.currentSort, desc: onSwitchIsOnChange)
-            prefix = kVLCSortDescendingDefault
-            suffix = model is VideoModel ? secondModel.name : model.name
-            userDefaults.set(onSwitchIsOnChange, forKey: "\(prefix)\(suffix)")
-            setupCollectionView()
-            cachedCellSize = .zero
-            collectionView?.collectionViewLayout.invalidateLayout()
-            reloadData()
-        } else if type == .layoutChange {
-            handleLayoutChange(gridLayout: onSwitchIsOnChange, isFolder: false)
-        }
     }
 }
 
@@ -2685,16 +2488,12 @@ private extension MediaCategoryViewController {
 
         if #available(iOS 16.0, *) {
             collectionView.allowsMultipleSelection = true
-        } else if #available(iOS 14.0, *) {
-            // Do not enable allowsMultipleSelection here: on iOS 14/15 it would
+        } else {
+            // Do not enable allowsMultipleSelection here: on iOS 15 it would
             // cause single-finger horizontal swipes to trigger
             // shouldBeginMultipleSelectionInteractionAt. Multi-selection during
             // editing is toggled via allowsMultipleSelectionDuringEditing in
             // setEditing(_:animated:) instead.
-        } else {
-            // iOS 13 and below lack allowsMultipleSelectionDuringEditing, so the
-            // global flag is the only way to get multi-selection in edit mode.
-            collectionView.allowsMultipleSelection = true
         }
         collectionView?.backgroundColor = PresentationTheme.current.colors.background
         collectionView?.alwaysBounceVertical = true

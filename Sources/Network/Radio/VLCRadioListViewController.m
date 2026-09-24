@@ -52,9 +52,7 @@
 
     self.tableView.cellLayoutMarginsFollowReadableWidth = NO;
     self.tableView.backgroundColor = PresentationTheme.current.colors.pageBackground;
-    if (@available(iOS 15.0, *)) {
-        self.tableView.sectionHeaderTopPadding = 0.0;
-    }
+    self.tableView.sectionHeaderTopPadding = 0.0;
 
     [self.tableView registerClass:[VLCRadioFavoritesGridCell class]
            forCellReuseIdentifier:VLCRadioFavoritesGridCell.reuseIdentifier];
@@ -229,13 +227,11 @@
         VLCRadioCountry *country = visited[row];
         [cell setTitle:country.localizedName];
         [cell setIcon:country.flagImage];
+        cell.accessibilityIdentifier = VLCAccessibilityIdentifier.radioCountry;
     } else {
         [cell setTitle:NSLocalizedString(@"ALL_COUNTRIES", nil)];
-        if (@available(iOS 14.2, *)) {
-            [cell setIcon:[UIImage systemImageNamed:@"globe.europe.africa"]];
-        } else if (@available(iOS 13.0, *)) {
-            [cell setIcon:[UIImage systemImageNamed:@"globe"]];
-        }
+        cell.accessibilityIdentifier = VLCAccessibilityIdentifier.radioAllCountries;
+        [cell setIcon:[UIImage systemImageNamed:@"globe.europe.africa"]];
     }
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
 }

@@ -53,6 +53,7 @@ NSString *const VLCPlaybackServicePlaybackPositionUpdated = @"VLCPlaybackService
 NSString *const VLCPlaybackServicePlaybackModeUpdated = @"VLCPlaybackServicePlaybackModeUpdated";
 NSString *const VLCPlaybackServiceShuffleModeUpdated = @"VLCPlaybackServiceShuffleModeUpdated";
 NSString *const VLCPlaybackServicePlaybackDidMoveOnToNextItem = @"VLCPlaybackServicePlaybackDidMoveOnToNextItem";
+NSString *const VLCPlaybackServiceSleepTimerDidChange = @"VLCPlaybackServiceSleepTimerDidChange";
 NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
 static const float kVLCPlaybackRateMinimum = 0.25f;
@@ -412,8 +413,10 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 
     [_mediaPlayer setDelegate:self];
     CGFloat defaultPlaybackSpeed = self.defaultPlaybackRate;
-    if (defaultPlaybackSpeed != 0.)
+    if ([defaults boolForKey:kVLCSettingPlaybackSpeedAppliesToAll] && defaultPlaybackSpeed != 0.)
         [self setPlaybackRate:defaultPlaybackSpeed];
+    else
+        [self setPlaybackRate:1.0];
     int deinterlace = [[defaults objectForKey:kVLCSettingDeinterlace] intValue];
     [_mediaPlayer setDeinterlace:deinterlace withFilter:@"blend"];
 
@@ -524,6 +527,8 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 
 - (void)stopPlayback
 {
+    self.stopAfterCurrentItem = NO;
+
     BOOL ret = [_playbackSessionManagementLock tryLock];
     if (!ret) {
         APLog(@"%s: locking failed", __PRETTY_FUNCTION__);
@@ -591,23 +596,30 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
             [self startPlayback];
         });
     } else {
+        [self cancelSleepTimer];
         [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidStop object:self];
     }
+}
+
+- (void)restoreDelaysForMedia:(VLCMLMedia *)media
+{
+    BOOL saveAudioDelay = [[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingSaveAudioDelay];
+    self.subtitleDelay = [media metadataOfType:VLCMLMetadataTypeSubtitleDelay].integer;
+    self.audioDelay = saveAudioDelay ? [media metadataOfType:VLCMLMetadataTypeAudioDelay].integer : 0;
 }
 
 - (void)restoreAudioAndSubtitleTrack
 {
     VLCMLMedia *media = [VLCMLMedia mediaForPlayingMedia:_mediaPlayer.media];
 
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingPlaybackSpeedAppliesToAll]) {
+        [self restorePlaybackRateForCurrentMedia];
+    }
+
     if (media) {
         if (media.isNew) {
             [self disableSubtitlesIfNeeded];
             return;
-        }
-
-        VLCMLMetadata *speedMetadata = [media metadataOfType:VLCMLMetadataTypeSpeed];
-        if (speedMetadata.integer > 0) {
-            [self setPlaybackRate:speedMetadata.integer / 100.0];
         }
 
         BOOL disableSubtitles = [[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingDisableSubtitles];
@@ -743,6 +755,23 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 {
     float rate = _mediaPlayer.rate * factor;
     self.playbackRate = MIN(MAX(rate, kVLCPlaybackRateMinimum), kVLCPlaybackRateMaximum);
+}
+
+- (float)restorePlaybackRateForCurrentMedia
+{
+    VLCMLMedia *media = [VLCMLMedia mediaForPlayingMedia:_mediaPlayer.media];
+    float rate = [media metadataOfType:VLCMLMetadataTypeSpeed].integer / 100.0;
+    if (rate <= 0.) {
+        rate = 1.0;
+    }
+    [self setPlaybackRate:rate];
+    return rate;
+}
+
+- (void)savePlaybackRateForCurrentMedia
+{
+    VLCMLMedia *media = [VLCMLMedia mediaForPlayingMedia:_mediaPlayer.media];
+    [media setMetadataOfType:VLCMLMetadataTypeSpeed intValue:lroundf(_mediaPlayer.rate * 100.f)];
 }
 
 - (CGFloat)defaultPlaybackRate
@@ -1062,6 +1091,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
                     [self _recoverLastPlaybackState];
 #endif
                 }
+                [self restoreDelaysForMedia:[VLCMLMedia mediaForPlayingMedia:self->_mediaPlayer.media]];
                 [self setNeedsMetadataUpdate];
                 [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidStart object:self userInfo:@{
                     kVLCPlayerOpenInMiniPlayer: @(self->_openInMiniPlayer),
@@ -1165,6 +1195,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 
 - (void)playItemAtIndex:(NSUInteger)index
 {
+    self.stopAfterCurrentItem = NO;
     VLCMediaList *mediaList = _shuffleMode ? _shuffledList : _mediaList;
     VLCMedia *media = [mediaList mediaAtIndex:index];
     [_listPlayer playItemAtNumber:[NSNumber numberWithUnsignedInteger:index]];
@@ -1288,6 +1319,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
         return YES;
     }
 
+    self.stopAfterCurrentItem = NO;
     NSInteger nextIndex = [self nextMediaIndex:true];
 
     if (nextIndex < 0) {
@@ -1315,6 +1347,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
         if (playedTime.value.longLongValue / 2000 >= 1) {
             self.playbackPosition = .0;
         } else {
+            self.stopAfterCurrentItem = NO;
             [self savePlaybackState];
 
             if (!_currentIndex) {
@@ -2008,11 +2041,44 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 
 - (void)scheduleSleepTimerWithInterval:(NSTimeInterval)timeInterval
 {
-    if (_sleepTimer) {
+    [_sleepTimer invalidate];
+    _stopAfterCurrentItem = NO;
+    _sleepTimerInterval = timeInterval;
+    _sleepTimer = [NSTimer scheduledTimerWithTimeInterval:timeInterval target:self selector:@selector(sleepTimerFired) userInfo:nil repeats:NO];
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceSleepTimerDidChange object:self];
+}
+
+- (void)cancelSleepTimer
+{
+    if (!_sleepTimer) {
+        return;
+    }
+
+    [_sleepTimer invalidate];
+    _sleepTimer = nil;
+    _sleepTimerInterval = 0;
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceSleepTimerDidChange object:self];
+}
+
+- (void)sleepTimerFired
+{
+    [self cancelSleepTimer];
+    [self stopPlayback];
+}
+
+- (void)setStopAfterCurrentItem:(BOOL)stopAfterCurrentItem
+{
+    if (_stopAfterCurrentItem == stopAfterCurrentItem) {
+        return;
+    }
+
+    _stopAfterCurrentItem = stopAfterCurrentItem;
+    if (stopAfterCurrentItem) {
         [_sleepTimer invalidate];
         _sleepTimer = nil;
+        _sleepTimerInterval = 0;
     }
-    _sleepTimer = [NSTimer scheduledTimerWithTimeInterval:timeInterval target:self selector:@selector(stopPlayback) userInfo:nil repeats:NO];
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceSleepTimerDidChange object:self];
 }
 
 - (BOOL)isPlayingOnExternalScreen
@@ -2195,6 +2261,12 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 - (void)mediaListPlayer:(VLCMediaListPlayer *)player nextMedia:(VLCMedia *)media
 {
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (self->_stopAfterCurrentItem) {
+            self->_sessionWillRestart = NO;
+            [self stopPlayback];
+            return;
+        }
+
 #if !TARGET_OS_TV && !TARGET_OS_WATCH
         [self _findCachedSubtitlesForMedia:media];
 #endif

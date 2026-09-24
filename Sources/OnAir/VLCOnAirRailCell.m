@@ -13,6 +13,8 @@
 #import "VLCOnAirRailCell.h"
 #import "VLCAddTile.h"
 
+#import "VLC-Swift.h"
+
 static CGFloat const kVLCOnAirRailGap = 12.0;
 static CGFloat const kVLCOnAirRailSideMargin = 20.0;
 static CGFloat const kVLCOnAirRailNameArea = 22.0;
@@ -70,9 +72,7 @@ static CGFloat const kVLCOnAirRailTileCornerRadius = 9.0;
         self.contentView.backgroundColor = [UIColor clearColor];
         self.backgroundView = [[UIView alloc] init];
         self.backgroundView.backgroundColor = [UIColor clearColor];
-        if (@available(iOS 14.0, *)) {
-            self.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
-        }
+        self.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
         self.selectionStyle = UITableViewCellSelectionStyleNone;
 
         UICollectionViewFlowLayout *layout = [[UICollectionViewFlowLayout alloc] init];
@@ -145,6 +145,7 @@ static CGFloat const kVLCOnAirRailTileCornerRadius = 9.0;
     tile.badge = item.badge;
     tile.subtitle = _showsSubtitles ? item.subtitle : nil;
     tile.accessoryGlyphName = item.accessoryGlyphName;
+    tile.accessibilityIdentifier = VLCAccessibilityIdentifier.railItem;
     tile.accessibilityLabel = item.accessoryLabel ? [NSString stringWithFormat:@"%@, %@", item.name, item.accessoryLabel]
                                                   : item.name;
 

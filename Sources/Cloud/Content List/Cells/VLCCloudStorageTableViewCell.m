@@ -98,7 +98,7 @@
     _folderTitleLabel.text = _oneDriveFile.name;
     _titleLabel.hidden = _subtitleLabel.hidden = YES;
     _folderTitleLabel.hidden = NO;
-    _thumbnailView.image = [UIImage imageNamed:@"folder"];
+    _thumbnailView.image = [UIImage systemImageNamed:@"folder"];
 }
 
 - (void)loadThumbnail
@@ -190,7 +190,7 @@
             NSString *urlString = [NSString stringWithFormat:@"file://DropBox/%@", selectedFilePath];
             NSURL *url = [NSURL URLWithString:urlString];
             self.isFavourite = [service isFavoriteURL:url];
-            self.thumbnailView.image = [UIImage imageNamed:@"folder"];
+            self.thumbnailView.image = [UIImage systemImageNamed:@"folder"];
         } else if ([_dropboxFile isKindOfClass:[DBFILESFileMetadata class]]) {
             DBFILESFileMetadata *file = (DBFILESFileMetadata *)_dropboxFile;
             self.titleLabel.text = file.name;
@@ -243,7 +243,7 @@
         if (!self.thumbnailView.image) {
             NSString *iconName = self.driveFile.iconLink;
             if (isDirectory) {
-                self.thumbnailView.image = [UIImage imageNamed:@"folder"];
+                self.thumbnailView.image = [UIImage systemImageNamed:@"folder"];
             } else if ([iconName isEqualToString:@"https://ssl.gstatic.com/docs/doclist/images/icon_10_audio_list.png"]) {
                 self.thumbnailView.image = [UIImage imageNamed:@"audioFile"];
             } else if ([iconName isEqualToString:@"https://ssl.gstatic.com/docs/doclist/images/icon_11_video_list.png"]) {
@@ -280,7 +280,7 @@
         }
 
         if (isDirectory) {
-            self.thumbnailView.image = [UIImage imageNamed:@"folder"];
+            self.thumbnailView.image = [UIImage systemImageNamed:@"folder"];
         } else {
             self.thumbnailView.image = [UIImage imageNamed:@"blank"];
         }
@@ -319,7 +319,7 @@
         }
 
         if (isDirectory) {
-            self.thumbnailView.image = [UIImage imageNamed:@"folder"];
+            self.thumbnailView.image = [UIImage systemImageNamed:@"folder"];
         } else if (self.pcloudFile.isAudioFile) {
             self.thumbnailView.image = [UIImage imageNamed:@"audioFile"];
         } else if (self.pcloudFile.isVideoFile) {
@@ -359,26 +359,24 @@
 
 - (void)setupShortcutBadgeView
 {
-    if (@available(iOS 13.0, *)) {
-        UIImageView *badge = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"arrowshape.turn.up.right.fill"]];
-        badge.translatesAutoresizingMaskIntoConstraints = NO;
-        badge.contentMode = UIViewContentModeScaleAspectFit;
-        badge.tintColor = PresentationTheme.current.colors.orangeUI;
-        badge.layer.shadowOpacity = 0.8;
-        badge.layer.shadowRadius = 2.;
-        badge.layer.shadowOffset = CGSizeZero;
+    UIImageView *badge = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"arrowshape.turn.up.right.fill"]];
+    badge.translatesAutoresizingMaskIntoConstraints = NO;
+    badge.contentMode = UIViewContentModeScaleAspectFit;
+    badge.tintColor = PresentationTheme.current.colors.orangeUI;
+    badge.layer.shadowOpacity = 0.8;
+    badge.layer.shadowRadius = 2.;
+    badge.layer.shadowOffset = CGSizeZero;
 
-        [self.contentView addSubview:badge];
+    [self.contentView addSubview:badge];
 
-        [NSLayoutConstraint activateConstraints:@[
-            [badge.trailingAnchor constraintEqualToAnchor:self.thumbnailView.trailingAnchor constant:-2.],
-            [badge.bottomAnchor constraintEqualToAnchor:self.thumbnailView.bottomAnchor constant:-2.],
-            [badge.widthAnchor constraintEqualToConstant:14.],
-            [badge.heightAnchor constraintEqualToConstant:14.]
-        ]];
+    [NSLayoutConstraint activateConstraints:@[
+        [badge.trailingAnchor constraintEqualToAnchor:self.thumbnailView.trailingAnchor constant:-2.],
+        [badge.bottomAnchor constraintEqualToAnchor:self.thumbnailView.bottomAnchor constant:-2.],
+        [badge.widthAnchor constraintEqualToConstant:14.],
+        [badge.heightAnchor constraintEqualToConstant:14.]
+    ]];
 
-        _shortcutBadgeView = badge;
-    }
+    _shortcutBadgeView = badge;
 }
 
 - (void)showShortcutBadge:(BOOL)show
@@ -392,18 +390,9 @@
 
 - (void)setIsFavourite:(BOOL)isFavourite
 {
-    if (@available(iOS 13.0, *)) {
-        _favouriteButton.hidden = !isFavourite;
-        if (isFavourite) {
-            [_favouriteButton setImage:[UIImage systemImageNamed:@"heart.fill"] forState:UIControlStateNormal];
-        }
-    } else {
-        _favouriteButton.hidden = NO;
-        if (isFavourite) {
-            [_favouriteButton setImage:[UIImage imageNamed:@"heart"] forState:UIControlStateNormal];
-        } else {
-            [_favouriteButton setImage:[UIImage imageNamed:@"heart-fill"] forState:UIControlStateNormal];
-        }
+    _favouriteButton.hidden = !isFavourite;
+    if (isFavourite) {
+        [_favouriteButton setImage:[UIImage systemImageNamed:@"heart.fill"] forState:UIControlStateNormal];
     }
        
     _isFavourite = isFavourite;

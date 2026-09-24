@@ -23,16 +23,13 @@ class AppMenuBarButtonItem: UIBarButtonItem {
         accessibilityLabel = NSLocalizedString("Settings", comment: "")
         accessibilityIdentifier = VLCAccessibilityIdentifier.settings
 
-        if #available(iOS 14.0, *) {
-            menu = buildMenu()
-        }
+        menu = buildMenu()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    @available(iOS 14.0, *)
     private func buildMenu() -> UIMenu {
         let about = UIAction(title: NSLocalizedString("SETTINGS_ABOUT", comment: ""),
                              image: UIImage(named: "MenuCone")) { [weak self] _ in
@@ -45,18 +42,17 @@ class AppMenuBarButtonItem: UIBarButtonItem {
             self?.showDocumentation()
         }
 
-        let donation = UIAction(title: NSLocalizedString("SETTINGS_DONATE", comment: ""),
-                                image: UIImage(systemName: "heart")) { [weak self] _ in
+        let donation: UIMenuElement = UIAction(title: NSLocalizedString("SETTINGS_DONATE", comment: ""),
+                                               image: UIImage(systemName: "heart")) { [weak self] _ in
             self?.showDonation()
         }
-        if #available(iOS 15.0, *) {
-            donation.subtitle = NSLocalizedString("SETTINGS_DONATE_LONG", comment: "")
-        }
+        donation.subtitle = NSLocalizedString("SETTINGS_DONATE_LONG", comment: "")
 
         let settings = UIAction(title: NSLocalizedString("Settings", comment: ""),
                                 image: UIImage(systemName: "gearshape")) { [weak self] _ in
             self?.showSettings()
         }
+        settings.accessibilityIdentifier = VLCAccessibilityIdentifier.openSettings
 
         let settingsSection = UIMenu(title: "", options: .displayInline, children: [settings])
         return UIMenu(title: "", children: [about, documentation, donation, settingsSection])
