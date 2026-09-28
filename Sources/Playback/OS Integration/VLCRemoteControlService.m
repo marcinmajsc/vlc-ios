@@ -46,6 +46,8 @@ static inline NSArray * RemoteCommandCenterCommandsToHandle(void)
         [notificationCenter addObserver:self selector:@selector(playbackStarted:) name:VLCPlaybackServicePlaybackDidStart object:nil];
         [notificationCenter addObserver:self selector:@selector(playbackStopped:) name:VLCPlaybackServicePlaybackDidStop object:nil];
         [notificationCenter addObserver:self selector:@selector(metadataChanged:) name:VLCPlaybackServicePlaybackMetadataDidChange object:nil];
+        [notificationCenter addObserver:self selector:@selector(playModeChanged:) name:VLCPlaybackServicePlaybackModeUpdated object:nil];
+        [notificationCenter addObserver:self selector:@selector(playModeChanged:) name:VLCPlaybackServiceShuffleModeUpdated object:nil];
     }
     return self;
 }
@@ -84,14 +86,44 @@ static inline NSArray * RemoteCommandCenterCommandsToHandle(void)
     commandCenter.changePlaybackRateCommand.supportedPlaybackRates = @[@(0.5),@(0.75),@(1.0),@(1.25),@(1.5),@(1.75),@(2.0)];
 
     for (MPRemoteCommand *command in RemoteCommandCenterCommandsToHandle()) {
+        [command removeTarget:self];
         [command addTarget:self action:@selector(remoteCommandEvent:)];
     }
+
+    [self updatePlayModes];
 }
 
 - (void)metadataChanged:(NSNotification *)aNotification
 {
     BOOL isLiveStream = [VLCPlaybackService sharedInstance].metadata.isLiveStream;
     [MPRemoteCommandCenter sharedCommandCenter].changePlaybackPositionCommand.enabled = !isLiveStream;
+}
+
+- (void)playModeChanged:(NSNotification *)aNotification
+{
+    [self updatePlayModes];
+}
+
+- (void)updatePlayModes
+{
+    MPRemoteCommandCenter *commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
+    VLCPlaybackService *vps = [VLCPlaybackService sharedInstance];
+
+    commandCenter.changeShuffleModeCommand.currentShuffleType = vps.shuffleMode ? MPShuffleTypeItems : MPShuffleTypeOff;
+
+    switch (vps.repeatMode) {
+        case VLCRepeatCurrentItem:
+            commandCenter.changeRepeatModeCommand.currentRepeatType = MPRepeatTypeOne;
+            break;
+
+        case VLCRepeatAllItems:
+            commandCenter.changeRepeatModeCommand.currentRepeatType = MPRepeatTypeAll;
+            break;
+
+        default:
+            commandCenter.changeRepeatModeCommand.currentRepeatType = MPRepeatTypeOff;
+            break;
+    }
 }
 
 - (void)playbackStopped:(NSNotification *)aNotification
