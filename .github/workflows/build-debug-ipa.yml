@@ -26,9 +26,9 @@ jobs:
 
       - name: Install CocoaPods dependencies
         run: |
-          pod update
           gem install cocoapods
           pod install
+          pod update
 
       - name: Archive VLC-iOS (Debug, unsigned)
         run: |
