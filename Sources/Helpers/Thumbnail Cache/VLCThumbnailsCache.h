@@ -18,4 +18,8 @@
 + (nullable UIImage *)thumbnailForURL:(nullable NSURL *)url maxPixelSize:(CGFloat)maxPixelSize;
 + (void)invalidateThumbnailForURL:(nullable NSURL *)url;
 
++ (nullable UIImage *)cachedImageForURL:(nullable NSURL *)url;
++ (nullable UIImage *)cachedImageForURL:(nullable NSURL *)url maxPixelSize:(CGFloat)maxPixelSize;
++ (nullable UIImage *)imageFromData:(nullable NSData *)data forURL:(nullable NSURL *)url maxPixelSize:(CGFloat)maxPixelSize;
+
 @end

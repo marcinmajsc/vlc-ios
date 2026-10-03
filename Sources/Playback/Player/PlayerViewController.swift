@@ -181,12 +181,6 @@ class PlayerViewController: UIViewController {
         return optionsNavigationBar
     }()
 
-    lazy var equalizerPopupView: PopupView = {
-        let equalizerPopupView = PopupView()
-        equalizerPopupView.delegate = self
-        return equalizerPopupView
-    }()
-
     lazy var externalOutputView: PlayerInfoView = {
         let externalOutputView = PlayerInfoView()
         externalOutputView.isHidden = true
@@ -310,6 +304,12 @@ class PlayerViewController: UIViewController {
 
     var addBookmarksView: AddBookmarksView? = nil
 
+    private(set) var overlayCardView: UIView?
+    private var overlayCardBackdropView: UIView?
+    private var overlayCardConstraints: [NSLayoutConstraint] = []
+    private var isOverlayCardLaidOutForLandscape = false
+    private var gesturesEnabledBeforeOverlayCard = true
+
     private let isBrightnessControlAvailable: Bool
 
     private(set) var isGestureActive: Bool = false
@@ -425,6 +425,7 @@ class PlayerViewController: UIViewController {
         super.viewDidLoad()
 
         setupObservers()
+        updateSleepTimerIcon()
         setupGestures()
         hideSystemVolumeInfo()
     }
@@ -460,6 +461,10 @@ class PlayerViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 
+        guard isBrightnessControlAvailable else {
+            return
+        }
+
         // The window is only attached once the presentation finished, so the
         // screen cannot be resolved any earlier than this.
         if let screen = screenForCurrentWindow() {
@@ -467,14 +472,12 @@ class PlayerViewController: UIViewController {
             systemBrightness = screen.brightness
         }
 
-        if isBrightnessControlAvailable {
-            if playerController.isRememberBrightnessEnabled,
-               let brightness = userDefaults.value(forKey: KVLCPlayerBrightness) as? CGFloat {
-                animateBrightness(to: brightness)
-                brightnessControl.value = Float(brightness)
-            } else {
-                brightnessControlView.updateIcon(level: brightnessControl.fetchAndGetDeviceValue())
-            }
+        if playerController.isRememberBrightnessEnabled,
+           let brightness = userDefaults.value(forKey: KVLCPlayerBrightness) as? CGFloat {
+            animateBrightness(to: brightness)
+            brightnessControl.value = Float(brightness)
+        } else {
+            brightnessControlView.updateIcon(level: brightnessControl.fetchAndGetDeviceValue())
         }
 
         addPlayerBrightnessObservers()
@@ -486,6 +489,11 @@ class PlayerViewController: UIViewController {
 
         // Adjust the position of the AB Repeat marks if needed based on the device's orientation.
         mediaScrubProgressBar.adjustABRepeatMarks(aMark: aMark, bMark: bMark)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        layoutOverlayCardIfNeeded()
     }
 
 #if os(iOS)
@@ -511,19 +519,6 @@ class PlayerViewController: UIViewController {
 #endif
 
     // MARK: - Public methods
-
-    func showPopup(_ popupView: PopupView, with contentView: UIView, accessoryViewsDelegate: PopupViewAccessoryViewsDelegate? = nil) {
-        shouldDisableGestures(true)
-
-        popupView.isShown = true
-
-        popupView.addContentView(contentView, constraintWidth: true)
-        if let accessoryViewsDelegate = accessoryViewsDelegate {
-            popupView.accessoryViewsDelegate = accessoryViewsDelegate
-        }
-
-        view.addSubview(popupView)
-    }
 
     func setControlsHidden(_ hidden: Bool, animated: Bool) {
         // Empty implementation. Should override in subclasses.
@@ -615,12 +610,18 @@ class PlayerViewController: UIViewController {
     }
 
     func showIcon(button: UIButton) {
+        guard button.isHidden else {
+            return
+        }
         UIView.animate(withDuration: 0.5, animations: {
             button.isHidden = false
         }, completion: nil)
     }
 
     func hideIcon(button: UIButton) {
+        guard !button.isHidden else {
+            return
+        }
         UIView.animate(withDuration: 0.5, animations: {
             button.isHidden = true
         }, completion: nil)
@@ -692,23 +693,196 @@ class PlayerViewController: UIViewController {
     }
 
     private func resetVideoFilters() {
-        hideIcon(button: optionsNavigationBar.videoFiltersButton)
-        moreOptionsActionSheet.resetVideoFilters()
+        playbackService.adjustFilter.reset()
+        updateVideoFiltersIcon()
+    }
+
+    func updateVideoFiltersIcon() {
+        if playbackService.adjustFilter.isEnabled {
+            showIcon(button: optionsNavigationBar.videoFiltersButton)
+        } else {
+            hideIcon(button: optionsNavigationBar.videoFiltersButton)
+        }
+    }
+
+    func showVideoFiltersCard() {
+        guard !(overlayCardView is VideoFiltersControlsView) else {
+            return
+        }
+
+        let videoFiltersCard = VideoFiltersControlsView()
+        videoFiltersCard.delegate = self
+        showOverlayCard(videoFiltersCard)
+        videoFiltersCard.focusForAccessibility()
+    }
+
+    func showPlaybackSpeedCard() {
+        guard !(overlayCardView is PlaybackSpeedControlsView) else {
+            return
+        }
+
+        let speedCard = PlaybackSpeedControlsView(isAudioPlayer: self is AudioPlayerViewController)
+        speedCard.delegate = self
+        showOverlayCard(speedCard)
+        speedCard.focusForAccessibility()
+    }
+
+    func showEqualizerCard() {
+        guard !(overlayCardView is EqualizerView) else {
+            return
+        }
+
+        let equalizerCard = EqualizerView(isModified: !optionsNavigationBar.equalizerButton.isHidden)
+        equalizerCard.delegate = self
+        showOverlayCard(equalizerCard)
+        equalizerCard.focusForAccessibility()
+    }
+
+    func showSleepTimerCard() {
+        guard !(overlayCardView is SleepTimerControlsView) else {
+            return
+        }
+
+        let sleepTimerCard = SleepTimerControlsView(isAudioPlayer: self is AudioPlayerViewController)
+        sleepTimerCard.delegate = self
+        showOverlayCard(sleepTimerCard)
+        sleepTimerCard.focusForAccessibility()
+    }
+
+    @objc var areGesturesEnabled: Bool {
+        return playPauseRecognizer.isEnabled
+    }
+
+    func showOverlayCard(_ card: UIView) {
+        dismissOverlayCard()
+
+        let backdropView = UIView()
+        backdropView.translatesAutoresizingMaskIntoConstraints = false
+        backdropView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(dismissOverlayCard)))
+        view.addSubview(backdropView)
+        NSLayoutConstraint.activate([
+            backdropView.topAnchor.constraint(equalTo: view.topAnchor),
+            backdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            backdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            backdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        overlayCardBackdropView = backdropView
+
+        card.alpha = 0
+        view.addSubview(card)
+        overlayCardView = card
+        layoutOverlayCardIfNeeded(force: true)
+
+        setControlsHidden(true, animated: true)
+        gesturesEnabledBeforeOverlayCard = areGesturesEnabled
+        shouldDisableGestures(true)
+
+        UIView.animate(withDuration: 0.25) {
+            card.alpha = 1
+        }
+    }
+
+    @objc func dismissOverlayCard() {
+        guard let card = overlayCardView else {
+            return
+        }
+
+        (card as? PlaybackSpeedControlsView)?.storeDefaultSpeed()
+        overlayCardView = nil
+        overlayCardConstraints = []
+        overlayCardBackdropView?.removeFromSuperview()
+        overlayCardBackdropView = nil
+        shouldDisableGestures(!gesturesEnabledBeforeOverlayCard)
+
+        UIView.animate(withDuration: 0.25, animations: {
+            card.alpha = 0
+        }, completion: { _ in
+            card.removeFromSuperview()
+        })
+        UIAccessibility.post(notification: .screenChanged, argument: nil)
+    }
+
+    private func layoutOverlayCardIfNeeded(force: Bool = false) {
+        guard let card = overlayCardView, view.bounds.width > 0 else {
+            return
+        }
+
+        let isLandscape = view.bounds.width > view.bounds.height
+        guard force || isLandscape != isOverlayCardLaidOutForLandscape else {
+            return
+        }
+        isOverlayCardLaidOutForLandscape = isLandscape
+
+        NSLayoutConstraint.deactivate(overlayCardConstraints)
+        let guide = view.safeAreaLayoutGuide
+        let margin: CGFloat = 12
+        if isLandscape {
+            let landscapeWidth: CGFloat
+            if card is EqualizerView {
+                landscapeWidth = traitCollection.verticalSizeClass == .regular ? 480 : 380
+            } else {
+                landscapeWidth = card is TrackSelectorView ? 380 : 340
+            }
+            let preferredWidth = card.widthAnchor.constraint(equalToConstant: landscapeWidth)
+            preferredWidth.priority = .defaultHigh
+            overlayCardConstraints = [
+                card.topAnchor.constraint(equalTo: guide.topAnchor, constant: margin),
+                card.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -margin),
+                card.leadingAnchor.constraint(greaterThanOrEqualTo: guide.leadingAnchor, constant: margin),
+                card.bottomAnchor.constraint(lessThanOrEqualTo: guide.bottomAnchor, constant: -margin),
+                preferredWidth,
+            ]
+        } else {
+            let preferredWidth = card.widthAnchor.constraint(equalTo: guide.widthAnchor, constant: -2 * margin)
+            preferredWidth.priority = .defaultHigh
+            overlayCardConstraints = [
+                card.centerXAnchor.constraint(equalTo: guide.centerXAnchor),
+                card.leadingAnchor.constraint(greaterThanOrEqualTo: guide.leadingAnchor, constant: margin),
+                card.widthAnchor.constraint(lessThanOrEqualToConstant: 480),
+                card.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -margin),
+                card.topAnchor.constraint(greaterThanOrEqualTo: guide.topAnchor, constant: margin),
+                preferredWidth,
+            ]
+        }
+        NSLayoutConstraint.activate(overlayCardConstraints)
+    }
+
+    @objc func updatePlaybackSpeedIcon() {
+        let isSpeedModified = abs(playbackService.playbackRate - 1) > 0.001
+        if isSpeedModified || playbackService.audioDelay != 0 || playbackService.subtitleDelay != 0 {
+            showIcon(button: optionsNavigationBar.playbackSpeedButton)
+        } else {
+            hideIcon(button: optionsNavigationBar.playbackSpeedButton)
+        }
     }
 
     private func resetPlaybackSpeed() {
+        playbackService.playbackRate = 1
+        playbackService.audioDelay = 0
+        playbackService.subtitleDelay = 0
         hideIcon(button: optionsNavigationBar.playbackSpeedButton)
-        moreOptionsActionSheet.resetPlaybackSpeed()
     }
 
     private func resetEqualizer() {
-        moreOptionsActionSheet.resetEqualizer()
+        playbackService.restoreSavedEqualizerProfile()
+        hideEqualizerIcon()
+    }
+
+    @objc private func hideEqualizerIcon() {
         hideIcon(button: optionsNavigationBar.equalizerButton)
     }
 
+    @objc func updateSleepTimerIcon() {
+        if playbackService.sleepTimer != nil || playbackService.stopAfterCurrentItem {
+            showIcon(button: optionsNavigationBar.sleepTimerButton)
+        } else {
+            hideIcon(button: optionsNavigationBar.sleepTimerButton)
+        }
+    }
+
     private func resetSleepTimer() {
-        hideIcon(button: optionsNavigationBar.sleepTimerButton)
-        moreOptionsActionSheet.resetSleepTimer()
+        playbackService.cancelSleepTimer()
+        playbackService.stopAfterCurrentItem = false
     }
 
     private func handleReset(button: UIButton) {
@@ -819,8 +993,11 @@ class PlayerViewController: UIViewController {
         try? AVAudioSession.sharedInstance().setActive(true)
         AVAudioSession.sharedInstance().addObserver(self, forKeyPath: "outputVolume", options: NSKeyValueObservingOptions.new, context: nil)
 
+        notificationCenter.addObserver(self, selector: #selector(updatePlaybackSpeedIcon), name: Notification.Name(VLCPlaybackServicePlaybackRateDidChange), object: nil)
         notificationCenter.addObserver(self, selector: #selector(updatePlayerControls), name: .VLCDidAppendMediaToQueue, object: nil)
         notificationCenter.addObserver(self, selector: #selector(updatePlayerControls), name: .VLCDidRemoveMediaFromQueue, object: nil)
+        notificationCenter.addObserver(self, selector: #selector(updateSleepTimerIcon), name: Notification.Name(VLCPlaybackServiceSleepTimerDidChange), object: nil)
+        notificationCenter.addObserver(self, selector: #selector(hideEqualizerIcon), name: Notification.Name(VLCPlaybackServicePlaybackDidStop), object: nil)
     }
 
     private func setupSeekDurations() {
@@ -844,29 +1021,6 @@ class PlayerViewController: UIViewController {
         } else {
             // otherwise backward swipe = backward swipe
             seekBackwardBySwipe = defaults.integer(forKey: kVLCSettingPlaybackBackwardSkipLengthSwipe)
-        }
-    }
-
-    private func applyCustomEqualizerProfileIfNeeded() {
-        let userDefaults = UserDefaults.standard
-        guard userDefaults.bool(forKey: kVLCCustomProfileEnabled) else {
-            return
-        }
-
-        let profileIndex = userDefaults.integer(forKey: kVLCSettingEqualizerProfile)
-        let encodedData = userDefaults.data(forKey: kVLCCustomEqualizerProfiles)
-
-        guard let encodedData = encodedData,
-              let customProfiles = CustomEqualizerProfiles.unarchive(from: encodedData),
-              profileIndex < customProfiles.profiles.count else {
-            return
-        }
-
-        let selectedProfile = customProfiles.profiles[profileIndex]
-        playbackService.preAmplification = CGFloat(selectedProfile.preAmpLevel)
-
-        for (index, frequency) in selectedProfile.frequencies.enumerated() {
-            playbackService.setAmplification(CGFloat(frequency), forBand: UInt32(index))
         }
     }
 
@@ -906,15 +1060,7 @@ class PlayerViewController: UIViewController {
     }
 
     private func screenForCurrentWindow() -> UIScreen? {
-        guard let window = view.window else {
-            return nil
-        }
-
-        if #available(iOS 13.0, *), let screen = window.windowScene?.screen {
-            return screen
-        }
-
-        return window.screen
+        return view.window?.windowScene?.screen
     }
 
     func animateBrightness(to value: CGFloat, duration: CGFloat = 0.3) {
@@ -1276,15 +1422,9 @@ extension PlayerViewController: VLCPlaybackServiceDelegate {
 
     func mediaPlayerStateChanged(_ currentState: VLCMediaPlayerState, isPlaying: Bool, currentMediaHasTrackToChooseFrom: Bool, currentMediaHasChapters: Bool, for playbackService: PlaybackService) {
         switch currentState {
-        case .opening:
-            applyCustomEqualizerProfileIfNeeded()
-
         case .stopped:
             coneLoadingView.stopAnimating()
-            moreOptionsActionSheet.resetPlaybackSpeed()
-            mediaMoreOptionsActionSheetHideIcon(for: .playbackSpeed)
-            moreOptionsActionSheet.resetSleepTimer()
-            mediaMoreOptionsActionSheetHideIcon(for: .sleepTimer)
+            resetPlaybackSpeed()
 
         case .error:
             coneLoadingView.stopAnimating()
@@ -1361,6 +1501,58 @@ extension PlayerViewController: MediaNavigationBarDelegate {
     }
 }
 
+// MARK: - PlaybackSpeedControlsViewDelegate
+
+extension PlayerViewController: PlaybackSpeedControlsViewDelegate {
+    func playbackSpeedControlsViewDidChangeSpeed(_ controlsView: PlaybackSpeedControlsView) {
+        updatePlaybackSpeedIcon()
+    }
+
+    func playbackSpeedControlsViewDidRequestDismissal(_ controlsView: PlaybackSpeedControlsView) {
+        dismissOverlayCard()
+    }
+}
+
+// MARK: - SleepTimerControlsViewDelegate
+
+extension PlayerViewController: SleepTimerControlsViewDelegate {
+    func sleepTimerControlsViewDidRequestDismissal(_ controlsView: SleepTimerControlsView) {
+        dismissOverlayCard()
+    }
+}
+
+// MARK: - EqualizerViewDelegate
+
+extension PlayerViewController: EqualizerViewDelegate {
+    func equalizerView(_ equalizerView: EqualizerView, didChangeModifiedState isModified: Bool) {
+        if isModified {
+            showIcon(button: optionsNavigationBar.equalizerButton)
+        } else {
+            hideIcon(button: optionsNavigationBar.equalizerButton)
+        }
+    }
+
+    func equalizerView(_ equalizerView: EqualizerView, present alertController: UIAlertController) {
+        present(alertController, animated: true)
+    }
+
+    func equalizerViewDidRequestDismissal(_ equalizerView: EqualizerView) {
+        dismissOverlayCard()
+    }
+}
+
+// MARK: - VideoFiltersControlsViewDelegate
+
+extension PlayerViewController: VideoFiltersControlsViewDelegate {
+    func videoFiltersControlsViewDidChangeFilters(_ controlsView: VideoFiltersControlsView) {
+        updateVideoFiltersIcon()
+    }
+
+    func videoFiltersControlsViewDidRequestDismissal(_ controlsView: VideoFiltersControlsView) {
+        dismissOverlayCard()
+    }
+}
+
 // MARK: - MediaMoreOptionsActionSheetDelegate
 
 extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
@@ -1375,9 +1567,6 @@ extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
             break
         case .sleepTimer:
             showIcon(button: optionsNavigationBar.sleepTimerButton)
-            break
-        case .equalizer:
-            showIcon(button: optionsNavigationBar.equalizerButton)
             break
         case .abRepeat:
             showIcon(button: optionsNavigationBar.abRepeatButton)
@@ -1398,9 +1587,6 @@ extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
         case .sleepTimer:
             hideIcon(button: optionsNavigationBar.sleepTimerButton)
             break
-        case .equalizer:
-            hideIcon(button: optionsNavigationBar.equalizerButton)
-            break
         case .abRepeat:
             hideIcon(button: optionsNavigationBar.abRepeatButton)
             break
@@ -1412,6 +1598,22 @@ extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
         }
     }
 
+    func mediaMoreOptionsActionSheetPresentPlaybackSpeed() {
+        showPlaybackSpeedCard()
+    }
+
+    func mediaMoreOptionsActionSheetPresentSleepTimer() {
+        showSleepTimerCard()
+    }
+
+    func mediaMoreOptionsActionSheetPresentVideoFilters() {
+        showVideoFiltersCard()
+    }
+
+    func mediaMoreOptionsActionSheetPresentEqualizer() {
+        showEqualizerCard()
+    }
+
     func mediaMoreOptionsActionSheetHideAlertIfNecessary() {
         guard let alertController = alertController else {
             return
@@ -1419,20 +1621,6 @@ extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
 
         alertController.dismiss(animated: true)
         self.alertController = nil
-    }
-
-    func mediaMoreOptionsActionSheetPresentPopupView(withChild child: UIView) {
-        if let equalizerView = child as? EqualizerView {
-            guard !equalizerPopupView.isShown else {
-                return
-            }
-
-            showPopup(equalizerPopupView, with: equalizerView, accessoryViewsDelegate: equalizerView)
-        }
-    }
-
-    func mediaMoreOptionsActionSheetDisplayEqualizerAlert(_ alert: UIAlertController) {
-        present(alert, animated: true)
     }
 
     func mediaMoreOptionsActionSheetUpdateProgressBar() {
@@ -1508,8 +1696,6 @@ extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
             self.alertController = alertController
         }
 
-        // iOS 12.0 and below versions do not execute the completion if the dismiss call is not performed,
-        // here the check is necessary in order to enable the edit actions for these iOS versions.
         if addBookmarksView == nil {
             moreOptionsActionSheet.dismiss(animated: true, completion: completion)
         } else {
@@ -1601,7 +1787,12 @@ extension PlayerViewController: OptionsNavigationBarDelegate {
     }
 
     func optionsNavigationBarGetRemainingTime() -> String {
-        return moreOptionsActionSheet.getRemainingTime()
+        guard let fireDate = playbackService.sleepTimer?.fireDate else {
+            return ""
+        }
+
+        let time = SleepTimerControlsView.remainingTimeString(for: max(fireDate.timeIntervalSinceNow, 0))
+        return String(format: NSLocalizedString("REMAINING_TIME", comment: ""), time) + "\n"
     }
 
     func resetABRepeat() {
@@ -1628,16 +1819,6 @@ extension PlayerViewController: OptionsNavigationBarDelegate {
         }
 
         mediaMoreOptionsActionSheetPresentABRepeatView(with: abRepeatView)
-    }
-}
-
-// MARK: - PopupViewDelegate
-
-extension PlayerViewController: PopupViewDelegate {
-    @objc func popupViewDidClose(_ popupView: PopupView) {
-        shouldDisableGestures(false)
-
-        popupView.isShown = false
     }
 }
 
@@ -1744,6 +1925,11 @@ extension PlayerViewController {
     }
 
     @objc func keyEscape() {
+        guard overlayCardView == nil else {
+            dismissOverlayCard()
+            return
+        }
+
         // Close whatever is on top first (options sheet, track selector, ...)
         // instead of falling through and closing the player underneath it.
         if let actionSheet = presentedViewController as? ActionSheet {
@@ -1753,11 +1939,6 @@ extension PlayerViewController {
 
         if let presented = presentedViewController {
             presented.dismiss(animated: true)
-            return
-        }
-
-        guard !equalizerPopupView.isShown else {
-            equalizerPopupView.close()
             return
         }
 
@@ -1824,12 +2005,10 @@ extension PlayerViewController {
             commands.append(resetSpeed)
         }
 
-        if #available(iOS 15, *) {
-            commands.forEach {
-                if $0.input == UIKeyCommand.inputRightArrow
-                    || $0.input == UIKeyCommand.inputLeftArrow {
-                    $0.wantsPriorityOverSystemBehavior = true
-                }
+        commands.forEach {
+            if $0.input == UIKeyCommand.inputRightArrow
+                || $0.input == UIKeyCommand.inputLeftArrow {
+                $0.wantsPriorityOverSystemBehavior = true
             }
         }
 

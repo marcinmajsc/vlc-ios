@@ -39,9 +39,12 @@
 "VFILTER_SATURATION" = "Saturation";
 "VFILTER_GAMMA" = "Gamma";
 
-"PRESET_PREAMP_SETTING" = "Preset / preamp settings";
 "PREAMP" = "Preamp";
 "SNAP_BANDS" = "Snap bands";
+"EQUALIZER_SAVE_PROFILE" = "Save as Profile…";
+"EQUALIZER_APPLY_PROFILE" = "Apply";
+"EQUALIZER_MOVE_UP" = "Move Up";
+"EQUALIZER_MOVE_DOWN" = "Move Down";
 
 "PLAYBACK_FAILED" = "Playback failed";
 "PLEASE_WAIT" = "Please wait";
@@ -52,8 +55,19 @@
 "PLAYBACK_SPEED_FORMAT" = "%@×";
 "SPU_DELAY" = "Subtitles delay";
 "AUDIO_DELAY" = "Audio delay";
+"PLAYBACK_SPEED_THIS_VIDEO" = "This video";
+"PLAYBACK_SPEED_ALL_VIDEOS" = "All videos";
+"PLAYBACK_SPEED_THIS_TRACK" = "This track";
+"PLAYBACK_SPEED_ALL_TRACKS" = "All tracks";
+"DELAY_MS_FORMAT" = "%@ ms";
+"SYNC_VOICE_HEARD" = "Voice heard";
+"SYNC_TEXT_SEEN" = "Text seen";
+"SYNC_SOUND_HEARD" = "Sound heard";
+"SYNC_SCENE_SEEN" = "Scene seen";
+"SYNC_MARK_HINT" = "Double-tap at the moment it happens";
 "BUTTON_SLEEP_TIMER" = "Sleep Timer";
-"SLEEP_TIMER_UPDATED" = "Sleep Timer Updated";
+"SLEEP_TIMER_STOP_AFTER_THIS_VIDEO" = "Stop After This Video";
+"SLEEP_TIMER_STOP_AFTER_THIS_TRACK" = "Stop After This Track";
 "CONTINUE_PLAYBACK" = "Continue playback?";
 "CONTINUE_PLAYBACK_LONG" = "Would you like to continue playback of \"%@\" where you left off?";
 
@@ -76,7 +90,6 @@
 "BUTTON_LEARN_MORE" = "Learn More";
 "BUTTON_LOGOUT" = "Logout";
 "BUTTON_CONTINUE" = "Continue";
-"BUTTON_SET" = "Set";
 "BUTTON_RESET" = "Reset";
 "BUTTON_RESCAN" = "Rescan";
 "BUTTON_SYNC" = "Sync";
@@ -167,8 +180,8 @@
 "ONAIR_ADD" = "Add";
 "ONAIR_FIND_STATION" = "Find a station";
 "ONAIR_PODCASTS" = "Podcasts";
-"ONAIR_PODCASTS_EMPTY_BODY" = "Paste an RSS feed to subscribe.";
-"ONAIR_PODCASTS_ZERO_BODY" = "Bring your own feed to get started.";
+"ONAIR_PODCASTS_EMPTY_BODY" = "Paste an RSS feed, or browse the directory.";
+"ONAIR_PODCASTS_ZERO_BODY" = "Browse the directory, or bring your own feed.";
 "ONAIR_PASTE_RSS" = "Paste RSS";
 "ONAIR_TV" = "TV";
 "ONAIR_TV_EMPTY_BODY" = "Public channels, or your own M3U.";
@@ -346,6 +359,7 @@
 "ENTER_URL" = "Enter URL to play";
 "HTTP_SERVER_ON" = "Disable Remote Playback";
 "HTTP_SERVER_OFF" = "Enable Remote Playback";
+"HTTP_UPLOAD_QR_CODE" = "QR code for the server address";
 "CACHED_MEDIA" = "Cached Media";
 "CACHED_MEDIA_LONG" = "Media shown here is stored locally on your Apple TV. Note that contents can be removed by the operating system without prior notice anytime when VLC is not running in case your device runs out of storage.";
 "DOWNLOAD_SUBS_FROM_OSO" = "Download Subtitles...";
@@ -427,7 +441,6 @@
 "PODCAST_MARK_ALL_AS_PLAYED" = "Mark All as Played";
 "PODCAST_TIME_LEFT" = "%@ left";
 "PODCAST_EXPORT_MEDIA_FILE" = "Export Media File";
-"PODCAST_OPEN_LINK" = "Open Link…";
 "PODCAST_EPISODE_COUNT" = "%d episodes";
 "PODCAST_EPISODE_DOWNLOAD" = "Download episode";
 "PODCAST_EPISODE_DOWNLOADED" = "Episode downloaded";
@@ -438,7 +451,7 @@
 "PODCAST_UNSUBSCRIBE_MESSAGE" = "This will remove this show, its episodes and any downloaded copies from your library.";
 "PODCAST_OPEN_WEBSITE" = "Open Website…";
 "PODCAST_EMPTY_TITLE" = "No Podcasts Yet";
-"PODCAST_EMPTY_DESCRIPTION" = "Add a show via its RSS feed URL to start listening.";
+"PODCAST_EMPTY_DESCRIPTION" = "Browse the directory or add a show via its RSS feed URL to start listening.";
 "PODCAST_ADD_VIA_RSS" = "Add via RSS URL";
 "PODCAST_SUBSCRIBE" = "Subscribe";
 "PODCAST_ADD_RSS_PLACEHOLDER" = "https://example.com/feed.xml";
@@ -451,6 +464,37 @@
 "PODCAST_ADD_RSS_ERROR_NOT_A_FEED" = "That URL doesn't look like a podcast feed. Make sure it points directly to the RSS/XML feed, not the podcast's webpage.";
 "PODCAST_SUBSCRIBE_FEEDS_MESSAGE" = "This file contains %d podcast feeds.";
 "PODCAST_SUBSCRIBE_PARTIAL" = "%d of %d feeds could not be added.";
+"PODCAST_DIRECTORY_TITLE" = "Browse";
+"PODCAST_DIRECTORY_BROWSE" = "Browse the directory";
+"PODCAST_DIRECTORY_TOP_CHARTS" = "Top Charts";
+"PODCAST_DIRECTORY_NEW" = "New & Noteworthy";
+"PODCAST_DIRECTORY_LANGUAGE" = "Language";
+"PODCAST_DIRECTORY_SEARCH_PLACEHOLDER" = "Search podcasts";
+"PODCAST_DIRECTORY_NO_RESULTS" = "No podcasts found.";
+"PODCAST_DIRECTORY_SUBSCRIBED" = "Subscribed";
+"PODCAST_DIRECTORY_UPDATED" = "Updated %@";
+"PODCAST_DIRECTORY_EXPLICIT" = "Explicit";
+"PODCAST_DIRECTORY_ERROR" = "Couldn't reach the podcast directory. Check your connection and try again.";
+
+"PODCAST_CATEGORY_ARTS" = "Arts";
+"PODCAST_CATEGORY_BUSINESS" = "Business";
+"PODCAST_CATEGORY_COMEDY" = "Comedy";
+"PODCAST_CATEGORY_EDUCATION" = "Education";
+"PODCAST_CATEGORY_FICTION" = "Fiction";
+"PODCAST_CATEGORY_GOVERNMENT" = "Government";
+"PODCAST_CATEGORY_HEALTH_FITNESS" = "Health & Fitness";
+"PODCAST_CATEGORY_HISTORY" = "History";
+"PODCAST_CATEGORY_KIDS_FAMILY" = "Kids & Family";
+"PODCAST_CATEGORY_LEISURE" = "Leisure";
+"PODCAST_CATEGORY_MUSIC" = "Music";
+"PODCAST_CATEGORY_NEWS" = "News";
+"PODCAST_CATEGORY_RELIGION_SPIRITUALITY" = "Religion & Spirituality";
+"PODCAST_CATEGORY_SCIENCE" = "Science";
+"PODCAST_CATEGORY_SOCIETY_CULTURE" = "Society & Culture";
+"PODCAST_CATEGORY_SPORTS" = "Sports";
+"PODCAST_CATEGORY_TECHNOLOGY" = "Technology";
+"PODCAST_CATEGORY_TRUE_CRIME" = "True Crime";
+"PODCAST_CATEGORY_TV_FILM" = "TV & Film";
 "VIDEO_GROUPS" = "Video groups";
 "HISTORY" = "History";
 "MEDIA_LIBRARY_LABEL" = "Library";
@@ -463,7 +507,6 @@
 "BUTTON_MENU_HINT" = "Select, reorder and sort the media items present in this view";
 
 "BUTTON_EDIT" = "Edit";
-"BUTTON_EDIT_HINT" = "Edit mode";
 
 "BUTTON_SELECT" = "Select";
 "BUTTON_SELECT_HINT" = "Select button";
@@ -508,14 +551,7 @@
 
 // MARK: - Sort
 
-"BUTTON_SORT" = "Sort";
-"BUTTON_SORT_HINT" = "Display sort action sheet";
-"HEADER_TITLE_SORT" = "Sort by";
-"DESCENDING_LABEL" = "Descending Order";
-"DESCENDING_SWITCH_LABEL" = "Ascending or descending order";
-"DESCENDING_SWITCH_HINT" = "Sort context in ascending or descending order";
 "GRID_LAYOUT" = "Grid";
-"GRID_LAYOUT_HINT" = "Display the items as a grid";
 "LIST_LAYOUT" = "List";
 "HIDE_FEAT_ARTISTS" = "Hide feat. artists";
 "HIDE_TRACK_NUMBERS" = "Hide track numbers";
@@ -636,15 +672,7 @@
 "BOOKMARK_DELETE_TITLE" = "Delete bookmark";
 "BOOKMARK_DELETE_MESSAGE" = "Confirm the deletion of the bookmark";
 "INCREASE_BUTTON" = "Increase button";
-"INCREASE_PLAYBACK_SPEED" = "Increase the playback speed";
-"INCREASE_AUDIO_DELAY" = "Increase the audio delay";
-"INCREASE_SUBTITLES_DELAY" = "Increase the subtitles delay";
 "DECREASE_BUTTON" = "Decrease button";
-"DECREASE_PLAYBACK_SPEED" = "Decrease the playback speed";
-"DECREASE_AUDIO_DELAY" = "Decrease the audio delay";
-"DECREASE_SUBTITLES_DELAY" = "Decrease the subtitles delay";
-"DISPLAY_PLAYBACK_SPEED_SHORTCUT" = "Show playback speed shortcut";
-"DISPLAY_PLAYBACK_SPEED_SHORTCUT_HINT" = "Enable to display the playback speed shortcut";
 "VIDEO_FILTERS_HINT" = "Select to open the video filters view";
 "PLAYBACK_SPEED_HINT" = "Select to open the playback speed view";
 "SLEEP_TIMER_HINT" = "Select to open the sleep timer view";
@@ -770,7 +798,6 @@
 "DONATION_CANCEL_MONTHLY" = "Cancel Regular Donation";
 "DONATION_MONTHLY" = "Monthly";
 "DONATION_MONTHLY_FORMAT" = "%@/month";
-"DONATION_MONTHLY_VIDEOLAN" = "Monthly Donation to VideoLAN";
 "DONATION_ONCE" = "One-Time";
 "DONATION_UPDATE_MONTHLY" = "Update Regular Donation";
 "DONATION_VIDEOLAN" = "Donation to VideoLAN";
@@ -791,6 +818,10 @@
 "KEY_INCREASE_PLAYBACK_SPEED" = "Increase playback speed";
 "KEY_DECREASE_PLAYBACK_SPEED" = "Decrease playback speed";
 "KEY_RESET_PLAYBACK_SPEED" = "Reset playback speed";
+"KEY_DECREASE_SUBTITLE_DELAY" = "Decrease subtitle delay";
+"KEY_INCREASE_SUBTITLE_DELAY" = "Increase subtitle delay";
+"KEY_DECREASE_AUDIO_DELAY" = "Decrease audio delay";
+"KEY_INCREASE_AUDIO_DELAY" = "Increase audio delay";
 "KEY_SEEK_TO_PERCENT" = "Seek to %i%% of duration";
 "KEY_NEXT_FRAME" = "Jump to the next frame";
 
@@ -886,7 +917,6 @@
 "AUDIO_CHANNELS_FORMAT" = "%u channels";
 "SECOND_SUBTITLE" = "Second Subtitle";
 "SYNC" = "Sync";
-"DELAY_FORMAT" = "Delay %@ s";
 "NO_DELAY" = "No delay";
 "SUBTITLE_ASSIGN_PRIMARY" = "Assign primary subtitle";
 "SUBTITLE_ASSIGN_SECONDARY" = "Assign secondary subtitle";
@@ -906,3 +936,10 @@
 "DISCOVER_LABEL" = "Discover";
 "RECENTS" = "Recents";
 
+
+// MARK: - Media library corruption
+"MEDIALIBRARY_CORRUPTION_TITLE" = "Media Library damaged";
+"MEDIALIBRARY_CORRUPTION_MESSAGE" = "VLC needs to rebuild its media library due to corruption. Playlists and playback positions may be lost. Send us the damaged database, which includes the names of your media and playlists, so we can find out why?";
+"MEDIALIBRARY_CORRUPTION_SEND" = "Send Report";
+"MEDIALIBRARY_CORRUPTION_DISMISS" = "Don't Send";
+"MEDIALIBRARY_CORRUPTION_EMAIL_TITLE" = "Damaged media library database";

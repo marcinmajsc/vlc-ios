@@ -45,12 +45,7 @@
 + (void)initialize
 {
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSUInteger appThemeIndex = kVLCSettingAppThemeBright;
-    if (@available(iOS 13.0, *)) {
-        appThemeIndex = kVLCSettingAppThemeSystem;
-    }
-
-    NSDictionary *appDefaults = @{kVLCSettingAppTheme : @(appThemeIndex),
+    NSDictionary *appDefaults = @{kVLCSettingAppTheme : @(kVLCSettingAppThemeSystem),
                                   kVLCSettingPasscodeEnableBiometricAuth : @(1),
                                   kVLCSettingContinueAudioInBackgroundKey : @(YES),
                                   kVLCSettingStretchAudio : @(YES),
@@ -109,7 +104,8 @@
                                   kVLCPlayerIsShuffleEnabled: kVLCPlayerIsShuffleEnabledDefaultValue,
                                   kVLCPlayerIsRepeatEnabled: kVLCPlayerIsRepeatEnabledDefaultValue,
                                   kVLCSettingPlaybackSpeedDefaultValue: @(1.0),
-                                  kVLCPlayerShowPlaybackSpeedShortcut: @(NO),
+                                  kVLCSettingPlaybackSpeedAppliesToAll: @(NO),
+                                  kVLCSettingSaveAudioDelay: @(YES),
                                   kVLCSettingAlwaysPlayURLs: @(NO),
                                   kVLCRestoreLastPlayedMedia: @(NO),
                                   kVLCSettingPlayerControlDuration: kVLCSettingPlayerControlDurationDefaultValue,
@@ -155,19 +151,7 @@
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
 #if TARGET_OS_IOS
-    if (@available(iOS 13.0, *)) {
-        APLog(@"Using Scene flow");
-    } else {
-        APLog(@"Using Traditional flow");
-        self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
-        self.window.rootViewController = [VLCBottomTabBarController new];
-        [self.window makeKeyAndVisible];
-        [VLCAppearanceManager setupAppearanceWithTheme:PresentationTheme.current];
-        [self setupTabBarAppearance];
-        [[VLCAppCoordinator sharedInstance].mediaLibraryService restoreLastPlayedMediaList];
-    }
-
-#if TARGET_OS_IOS && !NO_WATCH
+#if !NO_WATCH
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
         VLCWatchConnectivityService *watchService = [[VLCWatchConnectivityService alloc] init];
         [watchService transferMediaLibraryFileIfNeeded];
@@ -187,9 +171,7 @@
         [[VLCAppCoordinator sharedInstance] handleShortcutItem:shortcutItem];
     }
 
-    if (@available(iOS 13.0, *)) {
-        [[PodcastBackgroundRefresher sharedInstance] registerTasks];
-    }
+    [[PodcastBackgroundRefresher sharedInstance] registerTasks];
 
 #if (TARGET_OS_IOS || TARGET_OS_WATCH) && !NO_WATCH
     if ([WCSession isSupported]) {
@@ -307,10 +289,8 @@
 
 - (id)application:(UIApplication *)application handlerForIntent:(INIntent *)intent
 {
-    if (@available(iOS 14.0, *)) {
-        if ([intent isKindOfClass:[INPlayMediaIntent class]] || [intent isKindOfClass:[INAddMediaIntent class]] || [intent isKindOfClass:[INSearchForMediaIntent class]]) {
-            return [[SirikitIntentCoordinator alloc] initWithMediaLibraryService: [[VLCAppCoordinator sharedInstance] mediaLibraryService]];;
-        }
+    if ([intent isKindOfClass:[INPlayMediaIntent class]] || [intent isKindOfClass:[INAddMediaIntent class]] || [intent isKindOfClass:[INSearchForMediaIntent class]]) {
+        return [[SirikitIntentCoordinator alloc] initWithMediaLibraryService: [[VLCAppCoordinator sharedInstance] mediaLibraryService]];;
     }
     return NULL;
 }
@@ -342,7 +322,7 @@
 #pragma mark - UISceneSession lifecycle
 
 - (UISceneConfiguration *)application:(UIApplication *)application configurationForConnectingSceneSession:(UISceneSession *)connectingSceneSession
-                              options:(UISceneConnectionOptions *)options  API_AVAILABLE(ios(13.0))
+                              options:(UISceneConnectionOptions *)options
 {
     UISceneSessionRole role = connectingSceneSession.role;
     if ([role isEqualToString:@"CPTemplateApplicationSceneSessionRoleApplication"]) {
@@ -355,7 +335,7 @@
     return [[UISceneConfiguration alloc] initWithName:@"VLCDefaultAppScene" sessionRole:role];
 }
 
-- (void)application:(UIApplication *)application didDiscardSceneSessions:(NSSet<UISceneSession *> *)sceneSessions  API_AVAILABLE(ios(13.0))
+- (void)application:(UIApplication *)application didDiscardSceneSessions:(NSSet<UISceneSession *> *)sceneSessions
 {
 }
 

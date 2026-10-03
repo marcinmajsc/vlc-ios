@@ -53,6 +53,7 @@ NSString *const VLCPlaybackServicePlaybackPositionUpdated = @"VLCPlaybackService
 NSString *const VLCPlaybackServicePlaybackModeUpdated = @"VLCPlaybackServicePlaybackModeUpdated";
 NSString *const VLCPlaybackServiceShuffleModeUpdated = @"VLCPlaybackServiceShuffleModeUpdated";
 NSString *const VLCPlaybackServicePlaybackDidMoveOnToNextItem = @"VLCPlaybackServicePlaybackDidMoveOnToNextItem";
+NSString *const VLCPlaybackServiceSleepTimerDidChange = @"VLCPlaybackServiceSleepTimerDidChange";
 NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
 
 static const float kVLCPlaybackRateMinimum = 0.25f;
@@ -63,7 +64,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 #elif TARGET_OS_WATCH
 @interface VLCPlaybackService () <VLCMediaPlayerDelegate, VLCMediaDelegate, VLCMediaListPlayerDelegate>
 #else
-@interface VLCPlaybackService () <VLCMediaPlayerDelegate, VLCMediaDelegate, VLCMediaListPlayerDelegate, EqualizerViewDelegate, VLCDrawable, VLCPictureInPictureDrawable>
+@interface VLCPlaybackService () <VLCMediaPlayerDelegate, VLCMediaDelegate, VLCMediaListPlayerDelegate, VLCDrawable, VLCPictureInPictureDrawable>
 #endif
 {
     VLCMediaPlayer *_backgroundDummyPlayer;
@@ -412,8 +413,10 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 
     [_mediaPlayer setDelegate:self];
     CGFloat defaultPlaybackSpeed = self.defaultPlaybackRate;
-    if (defaultPlaybackSpeed != 0.)
+    if ([defaults boolForKey:kVLCSettingPlaybackSpeedAppliesToAll] && defaultPlaybackSpeed != 0.)
         [self setPlaybackRate:defaultPlaybackSpeed];
+    else
+        [self setPlaybackRate:1.0];
     int deinterlace = [[defaults objectForKey:kVLCSettingDeinterlace] intValue];
     [_mediaPlayer setDeinterlace:deinterlace withFilter:@"blend"];
 
@@ -424,10 +427,17 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
     }
 
     BOOL equalizerEnabled = ![userDefaults boolForKey:kVLCSettingEqualizerProfileDisabled];
+#if TARGET_OS_IOS || TARGET_OS_VISION
+    BOOL customProfileEnabled = equalizerEnabled && [userDefaults boolForKey:kVLCCustomProfileEnabled];
+#else
+    BOOL customProfileEnabled = NO;
+#endif
 
     VLCAudioEqualizer *equalizer;
 
-    if (equalizerEnabled) {
+    if (customProfileEnabled) {
+        equalizer = [[VLCAudioEqualizer alloc] init];
+    } else if (equalizerEnabled) {
         NSArray *presets = [VLCAudioEqualizer presets];
         NSInteger profile = [userDefaults integerForKey:kVLCSettingEqualizerProfile];
         if (presets.count == 0) {
@@ -450,6 +460,11 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
         equalizer.preAmplification = preampValue;
     }
     _mediaPlayer.equalizer = equalizer;
+#if TARGET_OS_IOS || TARGET_OS_VISION
+    if (customProfileEnabled) {
+        [self applyCustomEqualizerProfileAtIndex:[userDefaults integerForKey:kVLCSettingEqualizerProfile]];
+    }
+#endif
 
 #if TARGET_OS_IOS
     [_mediaPlayer setRendererItem:_renderer];
@@ -524,6 +539,8 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 
 - (void)stopPlayback
 {
+    self.stopAfterCurrentItem = NO;
+
     BOOL ret = [_playbackSessionManagementLock tryLock];
     if (!ret) {
         APLog(@"%s: locking failed", __PRETTY_FUNCTION__);
@@ -591,23 +608,30 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
             [self startPlayback];
         });
     } else {
+        [self cancelSleepTimer];
         [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidStop object:self];
     }
+}
+
+- (void)restoreDelaysForMedia:(VLCMLMedia *)media
+{
+    BOOL saveAudioDelay = [[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingSaveAudioDelay];
+    self.subtitleDelay = [media metadataOfType:VLCMLMetadataTypeSubtitleDelay].integer;
+    self.audioDelay = saveAudioDelay ? [media metadataOfType:VLCMLMetadataTypeAudioDelay].integer : 0;
 }
 
 - (void)restoreAudioAndSubtitleTrack
 {
     VLCMLMedia *media = [VLCMLMedia mediaForPlayingMedia:_mediaPlayer.media];
 
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingPlaybackSpeedAppliesToAll]) {
+        [self restorePlaybackRateForCurrentMedia];
+    }
+
     if (media) {
         if (media.isNew) {
             [self disableSubtitlesIfNeeded];
             return;
-        }
-
-        VLCMLMetadata *speedMetadata = [media metadataOfType:VLCMLMetadataTypeSpeed];
-        if (speedMetadata.integer > 0) {
-            [self setPlaybackRate:speedMetadata.integer / 100.0];
         }
 
         BOOL disableSubtitles = [[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingDisableSubtitles];
@@ -743,6 +767,23 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 {
     float rate = _mediaPlayer.rate * factor;
     self.playbackRate = MIN(MAX(rate, kVLCPlaybackRateMinimum), kVLCPlaybackRateMaximum);
+}
+
+- (float)restorePlaybackRateForCurrentMedia
+{
+    VLCMLMedia *media = [VLCMLMedia mediaForPlayingMedia:_mediaPlayer.media];
+    float rate = [media metadataOfType:VLCMLMetadataTypeSpeed].integer / 100.0;
+    if (rate <= 0.) {
+        rate = 1.0;
+    }
+    [self setPlaybackRate:rate];
+    return rate;
+}
+
+- (void)savePlaybackRateForCurrentMedia
+{
+    VLCMLMedia *media = [VLCMLMedia mediaForPlayingMedia:_mediaPlayer.media];
+    [media setMetadataOfType:VLCMLMetadataTypeSpeed intValue:lroundf(_mediaPlayer.rate * 100.f)];
 }
 
 - (CGFloat)defaultPlaybackRate
@@ -1062,6 +1103,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
                     [self _recoverLastPlaybackState];
 #endif
                 }
+                [self restoreDelaysForMedia:[VLCMLMedia mediaForPlayingMedia:self->_mediaPlayer.media]];
                 [self setNeedsMetadataUpdate];
                 [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackDidStart object:self userInfo:@{
                     kVLCPlayerOpenInMiniPlayer: @(self->_openInMiniPlayer),
@@ -1165,6 +1207,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 
 - (void)playItemAtIndex:(NSUInteger)index
 {
+    self.stopAfterCurrentItem = NO;
     VLCMediaList *mediaList = _shuffleMode ? _shuffledList : _mediaList;
     VLCMedia *media = [mediaList mediaAtIndex:index];
     [_listPlayer playItemAtNumber:[NSNumber numberWithUnsignedInteger:index]];
@@ -1288,6 +1331,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
         return YES;
     }
 
+    self.stopAfterCurrentItem = NO;
     NSInteger nextIndex = [self nextMediaIndex:true];
 
     if (nextIndex < 0) {
@@ -1315,6 +1359,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
         if (playedTime.value.longLongValue / 2000 >= 1) {
             self.playbackPosition = .0;
         } else {
+            self.stopAfterCurrentItem = NO;
             [self savePlaybackState];
 
             if (!_currentIndex) {
@@ -1560,21 +1605,14 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 
 - (CGFloat)amplificationOfBand:(unsigned int)index
 {
-    VLCAudioEqualizer *equalizer = _mediaPlayer.equalizer;
-    if (!equalizer) {
-        equalizer = [[VLCAudioEqualizer alloc] init];
-        _mediaPlayer.equalizer = equalizer;
-    }
-
-    NSArray *bands = equalizer.bands;
+    NSArray<VLCAudioEqualizerBand *> *bands = _mediaPlayer.equalizer.bands;
     if (index < bands.count) {
-        VLCAudioEqualizerBand *band = equalizer.bands[index];
-        return band.amplification;
+        return bands[index].amplification;
     }
     return 0.;
 }
 
-- (NSArray *)equalizerProfiles
+- (NSArray<VLCAudioEqualizerPreset *> *)equalizerProfiles
 {
     return VLCAudioEqualizer.presets;
 }
@@ -1621,9 +1659,12 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 - (void)setPreAmplification:(CGFloat)preAmplification
 {
     VLCAudioEqualizer *equalizer = _mediaPlayer.equalizer;
-    if (!equalizer) {
-        equalizer = [[VLCAudioEqualizer alloc] init];
+    if (equalizer) {
+        equalizer.preAmplification = preAmplification;
+        return;
     }
+
+    equalizer = [[VLCAudioEqualizer alloc] init];
     equalizer.preAmplification = preAmplification;
     _mediaPlayer.equalizer = equalizer;
 }
@@ -1659,7 +1700,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
     return band.frequency;
 }
 
-#if TARGET_OS_IOS
+#if TARGET_OS_IOS || TARGET_OS_VISION
 - (NSIndexPath *)selectedEqualizerProfile
 {
     /* this is a bit complex, if the eq is off, we need to return 0
@@ -1674,6 +1715,154 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
         return [NSIndexPath indexPathForRow:actualProfile + 1 inSection:0];
     } else {
         return [NSIndexPath indexPathForRow:actualProfile inSection:1];
+    }
+}
+
+- (nullable CustomEqualizerProfiles *)storedCustomEqualizerProfiles
+{
+    NSData *encodedProfiles = [[NSUserDefaults standardUserDefaults] dataForKey:kVLCCustomEqualizerProfiles];
+    if (!encodedProfiles) {
+        return nil;
+    }
+    return [CustomEqualizerProfiles unarchiveFrom:encodedProfiles];
+}
+
+- (void)storeCustomEqualizerProfiles:(CustomEqualizerProfiles *)customProfiles
+{
+    NSData *encodedProfiles = [NSKeyedArchiver archivedDataWithRootObject:customProfiles requiringSecureCoding:NO error:nil];
+    [[NSUserDefaults standardUserDefaults] setObject:encodedProfiles forKey:kVLCCustomEqualizerProfiles];
+}
+
+- (NSArray<NSString *> *)customEqualizerProfileNames
+{
+    return [[self storedCustomEqualizerProfiles].profiles valueForKey:@"name"] ?: @[];
+}
+
+- (void)applyEqualizerPreset:(unsigned int)profile
+{
+    [[NSUserDefaults standardUserDefaults] setBool:NO forKey:kVLCCustomProfileEnabled];
+    [self resetEqualizerFromProfile:profile];
+}
+
+- (void)applyCustomEqualizerProfileAtIndex:(NSUInteger)index
+{
+    NSArray<CustomEqualizerProfile *> *profiles = [self storedCustomEqualizerProfiles].profiles;
+    if (index >= profiles.count) {
+        return;
+    }
+
+    CustomEqualizerProfile *selectedProfile = profiles[index];
+    self.preAmplification = selectedProfile.preAmpLevel;
+    NSArray<NSNumber *> *frequencies = selectedProfile.frequencies;
+    NSUInteger bandCount = frequencies.count;
+    for (NSUInteger bandIndex = 0; bandIndex < bandCount; bandIndex++) {
+        [self setAmplification:frequencies[bandIndex].floatValue forBand:(unsigned int)bandIndex];
+    }
+
+    [self selectCustomEqualizerProfileAtIndex:index];
+}
+
+- (void)selectCustomEqualizerProfileAtIndex:(NSUInteger)index
+{
+    NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
+    [userDefaults setInteger:index forKey:kVLCSettingEqualizerProfile];
+    [userDefaults setBool:NO forKey:kVLCSettingEqualizerProfileDisabled];
+    [userDefaults setBool:YES forKey:kVLCCustomProfileEnabled];
+}
+
+- (void)restoreSavedEqualizerProfile
+{
+    NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
+    if ([userDefaults boolForKey:kVLCCustomProfileEnabled]) {
+        [self applyCustomEqualizerProfileAtIndex:[userDefaults integerForKey:kVLCSettingEqualizerProfile]];
+    } else if ([userDefaults boolForKey:kVLCSettingEqualizerProfileDisabled]) {
+        [self resetEqualizerFromProfile:0];
+    } else {
+        [self resetEqualizerFromProfile:(unsigned int)[userDefaults integerForKey:kVLCSettingEqualizerProfile] + 1];
+    }
+}
+
+- (void)saveCustomEqualizerProfileWithName:(NSString *)name
+{
+    unsigned int bandCount = [self numberOfBands];
+    NSMutableArray<NSNumber *> *frequencies = [NSMutableArray arrayWithCapacity:bandCount];
+    for (unsigned int bandIndex = 0; bandIndex < bandCount; bandIndex++) {
+        [frequencies addObject:@((float)[self amplificationOfBand:bandIndex])];
+    }
+
+    CustomEqualizerProfile *profile = [[CustomEqualizerProfile alloc] initWithName:name
+                                                                       preAmpLevel:(float)self.preAmplification
+                                                                       frequencies:frequencies];
+    CustomEqualizerProfiles *customProfiles = [self storedCustomEqualizerProfiles];
+    if (customProfiles) {
+        customProfiles.profiles = [customProfiles.profiles arrayByAddingObject:profile];
+    } else {
+        customProfiles = [[CustomEqualizerProfiles alloc] initWithProfiles:@[profile]];
+    }
+    [self storeCustomEqualizerProfiles:customProfiles];
+    [self selectCustomEqualizerProfileAtIndex:customProfiles.profiles.count - 1];
+}
+
+- (void)renameCustomEqualizerProfileAtIndex:(NSUInteger)index toName:(NSString *)name
+{
+    CustomEqualizerProfiles *customProfiles = [self storedCustomEqualizerProfiles];
+    if (name.length == 0 || index >= customProfiles.profiles.count) {
+        return;
+    }
+
+    customProfiles.profiles[index].name = name;
+    [self storeCustomEqualizerProfiles:customProfiles];
+}
+
+- (void)deleteCustomEqualizerProfileAtIndex:(NSUInteger)index
+{
+    CustomEqualizerProfiles *customProfiles = [self storedCustomEqualizerProfiles];
+    if (index >= customProfiles.profiles.count) {
+        return;
+    }
+
+    NSMutableArray<CustomEqualizerProfile *> *profiles = [customProfiles.profiles mutableCopy];
+    [profiles removeObjectAtIndex:index];
+    customProfiles.profiles = profiles;
+    [self storeCustomEqualizerProfiles:customProfiles];
+
+    NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
+    if (![userDefaults boolForKey:kVLCCustomProfileEnabled]) {
+        return;
+    }
+
+    NSInteger selectedIndex = [userDefaults integerForKey:kVLCSettingEqualizerProfile];
+    if (selectedIndex == (NSInteger)index) {
+        [self applyEqualizerPreset:0];
+    } else if (selectedIndex > (NSInteger)index) {
+        [userDefaults setInteger:selectedIndex - 1 forKey:kVLCSettingEqualizerProfile];
+    }
+}
+
+- (void)moveCustomEqualizerProfileAtIndex:(NSUInteger)index up:(BOOL)up
+{
+    CustomEqualizerProfiles *customProfiles = [self storedCustomEqualizerProfiles];
+    NSUInteger profileCount = customProfiles.profiles.count;
+    if (index >= profileCount || (up && index == 0) || (!up && index + 1 >= profileCount)) {
+        return;
+    }
+
+    NSUInteger targetIndex = up ? index - 1 : index + 1;
+    NSMutableArray<CustomEqualizerProfile *> *profiles = [customProfiles.profiles mutableCopy];
+    [profiles exchangeObjectAtIndex:index withObjectAtIndex:targetIndex];
+    customProfiles.profiles = profiles;
+    [self storeCustomEqualizerProfiles:customProfiles];
+
+    NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
+    if (![userDefaults boolForKey:kVLCCustomProfileEnabled]) {
+        return;
+    }
+
+    NSInteger selectedIndex = [userDefaults integerForKey:kVLCSettingEqualizerProfile];
+    if (selectedIndex == (NSInteger)index) {
+        [userDefaults setInteger:targetIndex forKey:kVLCSettingEqualizerProfile];
+    } else if (selectedIndex == (NSInteger)targetIndex) {
+        [userDefaults setInteger:index forKey:kVLCSettingEqualizerProfile];
     }
 }
 #endif
@@ -2008,11 +2197,44 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 
 - (void)scheduleSleepTimerWithInterval:(NSTimeInterval)timeInterval
 {
-    if (_sleepTimer) {
+    [_sleepTimer invalidate];
+    _stopAfterCurrentItem = NO;
+    _sleepTimerInterval = timeInterval;
+    _sleepTimer = [NSTimer scheduledTimerWithTimeInterval:timeInterval target:self selector:@selector(sleepTimerFired) userInfo:nil repeats:NO];
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceSleepTimerDidChange object:self];
+}
+
+- (void)cancelSleepTimer
+{
+    if (!_sleepTimer) {
+        return;
+    }
+
+    [_sleepTimer invalidate];
+    _sleepTimer = nil;
+    _sleepTimerInterval = 0;
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceSleepTimerDidChange object:self];
+}
+
+- (void)sleepTimerFired
+{
+    [self cancelSleepTimer];
+    [self stopPlayback];
+}
+
+- (void)setStopAfterCurrentItem:(BOOL)stopAfterCurrentItem
+{
+    if (_stopAfterCurrentItem == stopAfterCurrentItem) {
+        return;
+    }
+
+    _stopAfterCurrentItem = stopAfterCurrentItem;
+    if (stopAfterCurrentItem) {
         [_sleepTimer invalidate];
         _sleepTimer = nil;
+        _sleepTimerInterval = 0;
     }
-    _sleepTimer = [NSTimer scheduledTimerWithTimeInterval:timeInterval target:self selector:@selector(stopPlayback) userInfo:nil repeats:NO];
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceSleepTimerDidChange object:self];
 }
 
 - (BOOL)isPlayingOnExternalScreen
@@ -2195,6 +2417,12 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 - (void)mediaListPlayer:(VLCMediaListPlayer *)player nextMedia:(VLCMedia *)media
 {
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (self->_stopAfterCurrentItem) {
+            self->_sessionWillRestart = NO;
+            [self stopPlayback];
+            return;
+        }
+
 #if !TARGET_OS_TV && !TARGET_OS_WATCH
         [self _findCachedSubtitlesForMedia:media];
 #endif

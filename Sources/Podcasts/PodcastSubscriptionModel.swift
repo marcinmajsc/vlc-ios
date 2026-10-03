@@ -13,9 +13,15 @@
 import UIKit
 import VLCMediaLibraryKit
 
+protocol PodcastSubscriptionModelDelegate: AnyObject {
+    func podcastSubscriptionModelDidChange(_ model: PodcastSubscriptionModel)
+}
+
 final class PodcastSubscriptionModel: NSObject {
     private let medialibrary: MediaLibraryService
     let observable = VLCObservable<MediaLibraryBaseModelObserver>()
+
+    weak var delegate: PodcastSubscriptionModelDelegate?
 
     private(set) var subscriptions: [VLCMLSubscription] = []
 
@@ -48,7 +54,7 @@ final class PodcastSubscriptionModel: NSObject {
             }
             DispatchQueue.main.async {
                 self.refresh()
-                self.observable.notifyObservers { $0.mediaLibraryBaseModelReloadView() }
+                self.notifyChanged()
                 completion(.success(()))
             }
         }
@@ -82,15 +88,14 @@ final class PodcastSubscriptionModel: NSObject {
     func removeSubscription(_ subscription: VLCMLSubscription) {
         _ = medialibrary.medialib.removeSubscription(withIdentifier: subscription.identifier())
         refresh()
-        observable.notifyObservers { $0.mediaLibraryBaseModelReloadView() }
+        notifyChanged()
     }
 
     func play(episodeId: String, subscription: VLCMLSubscription, partialFileURL: URL? = nil) {
-        let mediaList = media(for: subscription)
-        guard let index = mediaList.firstIndex(where: { String($0.identifier()) == episodeId }) else {
+        guard let identifier = VLCMLIdentifier(episodeId),
+              let media = medialibrary.media(for: identifier) else {
             return
         }
-        let media = mediaList[index]
 
         let playbackService = PlaybackService.sharedInstance()
         playbackService.expectsAudioOnlyContent = true
@@ -103,7 +108,12 @@ final class PodcastSubscriptionModel: NSObject {
             list.add(partialMedia)
             playbackService.playMediaList(list, firstIndex: 0, subtitlesFilePath: nil)
         } else if UserDefaults.standard.bool(forKey: kVLCAutomaticallyPlayNextItem) {
-            playbackService.playMedia(at: index, fromCollection: mediaList)
+            let mediaList = self.media(for: subscription)
+            if let index = mediaList.firstIndex(where: { $0.identifier() == identifier }) {
+                playbackService.playMedia(at: index, fromCollection: mediaList)
+            } else {
+                playbackService.play(media)
+            }
         } else {
             playbackService.play(media)
         }
@@ -116,6 +126,11 @@ final class PodcastSubscriptionModel: NSObject {
 
     func refresh() {
         subscriptions = service?.subscriptions() ?? []
+    }
+
+    private func notifyChanged() {
+        delegate?.podcastSubscriptionModelDidChange(self)
+        observable.notifyObservers { $0.mediaLibraryBaseModelReloadView() }
     }
 }
 
@@ -148,13 +163,13 @@ extension PodcastSubscriptionModel: MediaLibraryObserver {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.refresh()
-            self.observable.notifyObservers { $0.mediaLibraryBaseModelReloadView() }
+            self.notifyChanged()
         }
     }
 
     private func notifyOnMain() {
         DispatchQueue.main.async { [weak self] in
-            self?.observable.notifyObservers { $0.mediaLibraryBaseModelReloadView() }
+            self?.notifyChanged()
         }
     }
 }

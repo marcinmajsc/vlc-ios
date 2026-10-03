@@ -17,11 +17,11 @@ struct PodcastMenuAction {
     let imageName: String
     var isEnabled = true
     var isDestructive = false
+    var accessibilityIdentifier: String?
     let handler: () -> Void
 }
 
 extension Array where Element == PodcastMenuAction {
-    @available(iOS 14.0, *)
     func menu() -> UIMenu {
         let color = PresentationTheme.current.colors.cellTextColor
         let actions = map { action -> UIAction in
@@ -31,27 +31,15 @@ extension Array where Element == PodcastMenuAction {
             }
             let image = action.isDestructive ? UIImage(systemName: action.imageName)
                 : UIImage(systemName: action.imageName)?.withTintColor(color, renderingMode: .alwaysOriginal)
-            return UIAction(title: action.title, image: image, attributes: attributes) { _ in
+            let menuAction = UIAction(title: action.title, image: image, attributes: attributes) { _ in
                 action.handler()
             }
+            menuAction.accessibilityIdentifier = action.accessibilityIdentifier
+            return menuAction
         }
         return UIMenu(title: "", children: actions)
     }
 
-    func presentActionSheet(title: String?, from barButtonItem: UIBarButtonItem, in viewController: UIViewController) {
-        let alertController = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
-        for action in self {
-            let alertAction = UIAlertAction(title: action.title,
-                                            style: action.isDestructive ? .destructive : .default) { _ in
-                action.handler()
-            }
-            alertAction.isEnabled = action.isEnabled
-            alertController.addAction(alertAction)
-        }
-        alertController.addAction(UIAlertAction(title: NSLocalizedString("BUTTON_CANCEL", comment: ""), style: .cancel))
-        alertController.popoverPresentationController?.barButtonItem = barButtonItem
-        viewController.present(alertController, animated: true)
-    }
 }
 
 extension UIViewController {

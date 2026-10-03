@@ -12,28 +12,14 @@
 
 import UIKit
 
-private enum PodcastEpisodeSortCriteria: Int, CaseIterable {
-    case releaseDate
-    case title
-    case duration
-
-    var title: String {
-        switch self {
-        case .releaseDate:
-            return NSLocalizedString("RELEASE_DATE", comment: "")
-        case .title:
-            return NSLocalizedString("TITLE", comment: "")
-        case .duration:
-            return NSLocalizedString("DURATION", comment: "")
-        }
-    }
-}
-
 class PodcastShowDetailViewController: UIViewController {
     private enum PodcastShowSection: Int, CaseIterable {
         case header
         case episodes
     }
+
+    private static let episodePageSize = 50
+    private static let episodePrefetchDistance = 20
 
     private let show: PodcastShow
     private let store = PodcastStore.shared
@@ -43,7 +29,10 @@ class PodcastShowDetailViewController: UIViewController {
     private var sortCriteria: PodcastEpisodeSortCriteria
     private var sortDescending: Bool
 
-    private var cachedEpisodes: [PodcastEpisode]?
+    private var episodes: [PodcastEpisode] = []
+    private var hasMoreEpisodes = true
+    private var isLoadingEpisodes = false
+    private var knownEpisodeCount = 0
 
     private var playingEpisodeId: String?
 
@@ -53,53 +42,87 @@ class PodcastShowDetailViewController: UIViewController {
         return !searchQuery.isEmpty
     }
 
-    private var episodes: [PodcastEpisode] {
-        if let cachedEpisodes = cachedEpisodes {
-            return cachedEpisodes
-        }
-
-        var episodes = store.episodes(forShowId: show.id)
-        if isSearching {
-            episodes = episodes.filter { matchesSearchQuery($0) }
-        }
-
-        let sorted: [PodcastEpisode]
-        switch sortCriteria {
-        case .releaseDate:
-            sorted = episodes.sorted { $0.releaseDate < $1.releaseDate }
-        case .title:
-            sorted = episodes.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        case .duration:
-            sorted = episodes.sorted { $0.durationValue < $1.durationValue }
-        }
-
-        let result = sortDescending ? Array(sorted.reversed()) : sorted
-        cachedEpisodes = result
-        return result
+    private func reloadEpisodes() {
+        isLoadingEpisodes = false
+        knownEpisodeCount = store.episodeCount(forShowId: show.id)
+        episodes = fetchEpisodePage(offset: 0)
+        tableView.reloadData()
     }
 
-    private func matchesSearchQuery(_ episode: PodcastEpisode) -> Bool {
-        if episode.title.localizedStandardContains(searchQuery) {
-            return true
-        }
-        guard let notes = episode.notes else {
-            return false
-        }
-        return notes.localizedStandardContains(searchQuery)
+    private func fetchEpisodePage(offset: Int) -> [PodcastEpisode] {
+        let pageSize = PodcastShowDetailViewController.episodePageSize
+        let page = store.episodes(forShowId: show.id,
+                                  sortedBy: sortCriteria,
+                                  descending: sortDescending,
+                                  matching: searchQuery,
+                                  offset: offset,
+                                  count: pageSize)
+        hasMoreEpisodes = page.count >= pageSize
+        return page
     }
 
-    // Shows can have thousands of episodes (VLCMLSubscription has no paged query, unlike the
-    // audio/video tabs' VLCMediaLibrary calls), so only reveal kVLCDefaultPageSize at a time and
-    // grow the window as the user scrolls near the end, mirroring MediaCategoryViewController's
-    // willDisplay/kVLCPrefetchDistance pattern.
-    private var revealedEpisodeCount = Int(kVLCDefaultPageSize)
+    private func appendNextEpisodePage() {
+        guard !isLoadingEpisodes, hasMoreEpisodes else {
+            return
+        }
+        isLoadingEpisodes = true
+        DispatchQueue.main.async { [weak self] in
+            self?.insertNextEpisodePage()
+        }
+    }
 
-    private var visibleEpisodes: ArraySlice<PodcastEpisode> {
-        return episodes.prefix(revealedEpisodeCount)
+    private func insertNextEpisodePage() {
+        defer { isLoadingEpisodes = false }
+
+        let firstRow = episodes.count
+        let page = fetchEpisodePage(offset: firstRow)
+        guard !page.isEmpty else {
+            return
+        }
+
+        episodes.append(contentsOf: page)
+        let indexPaths = (firstRow..<episodes.count).map {
+            IndexPath(row: $0, section: PodcastShowSection.episodes.rawValue)
+        }
+        tableView.performBatchUpdates {
+            tableView.insertRows(at: indexPaths, with: .none)
+        }
+    }
+
+    private func reconfigureRows(forEpisodeIds episodeIds: [String]) {
+        for indexPath in tableView.indexPathsForVisibleRows ?? [] {
+            guard PodcastShowSection(rawValue: indexPath.section) == .episodes,
+                  indexPath.row < episodes.count,
+                  episodeIds.contains(episodes[indexPath.row].id) else {
+                continue
+            }
+            reconfigureRow(at: indexPath)
+        }
+    }
+
+    private func reconfigureRow(at indexPath: IndexPath) {
+        guard indexPath.row < episodes.count,
+              let cell = tableView.cellForRow(at: indexPath) as? PodcastEpisodeRowCell else {
+            return
+        }
+        configure(cell, at: indexPath)
+    }
+
+    private func configure(_ cell: PodcastEpisodeRowCell, at indexPath: IndexPath) {
+        let episode = episodes[indexPath.row]
+        store.requestArtwork(for: episode)
+        cell.configure(episode: episode,
+                       showName: show.name,
+                       showArtworkURL: show.artworkURL,
+                       isPlaying: episode.id == playingEpisodeId,
+                       downloading: store.isDownloading(episodeId: episode.id))
+        cell.showsSeparator = indexPath.row > 0
+        cell.delegate = self
     }
 
     private var isNavigationTitleVisible = false
     private var headerTitleBottomOffset: CGFloat?
+    private var headerRowMinY: CGFloat = 0
 
     private var episodeRowHeight = PodcastEpisodeRowCell.height
 
@@ -202,12 +225,22 @@ class PodcastShowDetailViewController: UIViewController {
                                        selector: #selector(refreshDidEnd),
                                        name: .VLCPodcastsRefreshDidEnd,
                                        object: nil)
+        notificationCenter.addObserver(self,
+                                       selector: #selector(miniPlayerIsShown),
+                                       name: NSNotification.Name(rawValue: VLCPlayerDisplayControllerDisplayMiniPlayer),
+                                       object: nil)
+        notificationCenter.addObserver(self,
+                                       selector: #selector(miniPlayerIsHidden),
+                                       name: NSNotification.Name(rawValue: VLCPlayerDisplayControllerHideMiniPlayer),
+                                       object: nil)
 
         tableView.refreshControl = refreshControl
 
         store.addObserver(self)
+        store.addEpisodeObserver(self)
         store.prefetchArtwork(forShowId: show.id)
         refreshPlayingEpisodeId()
+        reloadEpisodes()
         setupNavigationBarButtons()
         setupSearchController()
 
@@ -217,9 +250,25 @@ class PodcastShowDetailViewController: UIViewController {
                                                            action: nil)
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        PlaybackService.sharedInstance().playerDisplayController.isMiniPlayerVisible
+            ? miniPlayerIsShown() : miniPlayerIsHidden()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        let headerIndexPath = IndexPath(row: 0, section: PodcastShowSection.header.rawValue)
+        headerRowMinY = tableView.rectForRow(at: headerIndexPath).minY
         updateNavigationTitleVisibility()
+    }
+
+    @objc private func miniPlayerIsShown() {
+        tableView.setMiniPlayerInset(true)
+    }
+
+    @objc private func miniPlayerIsHidden() {
+        tableView.setMiniPlayerInset(false)
     }
 
     private func updateNavigationTitleVisibility() {
@@ -231,8 +280,7 @@ class PodcastShowDetailViewController: UIViewController {
             return
         }
 
-        let headerIndexPath = IndexPath(row: 0, section: PodcastShowSection.header.rawValue)
-        let titleBottom = tableView.rectForRow(at: headerIndexPath).minY + headerTitleBottomOffset
+        let titleBottom = headerRowMinY + headerTitleBottomOffset
         let navigationBarBottom = tableView.contentOffset.y + tableView.adjustedContentInset.top
 
         let shouldBeVisible = isSearching || titleBottom <= navigationBarBottom
@@ -254,12 +302,16 @@ class PodcastShowDetailViewController: UIViewController {
     }
 
     @objc private func playbackStateDidChange() {
+        updatePlayingEpisode()
+    }
+
+    private func updatePlayingEpisode() {
         let previousEpisodeId = playingEpisodeId
         refreshPlayingEpisodeId()
         guard previousEpisodeId != playingEpisodeId else {
             return
         }
-        tableView.reloadSections(IndexSet(integer: PodcastShowSection.episodes.rawValue), with: .none)
+        reconfigureRows(forEpisodeIds: [previousEpisodeId, playingEpisodeId].compactMap { $0 })
     }
 
     @objc private func handleRefresh() {
@@ -270,6 +322,7 @@ class PodcastShowDetailViewController: UIViewController {
 
     @objc private func refreshDidEnd() {
         refreshControl.endRefreshing()
+        reloadEpisodes()
     }
 
     private func setupNavigationBarButtons() {
@@ -280,23 +333,11 @@ class PodcastShowDetailViewController: UIViewController {
             overflowButton.image = UIImage(named: "EllipseCircle")
         }
         overflowButton.accessibilityLabel = NSLocalizedString("BUTTON_MENU", comment: "")
-        if #available(iOS 14.0, *) {
-            overflowButton.menu = overflowActions.menu()
-        } else {
-            overflowButton.target = self
-            overflowButton.action = #selector(showOverflowActionSheet)
-        }
+        overflowButton.menu = overflowActions.menu()
         var rightBarButtonItems = [overflowButton]
 
         if #unavailable(iOS 26) {
-            let searchImage: UIImage?
-            if #available(iOS 13.0, *) {
-                searchImage = UIImage(systemName: "magnifyingglass")
-            } else {
-                searchImage = nil
-            }
-
-            let searchButton = UIBarButtonItem(image: searchImage, style: .plain, target: self,
+            let searchButton = UIBarButtonItem(image: UIImage(systemName: "magnifyingglass"), style: .plain, target: self,
                                                action: #selector(didTapSearch))
             searchButton.accessibilityLabel = NSLocalizedString("SEARCH", comment: "")
             rightBarButtonItems.insert(searchButton, at: 0)
@@ -340,10 +381,6 @@ class PodcastShowDetailViewController: UIViewController {
         return actions
     }
 
-    @objc private func showOverflowActionSheet(_ sender: UIBarButtonItem) {
-        overflowActions.presentActionSheet(title: show.name, from: sender, in: self)
-    }
-
     private func markAllEpisodesAsPlayed() {
         store.markAllEpisodes(ofShowId: show.id, played: true)
     }
@@ -370,7 +407,6 @@ class PodcastShowDetailViewController: UIViewController {
                                                 buttonsAction: [cancel, unsubscribe])
     }
 
-    @available(iOS 14.0, *)
     private func generateSortMenu() -> UIMenu {
         var sortActions: [UIMenuElement] = []
         for criterion in PodcastEpisodeSortCriteria.allCases {
@@ -388,31 +424,26 @@ class PodcastShowDetailViewController: UIViewController {
             sortActions.append(action)
         }
 
-        if #available(iOS 15.0, *) {
-            return UIMenu(title: NSLocalizedString("SORT_BY", comment: ""),
-                          image: UIImage(named: "sort"),
-                          options: .singleSelection,
-                          children: sortActions)
-        } else {
-            return UIMenu(title: NSLocalizedString("SORT_BY", comment: ""), options: .displayInline, children: sortActions)
-        }
+        return UIMenu(title: NSLocalizedString("SORT_BY", comment: ""),
+                      image: UIImage(named: "sort"),
+                      options: .singleSelection,
+                      children: sortActions)
     }
 
     private func executeSortAction(with criteria: PodcastEpisodeSortCriteria, desc: Bool) {
         sortCriteria = criteria
         sortDescending = desc
-        revealedEpisodeCount = Int(kVLCDefaultPageSize)
-        cachedEpisodes = nil
 
         let userDefaults = UserDefaults.standard
         userDefaults.set(criteria.rawValue, forKey: "\(kVLCSortDefault)podcastEpisodes")
         userDefaults.set(desc, forKey: "\(kVLCSortDescendingDefault)podcastEpisodes")
 
-        tableView.reloadData()
+        reloadEpisodes()
     }
 
     deinit {
         store.removeObserver(self)
+        store.removeEpisodeObserver(self)
     }
 
     @objc private func applyTheme() {
@@ -448,21 +479,21 @@ class PodcastShowDetailViewController: UIViewController {
             return
         }
         store.downloadEpisode(episodeId: episode.id, showId: show.id)
-        tableView.reloadRows(at: [indexPath], with: .none)
+        reconfigureRow(at: indexPath)
     }
 
     private func cancelDownload(of episode: PodcastEpisode, at indexPath: IndexPath) {
         guard store.cancelDownload(episodeId: episode.id, showId: show.id) else {
             return
         }
-        tableView.reloadRows(at: [indexPath], with: .none)
+        reconfigureRow(at: indexPath)
     }
 
     private func confirmDeleteDownload(of episode: PodcastEpisode, at indexPath: IndexPath) {
         confirmPodcastDownloadDeletion { [weak self] in
             guard let self = self else { return }
             self.store.deleteDownloadedEpisode(episodeId: episode.id, showId: self.show.id)
-            self.tableView.reloadRows(at: [indexPath], with: .none)
+            self.reconfigureRow(at: indexPath)
         }
     }
 }
@@ -473,10 +504,10 @@ extension PodcastShowDetailViewController: PodcastEpisodeRowCellDelegate {
     private func episode(for cell: PodcastEpisodeRowCell) -> (PodcastEpisode, IndexPath)? {
         guard let indexPath = tableView.indexPath(for: cell),
               PodcastShowSection(rawValue: indexPath.section) == .episodes,
-              indexPath.row < visibleEpisodes.count else {
+              indexPath.row < episodes.count else {
             return nil
         }
-        return (visibleEpisodes[indexPath.row], indexPath)
+        return (episodes[indexPath.row], indexPath)
     }
 
     func podcastEpisodeRowCellDidTapPlay(_ cell: PodcastEpisodeRowCell) {
@@ -532,10 +563,21 @@ extension PodcastShowDetailViewController: UISearchResultsUpdating, UISearchCont
         }
 
         searchQuery = query
-        revealedEpisodeCount = Int(kVLCDefaultPageSize)
-        cachedEpisodes = nil
-        tableView.reloadData()
+        reloadEpisodes()
         updateNavigationTitleVisibility()
+    }
+}
+
+// MARK: - PodcastStoreObserver
+
+extension PodcastShowDetailViewController: PodcastStoreObserver {
+    func podcastStore(_ store: PodcastStore, didUpdateEpisodeWithId episodeId: String) {
+        guard let row = episodes.firstIndex(where: { $0.id == episodeId }),
+              let episode = store.episode(withId: episodeId, showId: show.id) else {
+            return
+        }
+        episodes[row] = episode
+        reconfigureRow(at: IndexPath(row: row, section: PodcastShowSection.episodes.rawValue))
     }
 }
 
@@ -543,9 +585,11 @@ extension PodcastShowDetailViewController: UISearchResultsUpdating, UISearchCont
 
 extension PodcastShowDetailViewController: MediaLibraryBaseModelObserver {
     func mediaLibraryBaseModelReloadView() {
-        cachedEpisodes = nil
-        refreshPlayingEpisodeId()
-        tableView.reloadData()
+        updatePlayingEpisode()
+        guard store.episodeCount(forShowId: show.id) != knownEpisodeCount else {
+            return
+        }
+        reloadEpisodes()
     }
 }
 
@@ -561,7 +605,7 @@ extension PodcastShowDetailViewController: UITableViewDataSource, UITableViewDel
         case .header:
             return isSearching ? 0 : 1
         case .episodes, .none:
-            return visibleEpisodes.count
+            return episodes.count
         }
     }
 
@@ -575,17 +619,15 @@ extension PodcastShowDetailViewController: UITableViewDataSource, UITableViewDel
             return nil
         }
 
-        let title = NSLocalizedString("EPISODES", comment: "")
-        if #available(iOS 14.0, *) {
-            header.configure(title: title, sortTitle: sortCriteria.title, sortMenu: generateSortMenu())
-        } else {
-            header.configure(title: title)
-        }
+        header.configure(title: NSLocalizedString("EPISODES", comment: ""),
+                         sortTitle: sortCriteria.title,
+                         sortMenu: generateSortMenu())
         return header
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return UITableView.automaticDimension
+        return PodcastShowSection(rawValue: indexPath.section) == .header ? UITableView.automaticDimension
+                                                                         : episodeRowHeight
     }
 
     func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -617,15 +659,7 @@ extension PodcastShowDetailViewController: UITableViewDataSource, UITableViewDel
                 return UITableViewCell()
             }
 
-            let episode = visibleEpisodes[indexPath.row]
-            store.requestArtwork(for: episode)
-            cell.configure(episode: episode,
-                           showName: show.name,
-                           showArtworkURL: show.artworkURL,
-                           isPlaying: episode.id == playingEpisodeId,
-                           downloading: store.isDownloading(episodeId: episode.id))
-            cell.showsSeparator = indexPath.row > 0
-            cell.delegate = self
+            configure(cell, at: indexPath)
             return cell
         }
     }
@@ -636,7 +670,7 @@ extension PodcastShowDetailViewController: UITableViewDataSource, UITableViewDel
         guard PodcastShowSection(rawValue: indexPath.section) == .episodes else {
             return
         }
-        let episode = visibleEpisodes[indexPath.row]
+        let episode = episodes[indexPath.row]
         let detailViewController = PodcastEpisodeDetailViewController(episode: episode, show: show)
         navigationController?.pushViewController(detailViewController, animated: true)
     }
@@ -649,11 +683,9 @@ extension PodcastShowDetailViewController: UITableViewDataSource, UITableViewDel
         guard PodcastShowSection(rawValue: indexPath.section) == .episodes else {
             return
         }
-        let revealedCount = visibleEpisodes.count
-        guard revealedCount < episodes.count, indexPath.row >= revealedCount - Int(kVLCPrefetchDistance) else {
+        guard indexPath.row >= episodes.count - PodcastShowDetailViewController.episodePrefetchDistance else {
             return
         }
-        revealedEpisodeCount += Int(kVLCDefaultPageSize)
-        tableView.reloadData()
+        appendNextEpisodePage()
     }
 }

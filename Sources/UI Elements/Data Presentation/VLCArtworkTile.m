@@ -34,6 +34,9 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
     UIButton *_accessoryButton;
     UIButton *_moreButton;
     UILabel *_nameLabel;
+    UILabel *_subtitleLabel;
+    UIAccessibilityElement *_tileElement;
+    NSString *_tileAccessibilityLabel;
 }
 
 + (NSString *)reuseIdentifier
@@ -113,11 +116,10 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
     _moreButton.translatesAutoresizingMaskIntoConstraints = NO;
     _moreButton.tintColor = [UIColor whiteColor];
     _moreButton.hidden = YES;
-    if (@available(iOS 13.0, *)) {
-        UIImageSymbolConfiguration *symbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:26.0];
-        [_moreButton setPreferredSymbolConfiguration:symbolConfiguration forImageInState:UIControlStateNormal];
-        [_moreButton setImage:[UIImage systemImageNamed:@"ellipsis.circle.fill"] forState:UIControlStateNormal];
-    }
+    UIImageSymbolConfiguration *symbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:26.0];
+    [_moreButton setPreferredSymbolConfiguration:symbolConfiguration forImageInState:UIControlStateNormal];
+    [_moreButton setImage:[UIImage systemImageNamed:@"ellipsis.circle.fill"] forState:UIControlStateNormal];
+    _moreButton.accessibilityLabel = NSLocalizedString(@"MORE_OPTIONS_BUTTON", nil);
     [_artworkContainer addSubview:_moreButton];
 
     _nameLabel = [[UILabel alloc] init];
@@ -126,6 +128,17 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
     _nameLabel.numberOfLines = 1;
     _nameLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     [self.contentView addSubview:_nameLabel];
+
+    _subtitleLabel = [[UILabel alloc] init];
+    _subtitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _subtitleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption2];
+    _subtitleLabel.numberOfLines = 1;
+    _subtitleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    _subtitleLabel.hidden = YES;
+    [self.contentView addSubview:_subtitleLabel];
+
+    _tileElement = [[UIAccessibilityElement alloc] initWithAccessibilityContainer:self];
+    _tileElement.accessibilityTraits = UIAccessibilityTraitButton;
 
     [NSLayoutConstraint activateConstraints:@[
         [_artworkContainer.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
@@ -173,7 +186,12 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
         [_nameLabel.topAnchor constraintEqualToAnchor:_artworkContainer.bottomAnchor constant:6.0],
         [_nameLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:2.0],
         [_nameLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-2.0],
-        [_nameLabel.bottomAnchor constraintLessThanOrEqualToAnchor:self.contentView.bottomAnchor]
+        [_nameLabel.bottomAnchor constraintLessThanOrEqualToAnchor:self.contentView.bottomAnchor],
+
+        [_subtitleLabel.topAnchor constraintEqualToAnchor:_nameLabel.bottomAnchor constant:1.0],
+        [_subtitleLabel.leadingAnchor constraintEqualToAnchor:_nameLabel.leadingAnchor],
+        [_subtitleLabel.trailingAnchor constraintEqualToAnchor:_nameLabel.trailingAnchor],
+        [_subtitleLabel.bottomAnchor constraintLessThanOrEqualToAnchor:self.contentView.bottomAnchor]
     ]];
 }
 
@@ -230,10 +248,7 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
         case VLCArtworkTileBadgeFolder:
             return @"folder.fill";
         case VLCArtworkTileBadgeServer:
-            if (@available(iOS 14.0, *)) {
-                return @"server.rack";
-            }
-            return @"network";
+            return @"server.rack";
         case VLCArtworkTileBadgeNone:
             return nil;
     }
@@ -272,11 +287,15 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
     _badgeGlyphCenterX.constant = isPlay ? 1.0 : 0.0;
     _badgeGlyphWidth.constant = isPlay ? 12.0 : 15.0;
     _badgeGlyphHeight.constant = 13.0;
-    _badgeGlyph.image = nil;
+    _badgeGlyph.image = [UIImage systemImageNamed:[self symbolNameForBadge:_badge]];
+}
 
-    if (@available(iOS 13.0, *)) {
-        _badgeGlyph.image = [UIImage systemImageNamed:[self symbolNameForBadge:_badge]];
-    }
+- (void)setSubtitle:(NSString *)subtitle
+{
+    _subtitle = [subtitle copy];
+    _subtitleLabel.text = _subtitle;
+    _subtitleLabel.textColor = PresentationTheme.current.colors.cellDetailTextColor;
+    _subtitleLabel.hidden = _subtitle.length == 0;
 }
 
 - (void)setPillText:(NSString *)pillText
@@ -291,11 +310,9 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
     _accessoryGlyphName = [accessoryGlyphName copy];
 
     UIImage *image = nil;
-    if (@available(iOS 13.0, *)) {
-        if (_accessoryGlyphName.length > 0) {
-            UIImageSymbolConfiguration *symbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:14.0];
-            image = [UIImage systemImageNamed:_accessoryGlyphName withConfiguration:symbolConfiguration];
-        }
+    if (_accessoryGlyphName.length > 0) {
+        UIImageSymbolConfiguration *symbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:14.0];
+        image = [UIImage systemImageNamed:_accessoryGlyphName withConfiguration:symbolConfiguration];
     }
 
 #if TARGET_OS_VISION
@@ -319,29 +336,23 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
     }
 
     _delegate = delegate;
-    if (@available(iOS 14.0, *)) {
-        _moreButton.hidden = delegate == nil;
-        [self updateMenu];
-    }
+    _moreButton.hidden = delegate == nil;
+    [self updateMenu];
 }
 
 - (void)setRemovalActionTitle:(NSString *)removalActionTitle
 {
     _removalActionTitle = [removalActionTitle copy];
-    if (@available(iOS 14.0, *)) {
-        [self updateMenu];
-    }
+    [self updateMenu];
 }
 
 - (void)setRemovalActionGlyphName:(NSString *)removalActionGlyphName
 {
     _removalActionGlyphName = [removalActionGlyphName copy];
-    if (@available(iOS 14.0, *)) {
-        [self updateMenu];
-    }
+    [self updateMenu];
 }
 
-- (void)updateMenu API_AVAILABLE(ios(14.0))
+- (void)updateMenu
 {
     NSString *title = _removalActionTitle.length > 0 ? _removalActionTitle
                                                      : NSLocalizedString(@"REMOVE_FAVORITE", nil);
@@ -393,6 +404,7 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
     _artworkView.hidden = NO;
     _nameLabel.text = nil;
     _initialsLabel.text = nil;
+    self.subtitle = nil;
     self.pillText = nil;
     self.accessoryGlyphName = nil;
     self.badgeImage = nil;
@@ -400,6 +412,51 @@ static CGFloat const kVLCArtworkTileBadgeImageSide = 17.0;
     self.delegate = nil;
     self.removalActionTitle = nil;
     self.removalActionGlyphName = nil;
+    _tileAccessibilityLabel = nil;
+}
+
+#pragma mark - accessibility
+
+- (NSString *)accessibilityLabel
+{
+    return _tileAccessibilityLabel ?: _nameLabel.text;
+}
+
+- (void)setAccessibilityLabel:(NSString *)accessibilityLabel
+{
+    _tileAccessibilityLabel = [accessibilityLabel copy];
+}
+
+- (NSString *)accessibilityIdentifier
+{
+    return _tileElement.accessibilityIdentifier;
+}
+
+- (void)setAccessibilityIdentifier:(NSString *)accessibilityIdentifier
+{
+    _tileElement.accessibilityIdentifier = accessibilityIdentifier;
+}
+
+- (BOOL)isAccessibilityElement
+{
+    return NO;
+}
+
+- (NSArray *)accessibilityElements
+{
+    NSMutableArray<NSString *> *values = [NSMutableArray arrayWithCapacity:2];
+    if (_subtitle.length > 0) {
+        [values addObject:_subtitle];
+    }
+    if (_pillText.length > 0) {
+        [values addObject:_pillText];
+    }
+
+    _tileElement.accessibilityLabel = self.accessibilityLabel;
+    _tileElement.accessibilityValue = [values componentsJoinedByString:@", "];
+    _tileElement.accessibilityFrameInContainerSpace = self.contentView.frame;
+
+    return _moreButton.hidden ? @[_tileElement] : @[_tileElement, _moreButton];
 }
 
 @end

@@ -45,14 +45,7 @@ NSString *const VLCHTTPClientResponseBodyErrorKey = @"VLCHTTPClientResponseBody"
 
 - (CGFloat)displayScale
 {
-#if TARGET_OS_VISION
     return [UITraitCollection currentTraitCollection].displayScale;
-#else
-    if (@available(iOS 13.0, tvOS 13.0, *)) {
-        return [UITraitCollection currentTraitCollection].displayScale;
-    }
-    return [UIScreen mainScreen].scale;
-#endif
 }
 
 - (NSString *)defaultUserAgent
@@ -70,46 +63,46 @@ NSString *const VLCHTTPClientResponseBodyErrorKey = @"VLCHTTPClientResponseBody"
 
 #pragma mark - convenience methods
 
-- (void)GET:(NSString *)path
- parameters:(NSDictionary *)parameters
-    headers:(NSDictionary<NSString *, NSString *> *)headers
-    success:(VLCHTTPClientSuccessBlock)success
-    failure:(VLCHTTPClientFailureBlock)failure
+- (NSURLSessionDataTask *)GET:(NSString *)path
+                   parameters:(NSDictionary *)parameters
+                      headers:(NSDictionary<NSString *, NSString *> *)headers
+                      success:(VLCHTTPClientSuccessBlock)success
+                      failure:(VLCHTTPClientFailureBlock)failure
 {
-    [self performRequestWithMethod:@"GET"
-                              path:path
-                        parameters:parameters
-                           headers:headers
-                           success:success
-                           failure:failure];
+    return [self performRequestWithMethod:@"GET"
+                                     path:path
+                               parameters:parameters
+                                  headers:headers
+                                  success:success
+                                  failure:failure];
 }
 
-- (void)POST:(NSString *)path
-  parameters:(NSDictionary *)parameters
-     headers:(NSDictionary<NSString *, NSString *> *)headers
-     success:(VLCHTTPClientSuccessBlock)success
-     failure:(VLCHTTPClientFailureBlock)failure
+- (NSURLSessionDataTask *)POST:(NSString *)path
+                    parameters:(NSDictionary *)parameters
+                       headers:(NSDictionary<NSString *, NSString *> *)headers
+                       success:(VLCHTTPClientSuccessBlock)success
+                       failure:(VLCHTTPClientFailureBlock)failure
 {
-    [self performRequestWithMethod:@"POST"
-                              path:path
-                        parameters:parameters
-                           headers:headers
-                           success:success
-                           failure:failure];
+    return [self performRequestWithMethod:@"POST"
+                                     path:path
+                               parameters:parameters
+                                  headers:headers
+                                  success:success
+                                  failure:failure];
 }
 
-- (void)DELETE:(NSString *)path
-    parameters:(NSDictionary *)parameters
-       headers:(NSDictionary<NSString *, NSString *> *)headers
-       success:(VLCHTTPClientSuccessBlock)success
-       failure:(VLCHTTPClientFailureBlock)failure
+- (NSURLSessionDataTask *)DELETE:(NSString *)path
+                      parameters:(NSDictionary *)parameters
+                         headers:(NSDictionary<NSString *, NSString *> *)headers
+                         success:(VLCHTTPClientSuccessBlock)success
+                         failure:(VLCHTTPClientFailureBlock)failure
 {
-    [self performRequestWithMethod:@"DELETE"
-                              path:path
-                        parameters:parameters
-                           headers:headers
-                           success:success
-                           failure:failure];
+    return [self performRequestWithMethod:@"DELETE"
+                                     path:path
+                               parameters:parameters
+                                  headers:headers
+                                  success:success
+                                  failure:failure];
 }
 
 #pragma mark - parameter encoding
@@ -150,12 +143,12 @@ NSString *const VLCHTTPClientResponseBodyErrorKey = @"VLCHTTPClientResponseBody"
 
 #pragma mark - request handling
 
-- (void)performRequestWithMethod:(NSString *)method
-                            path:(NSString *)path
-                      parameters:(NSDictionary *)parameters
-                         headers:(NSDictionary<NSString *, NSString *> *)headers
-                         success:(VLCHTTPClientSuccessBlock)success
-                         failure:(VLCHTTPClientFailureBlock)failure
+- (NSURLSessionDataTask *)performRequestWithMethod:(NSString *)method
+                                              path:(NSString *)path
+                                        parameters:(NSDictionary *)parameters
+                                           headers:(NSDictionary<NSString *, NSString *> *)headers
+                                           success:(VLCHTTPClientSuccessBlock)success
+                                           failure:(VLCHTTPClientFailureBlock)failure
 {
     NSString *encodedParameters = parameters.count > 0 ? [self encodedStringForParameters:parameters] : nil;
     BOOL carriesBody = [method isEqualToString:@"POST"] || [method isEqualToString:@"PUT"] || [method isEqualToString:@"PATCH"];
@@ -207,6 +200,7 @@ NSString *const VLCHTTPClientResponseBodyErrorKey = @"VLCHTTPClientResponseBody"
         });
     }];
     [task resume];
+    return task;
 }
 
 - (NSError *)errorForStatusCode:(NSInteger)statusCode body:(NSDictionary *)body

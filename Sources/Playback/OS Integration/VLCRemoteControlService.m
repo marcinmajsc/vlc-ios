@@ -32,13 +32,9 @@ static inline NSArray * RemoteCommandCenterCommandsToHandle(void)
                                 cc.skipBackwardCommand,
                                 cc.changePlaybackRateCommand,
                                 nil];
-    if (@available(iOS 9.1, *)) {
-        [commands addObject:cc.changePlaybackPositionCommand];
-    }
-    if (@available(iOS 10, *)) {
-        [commands addObject:cc.changeShuffleModeCommand];
-        [commands addObject:cc.changeRepeatModeCommand];
-    }
+    [commands addObject:cc.changePlaybackPositionCommand];
+    [commands addObject:cc.changeShuffleModeCommand];
+    [commands addObject:cc.changeRepeatModeCommand];
     return [commands copy];
 }
 
@@ -50,6 +46,8 @@ static inline NSArray * RemoteCommandCenterCommandsToHandle(void)
         [notificationCenter addObserver:self selector:@selector(playbackStarted:) name:VLCPlaybackServicePlaybackDidStart object:nil];
         [notificationCenter addObserver:self selector:@selector(playbackStopped:) name:VLCPlaybackServicePlaybackDidStop object:nil];
         [notificationCenter addObserver:self selector:@selector(metadataChanged:) name:VLCPlaybackServicePlaybackMetadataDidChange object:nil];
+        [notificationCenter addObserver:self selector:@selector(playModeChanged:) name:VLCPlaybackServicePlaybackModeUpdated object:nil];
+        [notificationCenter addObserver:self selector:@selector(playModeChanged:) name:VLCPlaybackServiceShuffleModeUpdated object:nil];
     }
     return self;
 }
@@ -88,14 +86,44 @@ static inline NSArray * RemoteCommandCenterCommandsToHandle(void)
     commandCenter.changePlaybackRateCommand.supportedPlaybackRates = @[@(0.5),@(0.75),@(1.0),@(1.25),@(1.5),@(1.75),@(2.0)];
 
     for (MPRemoteCommand *command in RemoteCommandCenterCommandsToHandle()) {
+        [command removeTarget:self];
         [command addTarget:self action:@selector(remoteCommandEvent:)];
     }
+
+    [self updatePlayModes];
 }
 
 - (void)metadataChanged:(NSNotification *)aNotification
 {
     BOOL isLiveStream = [VLCPlaybackService sharedInstance].metadata.isLiveStream;
     [MPRemoteCommandCenter sharedCommandCenter].changePlaybackPositionCommand.enabled = !isLiveStream;
+}
+
+- (void)playModeChanged:(NSNotification *)aNotification
+{
+    [self updatePlayModes];
+}
+
+- (void)updatePlayModes
+{
+    MPRemoteCommandCenter *commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
+    VLCPlaybackService *vps = [VLCPlaybackService sharedInstance];
+
+    commandCenter.changeShuffleModeCommand.currentShuffleType = vps.shuffleMode ? MPShuffleTypeItems : MPShuffleTypeOff;
+
+    switch (vps.repeatMode) {
+        case VLCRepeatCurrentItem:
+            commandCenter.changeRepeatModeCommand.currentRepeatType = MPRepeatTypeOne;
+            break;
+
+        case VLCRepeatAllItems:
+            commandCenter.changeRepeatModeCommand.currentRepeatType = MPRepeatTypeAll;
+            break;
+
+        default:
+            commandCenter.changeRepeatModeCommand.currentRepeatType = MPRepeatTypeOff;
+            break;
+    }
 }
 
 - (void)playbackStopped:(NSNotification *)aNotification
@@ -165,40 +193,36 @@ static inline NSArray * RemoteCommandCenterCommandsToHandle(void)
         [vps setPlaybackRate:rateEvent.playbackRate];
         return MPRemoteCommandHandlerStatusSuccess;
     }
-    if (@available(iOS 9.1, *)) {
-        if (event.command == cc.changePlaybackPositionCommand) {
-            MPChangePlaybackPositionCommandEvent *positionEvent = (MPChangePlaybackPositionCommandEvent *)event;
-            NSInteger duration = vps.mediaDuration;
-            if (duration > 0) {
-                vps.playbackPosition = positionEvent.positionTime * 1000. / duration;
-                return MPRemoteCommandHandlerStatusSuccess;
-            }
-            return MPRemoteCommandHandlerStatusCommandFailed;
+    if (event.command == cc.changePlaybackPositionCommand) {
+        MPChangePlaybackPositionCommandEvent *positionEvent = (MPChangePlaybackPositionCommandEvent *)event;
+        NSInteger duration = vps.mediaDuration;
+        if (duration > 0) {
+            vps.playbackPosition = positionEvent.positionTime * 1000. / duration;
+            return MPRemoteCommandHandlerStatusSuccess;
         }
+        return MPRemoteCommandHandlerStatusCommandFailed;
     }
-    if (@available(iOS 10, *)) {
-        if (event.command == cc.changeShuffleModeCommand) {
-            MPChangeShuffleModeCommandEvent *shuffleEvent = (MPChangeShuffleModeCommandEvent *)event;
-            vps.shuffleMode = shuffleEvent.shuffleType != MPShuffleTypeOff;
-            return MPRemoteCommandHandlerStatusSuccess;
-        }
-        if (event.command == cc.changeRepeatModeCommand) {
-            MPChangeRepeatModeCommandEvent *repeatEvent = (MPChangeRepeatModeCommandEvent *)event;
-            switch (repeatEvent.repeatType) {
-                case MPRepeatTypeOne:
-                    vps.repeatMode = VLCRepeatCurrentItem;
-                    break;
+    if (event.command == cc.changeShuffleModeCommand) {
+        MPChangeShuffleModeCommandEvent *shuffleEvent = (MPChangeShuffleModeCommandEvent *)event;
+        vps.shuffleMode = shuffleEvent.shuffleType != MPShuffleTypeOff;
+        return MPRemoteCommandHandlerStatusSuccess;
+    }
+    if (event.command == cc.changeRepeatModeCommand) {
+        MPChangeRepeatModeCommandEvent *repeatEvent = (MPChangeRepeatModeCommandEvent *)event;
+        switch (repeatEvent.repeatType) {
+            case MPRepeatTypeOne:
+                vps.repeatMode = VLCRepeatCurrentItem;
+                break;
 
-                case MPRepeatTypeAll:
-                    vps.repeatMode = VLCRepeatAllItems;
-                    break;
+            case MPRepeatTypeAll:
+                vps.repeatMode = VLCRepeatAllItems;
+                break;
 
-                default:
-                    vps.repeatMode = VLCDoNotRepeat;
-                    break;
-            }
-            return MPRemoteCommandHandlerStatusSuccess;
+            default:
+                vps.repeatMode = VLCDoNotRepeat;
+                break;
         }
+        return MPRemoteCommandHandlerStatusSuccess;
     }
     NSAssert(NO, @"remote control event not handled");
     APLog(@"%s Wasn't able to handle remote control event: %@",__PRETTY_FUNCTION__,event);

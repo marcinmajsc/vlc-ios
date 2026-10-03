@@ -26,7 +26,7 @@ typedef NS_ENUM(NSInteger, VLCArtworkTileBadge) {
 @protocol VLCArtworkTileDelegate <NSObject>
 - (void)artworkTileDidRequestRemoval:(VLCArtworkTile *)tile;
 @optional
-- (nullable NSArray<UIMenuElement *> *)menuElementsForArtworkTile:(VLCArtworkTile *)tile API_AVAILABLE(ios(14.0));
+- (nullable NSArray<UIMenuElement *> *)menuElementsForArtworkTile:(VLCArtworkTile *)tile;
 @end
 
 @interface VLCArtworkTile : UICollectionViewCell
@@ -36,6 +36,7 @@ typedef NS_ENUM(NSInteger, VLCArtworkTileBadge) {
 @property (nonatomic) CGFloat artworkCornerRadius;
 @property (nonatomic) VLCArtworkTileBadge badge;
 @property (nonatomic, nullable) UIImage *badgeImage;
+@property (nonatomic, copy, nullable) NSString *subtitle;
 @property (nonatomic, copy, nullable) NSString *pillText;
 @property (nonatomic, copy, nullable) NSString *accessoryGlyphName;
 @property (nonatomic, copy, nullable) NSString *removalActionTitle;

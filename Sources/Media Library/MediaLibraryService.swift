@@ -195,6 +195,8 @@ class MediaLibraryService: NSObject {
 
     private static let didForceRescan: String = "MediaLibraryDidForceRescan"
     private var initRecoveryAttempt = 0
+    private var currentDatabasePath = ""
+    private var currentMediaPath = ""
 
     private var didStartMediaDiscovery = false
 
@@ -202,6 +204,10 @@ class MediaLibraryService: NSObject {
     private var desiredThumbnailHeight = UInt(200)
 
     private(set) var observable = VLCObservable<MediaLibraryObserver>()
+
+    private static let medialibraryLogLimit = 200
+    private let medialibraryLogLock = NSLock()
+    private var medialibraryLog: [String] = []
 
     private let mediaLibrarySetupLock = NSLock()
     private var didSetupMediaLibrary = false
@@ -262,6 +268,10 @@ class MediaLibraryService: NSObject {
             NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForegroundNotification),
                                                    name: UIApplication.willEnterForegroundNotification, object: nil)
             #endif
+
+            #if os(iOS)
+            MediaLibraryCorruptionReportPresenter.shared.presentIfNeeded()
+            #endif
         }
 
         #if os(tvOS) || os(watchOS)
@@ -274,16 +284,7 @@ class MediaLibraryService: NSObject {
         desiredThumbnailWidth = UInt(thumbnailSize)
         desiredThumbnailHeight = UInt(thumbnailSize / 1.2)
         #else
-        let displayScale: CGFloat
-#if os(visionOS)
-        displayScale = UITraitCollection.current.displayScale
-#else
-        if #available(iOS 13.0, *) {
-            displayScale = UITraitCollection.current.displayScale
-        } else {
-            displayScale = UIScreen.main.scale
-        }
-#endif
+        let displayScale: CGFloat = UITraitCollection.current.displayScale
         let scaledCellWidth = MediaLibraryService.desiredCellWidth * displayScale
         desiredThumbnailWidth = UInt(scaledCellWidth)
         desiredThumbnailHeight = UInt(scaledCellWidth / 1.6)
@@ -400,14 +401,6 @@ private extension MediaLibraryService {
         FileManager.default.createFile(atPath: "\(path)/\(NSLocalizedString("MEDIALIBRARY_FILES_PLACEHOLDER", comment: ""))", contents: nil, attributes: nil)
         try? FileManager.default.removeItem(atPath: "\(path)/\(NSLocalizedString("MEDIALIBRARY_ADDING_PLACEHOLDER", comment: ""))")
 
-#if os(iOS)
-        if #unavailable(iOS 13.0) {
-            DispatchQueue.global(qos: .userInitiated).async {
-                InboxManager.drainSharedInbox()
-            }
-        }
-#endif
-
         privateMediaLib.reload()
         privateMediaLib.discover(onEntryPoint: "file://" + path)
     }
@@ -447,6 +440,9 @@ private extension MediaLibraryService {
             medialibraryPath = libraryPath + "/MediaLibrarySnapshot/Internal"
         }
 
+        currentDatabasePath = databasePath
+        currentMediaPath = mediaPath
+
 #if os(tvOS)
         // we need to create the folder before we can listen to it
         do {
@@ -469,6 +465,7 @@ private extension MediaLibraryService {
             assertionFailure("Failed to create directory: \(error.localizedDescription)")
         }
 
+        privateMediaLib.loggerDelegate = self
         let medialibraryStatus = privateMediaLib.setupMediaLibrary(databasePath: databasePath,
                                                                medialibraryPath: medialibraryPath)
 
@@ -497,6 +494,9 @@ private extension MediaLibraryService {
             } else if initRecoveryAttempt == 1 {
                 initRecoveryAttempt = 2
                 APLog("MediaLibraryService: Retry with journal recovery failed, clearing all database files.")
+#if os(iOS)
+                preserveCorruptedDatabase(reason: .setupFailed, details: nil)
+#endif
                 removeMedialibraryCachedArtifacts(thumbnailPath: thumbnailPath,
                                                   medialibraryPath: medialibraryPath)
                 removeMedialibraryDatabaseFiles(databasePath: databasePath)
@@ -507,14 +507,70 @@ private extension MediaLibraryService {
             APLog("MediaLibraryService: Permanently failed to setup medialibrary after recovery attempts.")
             assertionFailure("MediaLibraryService: Permanently failed to setup medialibrary.")
         case .dbCorrupted:
+            guard initRecoveryAttempt < 2 else {
+                APLog("MediaLibraryService: Permanently failed to setup medialibrary after recovery attempts.")
+                assertionFailure("MediaLibraryService: Permanently failed to setup medialibrary.")
+                return
+            }
+            initRecoveryAttempt = 2
+            APLog("MediaLibraryService: Database corrupted, clearing all database files.")
+#if os(iOS)
+            preserveCorruptedDatabase(reason: .databaseCorrupted, details: nil)
+#endif
+            removeMedialibraryCachedArtifacts(thumbnailPath: thumbnailPath,
+                                              medialibraryPath: medialibraryPath)
+            removeMedialibraryDatabaseFiles(databasePath: databasePath)
+            privateMediaLib = VLCMediaLibrary()
+            setupMediaLibrary()
+        case .dbMigrationFailed:
+#if os(iOS)
+            preserveCorruptedDatabase(reason: .migrationFailed, details: nil)
+#endif
             privateMediaLib.clearDatabase(restorePlaylists: true)
             if mlServiceType == .mediaLibrary {
                 startMediaLibrary(on: mediaPath)
             }
+        case .dbSchemaMismatch:
+#if os(iOS)
+            preserveCorruptedDatabase(reason: .schemaMismatch, details: nil)
+#endif
+            privateMediaLib.clearDatabase(restorePlaylists: true)
+            if mlServiceType == .mediaLibrary {
+                startMediaLibrary(on: mediaPath)
+            }
+        case .dbForeignKeyViolation:
+#if os(iOS)
+            preserveCorruptedDatabase(reason: .foreignKeyViolation, details: nil)
+#endif
+            privateMediaLib.clearDatabase(restorePlaylists: true)
+            if mlServiceType == .mediaLibrary {
+                startMediaLibrary(on: mediaPath)
+            }
+        case .dbBusy:
+            APLog("MediaLibraryService: Database is locked by another connection.")
+            assertionFailure("MediaLibraryService: Database is locked by another connection.")
         @unknown default:
             assertionFailure("MediaLibraryService: unhandled case")
         }
     }
+
+#if os(iOS)
+    private func preserveCorruptedDatabase(reason: MediaLibraryCorruptionReason, details: String?) {
+        guard mlServiceType == .mediaLibrary, !currentDatabasePath.isEmpty else {
+            return
+        }
+
+        medialibraryLogLock.lock()
+        let log = medialibraryLog
+        medialibraryLogLock.unlock()
+
+        MediaLibraryCorruptionReport.preserve(databasePath: currentDatabasePath,
+                                              reason: reason,
+                                              details: details,
+                                              log: log)
+        MediaLibraryCorruptionReportPresenter.shared.presentIfNeeded()
+    }
+#endif
 }
 
 // MARK: - Helpers
@@ -616,7 +672,14 @@ private extension MediaLibraryService {
         mlMedia.secondarySubtitleTrackIndex = Int64(player.indexOfCurrentSecondaryVideoSubtitleTrack)
         mlMedia.chapterIndex = Int64(player.indexOfCurrentChapter)
         mlMedia.titleIndex = Int64(player.indexOfCurrentTitle)
-        mlMedia.setMetadataOf(VLCMLMetadataType.speed, intValue: Int64(player.playbackRate * 100))
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: kVLCSettingPlaybackSpeedAppliesToAll) {
+            mlMedia.setMetadataOf(VLCMLMetadataType.speed, intValue: Int64((player.playbackRate * 100).rounded()))
+        }
+        mlMedia.setMetadataOf(VLCMLMetadataType.subtitleDelay, intValue: Int64(player.subtitleDelay))
+        if defaults.bool(forKey: kVLCSettingSaveAudioDelay) {
+            mlMedia.setMetadataOf(VLCMLMetadataType.audioDelay, intValue: Int64(player.audioDelay))
+        }
 
         if mlMedia.type() != .audio {
             if let thumbnailURL = mlMedia.thumbnail() {
@@ -1157,10 +1220,31 @@ extension MediaLibraryService {
                       errorMessage: String, clearSuggested: Bool) -> Bool {
         APLog("MediaLibraryService: unhandled exception in \(context): \(errorMessage)")
         if clearSuggested {
+#if os(iOS)
+            preserveCorruptedDatabase(reason: .unhandledException,
+                                      details: "\(context): \(errorMessage)")
+#endif
             medialib.clearDatabase(restorePlaylists: true)
-            setupMediaLibrary()
+            if mlServiceType == .mediaLibrary {
+                startMediaLibrary(on: currentMediaPath)
+            }
         }
         return true
+    }
+}
+
+// MARK: - VLCMLLoggerDelegate
+
+extension MediaLibraryService: VLCMLLoggerDelegate {
+    func medialibraryDidLogMessage(_ message: String, level: VLCMLLogLevel) {
+        APLog("medialibrary: \(message)")
+
+        medialibraryLogLock.lock()
+        medialibraryLog.append(message)
+        if medialibraryLog.count > MediaLibraryService.medialibraryLogLimit {
+            medialibraryLog.removeFirst(medialibraryLog.count - MediaLibraryService.medialibraryLogLimit)
+        }
+        medialibraryLogLock.unlock()
     }
 }
 

@@ -18,8 +18,10 @@ protocol MediaMoreOptionsActionSheetDelegate {
     func mediaMoreOptionsActionSheetShowIcon(for option: OptionsNavigationBarIdentifier)
     func mediaMoreOptionsActionSheetHideIcon(for option: OptionsNavigationBarIdentifier)
     func mediaMoreOptionsActionSheetHideAlertIfNecessary()
-    func mediaMoreOptionsActionSheetPresentPopupView(withChild child: UIView)
-    func mediaMoreOptionsActionSheetDisplayEqualizerAlert(_ alert: UIAlertController)
+    func mediaMoreOptionsActionSheetPresentPlaybackSpeed()
+    func mediaMoreOptionsActionSheetPresentSleepTimer()
+    func mediaMoreOptionsActionSheetPresentVideoFilters()
+    func mediaMoreOptionsActionSheetPresentEqualizer()
     func mediaMoreOptionsActionSheetUpdateProgressBar()
     func mediaMoreOptionsActionSheetGetCurrentMedia() -> VLCMLMedia?
     func mediaMoreOptionsActionSheetDidSelectBookmark(value: Float)
@@ -34,7 +36,6 @@ protocol MediaMoreOptionsActionSheetDelegate {
     func mediaMoreOptionsActionSheetPresentABRepeatView(with abView: ABRepeatView)
     func mediaMoreOptionsActionSheetDidSelectAMark()
     func mediaMoreOptionsActionSheetDidSelectBMark()
-    @objc optional func mediaMoreOptionsActionSheetShowPlaybackSpeedShortcut(_ displayView: Bool)
 }
 
 @objc(VLCMediaMoreOptionsActionSheet)
@@ -43,6 +44,7 @@ protocol MediaMoreOptionsActionSheetDelegate {
     // MARK: - Instance variables
     weak var moreOptionsDelegate: MediaMoreOptionsActionSheetDelegate?
     var currentMediaHasChapters: Bool = false
+    private var pendingCardIdentifier: ActionSheetCellIdentifier?
 
     // To be removed when Designs are done for the Filters, Equalizer etc views are added to Figma
     lazy private(set) var mockView: UIView = {
@@ -67,71 +69,24 @@ protocol MediaMoreOptionsActionSheetDelegate {
         }
     }
 
-    private lazy var videoFiltersView: VideoFiltersView = {
-        let videoFiltersView = Bundle.main.loadNibNamed("VideoFiltersView",
-                                                        owner: nil,
-                                                        options: nil)?.first as! VideoFiltersView
-        videoFiltersView.frame = offScreenFrame
-        if #available(iOS 13.0, *) {
-            videoFiltersView.overrideUserInterfaceStyle = .dark
-        }
-        videoFiltersView.delegate = self
-        return videoFiltersView
-    }()
+    private(set) lazy var videoFiltersPlaceholderView = UIView()
 
-    private lazy var playbackSpeedView: PlaybackSpeedView = {
-        let playbackSpeedView = Bundle.main.loadNibNamed("PlaybackSpeedView",
-                                                         owner: nil,
-                                                         options: nil)?.first as! PlaybackSpeedView
+    private(set) lazy var playbackSpeedPlaceholderView = UIView()
 
-        playbackSpeedView.frame = offScreenFrame
-        if #available(iOS 13.0, *) {
-            playbackSpeedView.overrideUserInterfaceStyle = .dark
-        }
-        playbackSpeedView.delegate = self
-        playbackSpeedView.setupShortcutView()
-        return playbackSpeedView
-    }()
+    private(set) lazy var sleepTimerPlaceholderView = UIView()
 
-    private lazy var sleepTimerView: SleepTimerView = {
-        let nib = UINib(nibName: "SleepTimerView", bundle: nil)
-        let sleepTimerView = nib.instantiate(withOwner: nil, options: nil).first as! SleepTimerView
-        sleepTimerView.frame = offScreenFrame
-        if #available(iOS 13.0, *) {
-            sleepTimerView.overrideUserInterfaceStyle = .dark
-        }
-        sleepTimerView.delegate = self
-        return sleepTimerView
-    }()
-
-    private lazy var equalizerView: EqualizerView = {
-        let equalizerView = EqualizerView()
-        if #available(iOS 13.0, *) {
-            equalizerView.overrideUserInterfaceStyle = .dark
-        }
-
-        guard let playbackService = PlaybackService.sharedInstance() as? EqualizerViewDelegate else {
-            preconditionFailure("PlaybackService should be EqualizerViewDelegate.")
-        }
-        equalizerView.delegate = playbackService
-        equalizerView.UIDelegate = self
-        return equalizerView
-    }()
+    private(set) lazy var equalizerPlaceholderView = UIView()
 
     private lazy var chapterView: ChapterView = {
         let chapterView = ChapterView.init(frame: offScreenFrame)
-        if #available(iOS 13.0, *) {
-            chapterView.overrideUserInterfaceStyle = .dark
-        }
+        chapterView.overrideUserInterfaceStyle = .dark
         chapterView.delegate = self
         return chapterView
     }()
 
     private lazy var bookmarksView: BookmarksView = {
         let bookmarksView = BookmarksView(frame: offScreenFrame)
-        if #available(iOS 13.0, *) {
-            bookmarksView.overrideUserInterfaceStyle = .dark
-        }
+        bookmarksView.overrideUserInterfaceStyle = .dark
         bookmarksView.delegate = self
         return bookmarksView
     }()
@@ -170,31 +125,7 @@ protocol MediaMoreOptionsActionSheetDelegate {
     }
 
     // MARK: - Instance Methods
-    func resetVideoFilters() {
-        videoFiltersView.resetIfNeeded()
-    }
-
-    func resetPlaybackSpeed() {
-        playbackSpeedView.reset()
-    }
-
-    func resetEqualizer() {
-        equalizerView.resetEqualizer()
-    }
-
-    func resetSleepTimer() {
-        sleepTimerView.reset()
-    }
-
-    func getRemainingTime() -> String {
-        return sleepTimerView.remainingTime()
-    }
-
     func updateThemes() {
-        videoFiltersView.setupTheme()
-        playbackSpeedView.setupTheme()
-        sleepTimerView.setupTheme()
-        equalizerView.setupTheme()
         chapterView.setupTheme()
         bookmarksView.setupTheme()
     }
@@ -232,22 +163,8 @@ protocol MediaMoreOptionsActionSheetDelegate {
         return (image, localization, isEnabled)
     }
 
-    func resetOptionsIfNecessary() {
-        playbackSpeedView.resetSlidersIfNeeded()
-        updateThemes()
-    }
-
     func addView(_ view: ActionSheetCellIdentifier) {
         switch view {
-        case .filter:
-            openOptionView(videoFiltersView)
-        case .playback:
-            playbackSpeedView.setupSliderAndButtons()
-            openOptionView(playbackSpeedView)
-        case .sleepTimer:
-            openOptionView(sleepTimerView)
-        case .equalizer:
-            openOptionView(equalizerView)
         case .chapters:
             openOptionView(chapterView)
         case .bookmarks:
@@ -265,91 +182,6 @@ protocol MediaMoreOptionsActionSheetDelegate {
 
     func renameBookmarkAt(name: String, row: Int) {
         bookmarksView.renameBookmarkAt(name: name, row: row)
-    }
-}
-
-// MARK: - VideoFiltersViewDelegate
-extension MediaMoreOptionsActionSheet: VideoFiltersViewDelegate {
-    func videoFiltersViewShowIcon() {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetShowIcon(for: .videoFilters)
-    }
-
-    func videoFiltersViewHideIcon() {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetHideIcon(for: .videoFilters)
-    }
-}
-
-// MARK: - PlaybackSpeedViewDelegate
-extension MediaMoreOptionsActionSheet: PlaybackSpeedViewDelegate {
-    func playbackSpeedViewHandleOptionChange(title: String) {
-        self.headerView.title.text = title
-    }
-
-    func playbackSpeedViewShowIcon() {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetShowIcon(for: .playbackSpeed)
-    }
-
-    func playbackSpeedViewHideIcon() {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetHideIcon(for: .playbackSpeed)
-    }
-
-    func playbackSpeedViewCanDisplayShortcutView() -> Bool {
-        return moreOptionsDelegate is AudioPlayerViewController
-    }
-
-    func playbackSpeedViewHandleShortcutSwitchChange(displayView: Bool) {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetShowPlaybackSpeedShortcut?(displayView)
-    }
-}
-
-// MARK: - SleepTimerViewDelegate
-extension MediaMoreOptionsActionSheet: SleepTimerViewDelegate {
-    func sleepTimerViewCloseActionSheet() {
-        removeActionSheet()
-    }
-
-    func sleepTimerViewShowAlert(message: String, seconds: Double) {
-        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-        if #available(iOS 13.0, *) {
-            alert.view.overrideUserInterfaceStyle = .dark
-        }
-        alert.view.backgroundColor = PresentationTheme.currentExcludingWhite.colors.background
-        alert.view.layer.cornerRadius = 15
-
-        self.present(alert, animated: true)
-
-        DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + seconds) {
-            alert.dismiss(animated: true, completion: {
-                self.sleepTimerViewCloseActionSheet()
-            })
-        }
-    }
-
-    func sleepTimerViewHideAlertIfNecessary() {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetHideAlertIfNecessary()
-    }
-
-    func sleepTimerViewShowIcon() {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetShowIcon(for: .sleepTimer)
-    }
-
-    func sleepTimerViewHideIcon() {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetHideIcon(for: .sleepTimer)
-    }
-}
-
-// MARK: - EqualizeViewUIDelegate
-extension MediaMoreOptionsActionSheet: EqualizerViewUIDelegate {
-    func equalizerViewShowIcon() {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetShowIcon(for: .equalizer)
-    }
-
-    func equalizerViewHideIcon() {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetHideIcon(for: .equalizer)
-    }
-
-    func displayAlert(_ alert: UIAlertController) {
-        moreOptionsDelegate?.mediaMoreOptionsActionSheetDisplayEqualizerAlert(alert)
     }
 }
 
@@ -421,6 +253,34 @@ extension MediaMoreOptionsActionSheet: ABRepeatViewDelegate {
     }
 }
 
+// MARK: - Cards
+extension MediaMoreOptionsActionSheet {
+    func closeAndPresentCard(for identifier: ActionSheetCellIdentifier) {
+        pendingCardIdentifier = identifier
+        removeActionSheet()
+    }
+
+    func presentPendingCard() {
+        guard let identifier = pendingCardIdentifier else {
+            return
+        }
+
+        pendingCardIdentifier = nil
+        switch identifier {
+        case .playback:
+            moreOptionsDelegate?.mediaMoreOptionsActionSheetPresentPlaybackSpeed()
+        case .sleepTimer:
+            moreOptionsDelegate?.mediaMoreOptionsActionSheetPresentSleepTimer()
+        case .filter:
+            moreOptionsDelegate?.mediaMoreOptionsActionSheetPresentVideoFilters()
+        case .equalizer:
+            moreOptionsDelegate?.mediaMoreOptionsActionSheetPresentEqualizer()
+        default:
+            break
+        }
+    }
+}
+
 // MARK: - MediaPlayerActionSheetDelegate
 extension MediaMoreOptionsActionSheet: MediaPlayerActionSheetDelegate {
     func mediaPlayerActionSheetHeaderTitle() -> String? {
@@ -453,13 +313,13 @@ extension MediaMoreOptionsActionSheet: MediaPlayerActionSheetDataSource {
     private func selectViewToPresent(for cell: ActionSheetCellIdentifier) -> UIView {
         switch cell {
         case .filter:
-            return videoFiltersView
+            return videoFiltersPlaceholderView
         case .playback:
-            return playbackSpeedView
+            return playbackSpeedPlaceholderView
         case .sleepTimer:
-            return sleepTimerView
+            return sleepTimerPlaceholderView
         case .equalizer:
-            return equalizerView
+            return equalizerPlaceholderView
         case .chapters:
             return chapterView
         case .bookmarks:

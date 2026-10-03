@@ -21,13 +21,7 @@ class PodcastsViewController: UIViewController {
 
     private let store = PodcastStore.shared
 
-    private var revealedLatestEpisodesCount = Int(kVLCDefaultPageSize)
-
     private var isSubscribing = false
-
-    private var visibleLatestEpisodes: ArraySlice<PodcastEpisode> {
-        return store.latestEpisodes.prefix(revealedLatestEpisodesCount)
-    }
 
     // MARK: Search
 
@@ -52,7 +46,7 @@ class PodcastsViewController: UIViewController {
         tableView.estimatedRowHeight = 76
         tableView.register(ContinueListeningSectionCell.self,
                             forCellReuseIdentifier: ContinueListeningSectionCell.reuseIdentifier)
-        tableView.register(ShowsSectionCell.self, forCellReuseIdentifier: ShowsSectionCell.reuseIdentifier)
+        tableView.register(VLCOnAirRailCell.self, forCellReuseIdentifier: VLCOnAirRailCell.reuseIdentifier)
         tableView.register(PodcastEpisodeCell.self, forCellReuseIdentifier: PodcastEpisodeCell.reuseIdentifier)
         tableView.register(PodcastSectionHeaderView.self,
                            forHeaderFooterViewReuseIdentifier: PodcastSectionHeaderView.reuseIdentifier)
@@ -67,17 +61,7 @@ class PodcastsViewController: UIViewController {
     }()
 
     private lazy var subscribeIndicator: UIActivityIndicatorView = {
-        let style: UIActivityIndicatorView.Style
-#if os(visionOS)
-        style = .large
-#else
-        if #available(iOS 13.0, *) {
-            style = .large
-        } else {
-            style = .whiteLarge
-        }
-#endif
-        let indicator = UIActivityIndicatorView(style: style)
+        let indicator = UIActivityIndicatorView(style: .large)
         indicator.hidesWhenStopped = true
         indicator.translatesAutoresizingMaskIntoConstraints = false
         return indicator
@@ -87,6 +71,9 @@ class PodcastsViewController: UIViewController {
         let view = PodcastsEmptyStateView()
         view.onAddViaRSS = { [weak self] in
             self?.presentAddSubscriptionAlert()
+        }
+        view.onBrowseDirectory = { [weak self] in
+            self?.showDirectory()
         }
         return view
     }()
@@ -107,14 +94,9 @@ class PodcastsViewController: UIViewController {
 
     private func setupTabBarItem() {
         title = NSLocalizedString("ONAIR_PODCASTS", comment: "")
-        if #available(iOS 13.0, *) {
-            tabBarItem = UITabBarItem(title: title,
-                                       image: UIImage(systemName: "mic"),
-                                       selectedImage: UIImage(systemName: "mic.fill"))
-        } else {
-            tabBarItem = UITabBarItem(title: title,
-                                       image: nil, selectedImage: nil)
-        }
+        tabBarItem = UITabBarItem(title: title,
+                                  image: UIImage(systemName: "mic"),
+                                  selectedImage: UIImage(systemName: "mic.fill"))
         tabBarItem.accessibilityIdentifier = VLCAccessibilityIdentifier.podcasts
     }
 
@@ -156,14 +138,38 @@ class PodcastsViewController: UIViewController {
                                        selector: #selector(refreshDidEnd),
                                        name: .VLCPodcastsRefreshDidEnd,
                                        object: nil)
+        notificationCenter.addObserver(self,
+                                       selector: #selector(miniPlayerIsShown),
+                                       name: NSNotification.Name(rawValue: VLCPlayerDisplayControllerDisplayMiniPlayer),
+                                       object: nil)
+        notificationCenter.addObserver(self,
+                                       selector: #selector(miniPlayerIsHidden),
+                                       name: NSNotification.Name(rawValue: VLCPlayerDisplayControllerHideMiniPlayer),
+                                       object: nil)
         store.addObserver(self)
         updateContentVisibility()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        tableView.reloadData()
+        PlaybackService.sharedInstance().playerDisplayController.isMiniPlayerVisible
+            ? miniPlayerIsShown() : miniPlayerIsHidden()
         updateContentVisibility()
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: nil) { _ in
+            self.tableView.reloadData()
+        }
+    }
+
+    @objc private func miniPlayerIsShown() {
+        tableView.setMiniPlayerInset(true)
+    }
+
+    @objc private func miniPlayerIsHidden() {
+        tableView.setMiniPlayerInset(false)
     }
 
     @objc private func handleRefresh() {
@@ -177,25 +183,31 @@ class PodcastsViewController: UIViewController {
     }
 
     private func setupNavigationBarButtons() {
-        let searchImage: UIImage?
-        let addImage: UIImage?
-        if #available(iOS 13.0, *) {
-            searchImage = UIImage(systemName: "magnifyingglass")
-            addImage = UIImage(systemName: "plus")
-        } else {
-            searchImage = nil
-            addImage = nil
-        }
-
-        let searchButton = UIBarButtonItem(image: searchImage, style: .plain, target: self,
+        let searchButton = UIBarButtonItem(image: UIImage(systemName: "magnifyingglass"), style: .plain, target: self,
                                             action: #selector(didTapSearch))
         searchButton.accessibilityLabel = NSLocalizedString("SEARCH", comment: "")
 
-        let addButton = UIBarButtonItem(image: addImage, style: .plain, target: self,
-                                         action: #selector(didTapAdd))
+        let addButton = UIBarButtonItem(image: UIImage(systemName: "plus"), menu: addActions().menu())
         addButton.accessibilityLabel = NSLocalizedString("PODCAST_SUBSCRIBE", comment: "")
+        addButton.accessibilityIdentifier = VLCAccessibilityIdentifier.podcastAdd
 
         navigationItem.rightBarButtonItems = [addButton, searchButton]
+    }
+
+    private func addActions() -> [PodcastMenuAction] {
+        return [PodcastMenuAction(title: NSLocalizedString("PODCAST_ADD_VIA_RSS", comment: ""),
+                                  imageName: "link") { [weak self] in
+                    self?.presentAddSubscriptionAlert()
+                },
+                PodcastMenuAction(title: NSLocalizedString("PODCAST_DIRECTORY_BROWSE", comment: ""),
+                                  imageName: "square.grid.2x2",
+                                  accessibilityIdentifier: VLCAccessibilityIdentifier.podcastDirectory) { [weak self] in
+                    self?.showDirectory()
+                }]
+    }
+
+    private func showDirectory() {
+        navigationController?.pushViewController(PodcastDirectoryViewController(), animated: true)
     }
 
     private func updateContentVisibility() {
@@ -218,7 +230,9 @@ class PodcastsViewController: UIViewController {
 
     @objc private func didTapSearch() {
         navigationItem.searchController = searchController
-        searchController.isActive = true
+        DispatchQueue.main.async {
+            self.searchController.isActive = true
+        }
     }
 
     private func performSearch(_ searchText: String) {
@@ -286,10 +300,6 @@ class PodcastsViewController: UIViewController {
             self.store.deleteDownloadedEpisode(episodeId: episode.id, showId: episode.showId)
             self.tableView.reloadRows(at: [indexPath], with: .none)
         }
-    }
-
-    @objc private func didTapAdd() {
-        presentAddSubscriptionAlert()
     }
 
     private func presentAddSubscriptionAlert() {
@@ -444,6 +454,14 @@ class PodcastsViewController: UIViewController {
         }
         openShow(show)
     }
+
+    private func openEpisode(_ episode: PodcastEpisode) {
+        guard let show = store.show(withId: episode.showId) else {
+            return
+        }
+        let detailViewController = PodcastEpisodeDetailViewController(episode: episode, show: show)
+        navigationController?.pushViewController(detailViewController, animated: true)
+    }
 }
 
 // MARK: - UITableViewDataSource / UITableViewDelegate
@@ -474,7 +492,7 @@ extension PodcastsViewController: UITableViewDataSource, UITableViewDelegate {
         case .continueListening, .shows:
             return 1
         case .latestEpisodes:
-            return visibleLatestEpisodes.count
+            return store.latestEpisodes.count
         }
     }
 
@@ -520,19 +538,19 @@ extension PodcastsViewController: UITableViewDataSource, UITableViewDelegate {
 
             cell.episodes = store.continueListeningEpisodes
             cell.onSelectEpisode = { [weak self] episode in
-                self?.openShow(forEpisode: episode)
+                self?.store.playEpisode(episodeId: episode.id, showId: episode.showId)
             }
             return cell
         case .shows:
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: ShowsSectionCell.reuseIdentifier,
-                                                           for: indexPath) as? ShowsSectionCell else {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: VLCOnAirRailCell.reuseIdentifier,
+                                                           for: indexPath) as? VLCOnAirRailCell else {
                 return UITableViewCell()
             }
 
-            cell.shows = store.shows
-            cell.onSelectShow = { [weak self] show in
-                self?.openShow(show)
-            }
+            let shows = store.shows
+            shows.forEach { store.requestArtwork(for: $0) }
+            cell.delegate = self
+            cell.configure(items: shows.map { VLCOnAirRailItem(show: $0) }, showsSubtitles: true, showsAddTile: false)
             return cell
         case .latestEpisodes:
             guard let cell = tableView.dequeueReusableCell(withIdentifier: PodcastEpisodeCell.reuseIdentifier,
@@ -540,8 +558,22 @@ extension PodcastsViewController: UITableViewDataSource, UITableViewDelegate {
                 return UITableViewCell()
             }
 
-            configureEpisodeCell(cell, for: visibleLatestEpisodes[indexPath.row], at: indexPath)
+            configureEpisodeCell(cell, for: store.latestEpisodes[indexPath.row], at: indexPath)
             return cell
+        }
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard !isSearching else {
+            return UITableView.automaticDimension
+        }
+        switch visibleSections[indexPath.section] {
+        case .shows:
+            return VLCOnAirRailCell.height(withSubtitles: true)
+        case .continueListening:
+            return ContinueListeningSectionCell.height(forWidth: tableView.bounds.width)
+        case .latestEpisodes:
+            return UITableView.automaticDimension
         }
     }
 
@@ -550,24 +582,20 @@ extension PodcastsViewController: UITableViewDataSource, UITableViewDelegate {
         if isSearching {
             openShow(forEpisode: filteredEpisodes[indexPath.row])
         } else if visibleSections[indexPath.section] == .latestEpisodes {
-            openShow(forEpisode: visibleLatestEpisodes[indexPath.row])
+            openEpisode(store.latestEpisodes[indexPath.row])
         }
     }
+}
 
-    func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
-        guard !isSearching, visibleSections[indexPath.section] == .latestEpisodes else {
+// MARK: - VLCOnAirRailCellDelegate
+
+extension PodcastsViewController: VLCOnAirRailCellDelegate {
+    func railCell(_ cell: VLCOnAirRailCell, didSelectItemAt index: Int) {
+        let shows = store.shows
+        guard shows.indices.contains(index) else {
             return
         }
-
-        let revealedCount = visibleLatestEpisodes.count
-
-        guard revealedCount < store.latestEpisodes.count,
-              indexPath.row >= revealedCount - Int(kVLCPrefetchDistance) else {
-            return
-        }
-
-        revealedLatestEpisodesCount += Int(kVLCDefaultPageSize)
-        tableView.reloadData()
+        openShow(shows[index])
     }
 }
 
@@ -595,6 +623,10 @@ extension PodcastsViewController: UISearchBarDelegate, UISearchControllerDelegat
 
     func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
         endSearch()
+    }
+
+    func didPresentSearchController(_ searchController: UISearchController) {
+        searchController.searchBar.becomeFirstResponder()
     }
 
     func didDismissSearchController(_ searchController: UISearchController) {

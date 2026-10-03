@@ -210,15 +210,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
 #if os(iOS)
     private var currentScreen: UIScreen? {
-        guard let window = window else {
-            return nil
-        }
-
-        if #available(iOS 13.0, *), let screen = window.windowScene?.screen {
-            return screen
-        }
-
-        return window.screen
+        return window?.windowScene?.screen
     }
 #endif
 
@@ -930,9 +922,8 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         
         secondaryControlStackView.addArrangedSubview(playbackSpeedButton)
 
-        let displaySecondaryStackView: Bool = UserDefaults.standard.bool(forKey: kVLCPlayerShowPlaybackSpeedShortcut)
-        secondaryControlStackView.isHidden = !displaySecondaryStackView
-        secondaryControlStackViewHeightConstraint.constant = displaySecondaryStackView ? 30 : 0
+        secondaryControlStackView.isHidden = true
+        secondaryControlStackViewHeightConstraint.constant = 0
     }
 
     private func setupProgressionView() {

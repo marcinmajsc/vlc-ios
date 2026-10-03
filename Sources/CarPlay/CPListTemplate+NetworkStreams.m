@@ -15,11 +15,8 @@
 #import "VLCPlaybackService.h"
 #import "VLCFavoriteService.h"
 #import "VLCRadioService.h"
-#import "VLCNetworkImageView.h"
+#import "VLCThumbnailsCache.h"
 #import "VLCAppCoordinator.h"
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wpartial-availability"
 
 @implementation CPListTemplate (NetworkStreams)
 
@@ -123,9 +120,7 @@
         CPListItem *listItem = [self listItemForFavorite:favorite image:radioIcon];
         NSURL *artworkURL = favorite.artworkURL;
         if (artworkURL) {
-            if (@available(iOS 14.0, *)) {
-                [self setArtworkFromURL:artworkURL onListItem:listItem];
-            }
+            [self setArtworkFromURL:artworkURL onListItem:listItem];
         }
 
         [itemList addObject:listItem];
@@ -148,9 +143,9 @@
     }];
 }
 
-+ (void)setArtworkFromURL:(NSURL *)artworkURL onListItem:(CPListItem *)listItem API_AVAILABLE(ios(14.0))
++ (void)setArtworkFromURL:(NSURL *)artworkURL onListItem:(CPListItem *)listItem
 {
-    UIImage *cachedArtwork = [VLCNetworkImageView cachedImageForURL:artworkURL];
+    UIImage *cachedArtwork = [VLCThumbnailsCache cachedImageForURL:artworkURL];
     if (cachedArtwork) {
         [listItem setImage:[self artworkScaledToIconSize:cachedArtwork]];
         return;
@@ -163,11 +158,10 @@
             return;
         }
 
-        UIImage *artwork = data ? [UIImage imageWithData:data] : nil;
+        UIImage *artwork = [VLCThumbnailsCache imageFromData:data forURL:artworkURL maxPixelSize:0.];
         if (!artwork) {
             return;
         }
-        [[VLCNetworkImageView sharedImageCache] setObject:artwork forKey:artworkURL];
 
         UIImage *scaledArtwork = [self artworkScaledToIconSize:artwork];
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -216,5 +210,3 @@
 }
 
 @end
-
-#pragma clang diagnostic pop

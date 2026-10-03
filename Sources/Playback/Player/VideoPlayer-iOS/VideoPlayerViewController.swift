@@ -113,13 +113,8 @@ class VideoPlayerViewController: PlayerViewController {
         if isIPad {
             videoPlayerControls.rotationLockButton.isHidden = true
         } else {
-            var image: UIImage?
-            if #available(iOS 13.0, *) {
-                let largeConfig = UIImage.SymbolConfiguration(scale: .large)
-                image = UIImage(systemName: "lock.rotation")?.withConfiguration(largeConfig)
-            } else {
-                image = UIImage(named: "lock.rotation")?.withRenderingMode(.alwaysTemplate)
-            }
+            let largeConfig = UIImage.SymbolConfiguration(scale: .large)
+            let image = UIImage(systemName: "lock.rotation")?.withConfiguration(largeConfig)
             videoPlayerControls.rotationLockButton.setImage(image, for: .normal)
             videoPlayerControls.rotationLockButton.tintColor = .white
         }
@@ -137,6 +132,12 @@ class VideoPlayerViewController: PlayerViewController {
 
     // Intent for the next external-file pick: true = audio, false = subtitle, nil = decide by extension.
     private var externalTrackRequestIsAudio: Bool?
+
+    private var delayViewHideTimer: Timer?
+
+    private var delayView: PlaybackDelayView? {
+        return overlayCardView as? PlaybackDelayView
+    }
 
     private lazy var longPressPlaybackSpeedView: LongPressPlaybackSpeedView = {
         let view = LongPressPlaybackSpeedView()
@@ -182,9 +183,7 @@ class VideoPlayerViewController: PlayerViewController {
         videoOutputView.isUserInteractionEnabled = false
         videoOutputView.translatesAutoresizingMaskIntoConstraints = false
 
-        if #available(iOS 11.0, *) {
-            videoOutputView.accessibilityIgnoresInvertColors = true
-        }
+        videoOutputView.accessibilityIgnoresInvertColors = true
         videoOutputView.accessibilityIdentifier = "Video Player Title"
         videoOutputView.accessibilityLabel = NSLocalizedString("VO_VIDEOPLAYER_TITLE",
                                                                comment: "")
@@ -265,14 +264,6 @@ class VideoPlayerViewController: PlayerViewController {
                                                     constant: -5)
     }()
 
-    private lazy var equalizerPopupTopConstraint: NSLayoutConstraint = {
-        equalizerPopupView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10)
-    }()
-
-    private lazy var equalizerPopupBottomConstraint: NSLayoutConstraint = {
-        equalizerPopupView.bottomAnchor.constraint(equalTo: mediaScrubProgressBar.topAnchor, constant: -10)
-    }()
-
     // MARK: - Init methods
 
 #if os(iOS)
@@ -339,11 +330,7 @@ class VideoPlayerViewController: PlayerViewController {
 
         adaptVideoOutputToNotch()
 
-        if playbackService.adjustFilter.isEnabled {
-            showIcon(button: optionsNavigationBar.videoFiltersButton)
-        } else {
-            hideIcon(button: optionsNavigationBar.videoFiltersButton)
-        }
+        updateVideoFiltersIcon()
 
         view.transform = .identity
 
@@ -365,7 +352,7 @@ class VideoPlayerViewController: PlayerViewController {
         // Media is loaded in the media player, checking the projection type and configuring accordingly.
         setupForMediaProjection()
 
-        moreOptionsActionSheet.resetOptionsIfNecessary()
+        moreOptionsActionSheet.updateThemes()
         gameControllerManager.startMonitoring()
     }
 
@@ -434,9 +421,7 @@ class VideoPlayerViewController: PlayerViewController {
         view.backgroundColor = .black
         view.addSubview(mediaNavigationBar)
 #if os(iOS)
-        if #available(iOS 15.0, *) {
-            mediaNavigationBar.addPictureInPictureButton()
-        }
+        mediaNavigationBar.addPictureInPictureButton()
 #endif
         videoPlayerButtons()
         if playerController.isRememberStateEnabled {
@@ -497,37 +482,37 @@ class VideoPlayerViewController: PlayerViewController {
 
         let playPause = UIAccessibilityCustomAction
             .create(name: NSLocalizedString("PLAY_PAUSE_BUTTON", comment: ""),
-                    image: .with(systemName: "playpause"),
+                    image: UIImage(systemName: "playpause"),
                     target: self,
                     selector: #selector(handleAccessibilityPlayPause))
 
         let close = UIAccessibilityCustomAction
             .create(name: NSLocalizedString("STOP_BUTTON", comment: ""),
-                    image: .with(systemName: "xmark"),
+                    image: UIImage(systemName: "xmark"),
                     target: self,
                     selector: #selector(handleAccessibilityClose))
 
         let forward = UIAccessibilityCustomAction
             .create(name: NSLocalizedString("FWD_BUTTON", comment: ""),
-                    image: .with(systemName: "plus.arrow.trianglehead.clockwise"),
+                    image: UIImage(systemName: "plus.arrow.trianglehead.clockwise"),
                     target: self,
                     selector: #selector(handleAccessibilityForward))
 
         let backward = UIAccessibilityCustomAction
             .create(name: NSLocalizedString("BWD_BUTTON", comment: ""),
-                    image: .with(systemName: "minus.arrow.trianglehead.counterclockwise"),
+                    image: UIImage(systemName: "minus.arrow.trianglehead.counterclockwise"),
                     target: self,
                     selector: #selector(handleAccessibilityBackward))
 
         let next = UIAccessibilityCustomAction
             .create(name: NSLocalizedString("NEXT_HINT", comment: ""),
-                    image: .with(systemName: "forward.end"),
+                    image: UIImage(systemName: "forward.end"),
                     target: self,
                     selector: #selector(handleAccessibilityNext))
 
         let prev = UIAccessibilityCustomAction
             .create(name: NSLocalizedString("PREVIOUS_HINT", comment: ""),
-                    image: .with(systemName: "backward.end"),
+                    image: UIImage(systemName: "backward.end"),
                     target: self,
                     selector: #selector(handleAccessibilityPrev))
 
@@ -836,8 +821,9 @@ class VideoPlayerViewController: PlayerViewController {
         let currentPos = recognizer.location(in: view)
 
         // Limit the gesture to avoid conflicts with top and bottom player controls
-        if currentPos.y > mediaScrubProgressBar.frame.origin.y
-            || currentPos.y < mediaNavigationBar.frame.origin.y {
+        if !playerController.isControlsHidden
+            && (currentPos.y > mediaScrubProgressBar.frame.origin.y
+                || currentPos.y < mediaNavigationBar.frame.origin.y) {
             recognizer.state = .ended
         }
 
@@ -854,6 +840,8 @@ class VideoPlayerViewController: PlayerViewController {
     }
 
     @objc func handleTapOnVideo() {
+        dismissOverlayCard()
+
         if UserDefaults.standard.bool(forKey: kVLCSettingPauseWhenShowingControls) && playbackService.isPlaying {
             playbackService.pause()
         }
@@ -864,32 +852,11 @@ class VideoPlayerViewController: PlayerViewController {
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        if playbackService.isPlaying && playerController.isControlsHidden {
+        if playbackService.isPlaying && playerController.isControlsHidden && overlayCardView == nil {
             setControlsHidden(false, animated: true)
         }
 
         videoPlayerButtons()
-
-        let popupMargin: CGFloat
-        let videoPlayerControlsHeight: CGFloat
-        let scrubProgressBarSpacing: CGFloat
-
-        if traitCollection.verticalSizeClass == .compact {
-            popupMargin = 0
-            videoPlayerControlsHeight = 22
-            scrubProgressBarSpacing = 0
-        } else {
-            popupMargin = 10
-            videoPlayerControlsHeight = 44
-            scrubProgressBarSpacing = 5
-        }
-        equalizerPopupTopConstraint.constant = popupMargin
-        equalizerPopupBottomConstraint.constant = -popupMargin
-        if equalizerPopupView.isShown {
-            videoPlayerControlsHeightConstraint.constant = videoPlayerControlsHeight
-            mediaScrubProgressBar.spacing = scrubProgressBarSpacing
-            view.layoutSubviews()
-        }
     }
 
     @objc private func handleLongPressGesture(_ gestureRecognizer: UILongPressGestureRecognizer) {
@@ -1004,9 +971,6 @@ class VideoPlayerViewController: PlayerViewController {
     override func setControlsHidden(_ hidden: Bool, animated: Bool) {
         guard !UIAccessibility.isVoiceOverRunning || !hidden else { return }
 
-        if equalizerPopupView.isShown && hidden {
-            return
-        }
         playerController.isControlsHidden = hidden
         if let alert = alertController, hidden {
             alert.dismiss(animated: true, completion: nil)
@@ -1066,25 +1030,14 @@ class VideoPlayerViewController: PlayerViewController {
         downSwipeRecognizer.isEnabled = !disable
     }
 
-    override func showPopup(_ popupView: PopupView, with contentView: UIView, accessoryViewsDelegate: PopupViewAccessoryViewsDelegate? = nil) {
-        super.showPopup(popupView, with: contentView, accessoryViewsDelegate: accessoryViewsDelegate)
+    override var areGesturesEnabled: Bool {
+        return tapOnVideoRecognizer.isEnabled
+    }
 
-        videoPlayerControls.moreActionsButton.isEnabled = false
-
-        let iPhone5width: CGFloat = 320
-        let leadingConstraint = popupView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 10)
-        let trailingConstraint = popupView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -10)
-        leadingConstraint.priority = .required
-        trailingConstraint.priority = .required
-
-        NSLayoutConstraint.activate([
-            equalizerPopupTopConstraint,
-            equalizerPopupBottomConstraint,
-            leadingConstraint,
-            trailingConstraint,
-            popupView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
-            popupView.widthAnchor.constraint(greaterThanOrEqualToConstant: iPhone5width)
-        ])
+    override func dismissOverlayCard() {
+        delayViewHideTimer?.invalidate()
+        delayViewHideTimer = nil
+        super.dismissOverlayCard()
     }
 
     // MARK: - Private helpers
@@ -1145,9 +1098,7 @@ class VideoPlayerViewController: PlayerViewController {
             videoOutputView.frame = view.frame
             // Adjust constraint for local display
             setupVideoOutputConstraints()
-            if #available(iOS 11.0, *) {
-                adaptVideoOutputToNotch()
-            }
+            adaptVideoOutputToNotch()
         }
     }
 
@@ -1264,7 +1215,7 @@ extension VideoPlayerViewController {
         mediaNavigationBar.setMediaTitleLabelText("")
         updateFavoriteButton()
         videoPlayerControls.updatePlayPauseButton(toState: playbackService.mediaPlayerState == .playing)
-        mediaScrubProgressBar.setLiveStream(playbackService.metadata.isLiveStream && !playbackService.isSeekable)
+        mediaScrubProgressBar.updateLiveStreamState()
 
         // FIXME: -
         resetIdleTimer()
@@ -1344,7 +1295,7 @@ extension VideoPlayerViewController {
 
         mediaNavigationBar.setMediaTitleLabelText(metadata.title)
         updateFavoriteButton()
-        mediaScrubProgressBar.setLiveStream(metadata.isLiveStream && !playbackService.isSeekable)
+        mediaScrubProgressBar.updateLiveStreamState()
 
         if playbackService.isPlayingOnExternalScreen() {
 #if os(iOS)
@@ -1504,6 +1455,9 @@ extension VideoPlayerViewController {
     }
 
     func mediaMoreOptionsActionSheetDidAppeared() {
+        guard overlayCardView == nil else {
+            return
+        }
         handleTapOnVideo()
     }
 
@@ -1599,18 +1553,6 @@ extension VideoPlayerViewController {
     }
 }
 
-// MARK: - PopupViewDelegate
-
-extension VideoPlayerViewController {
-    override func popupViewDidClose(_ popupView: PopupView) {
-        super.popupViewDidClose(popupView)
-        videoPlayerControls.moreActionsButton.isEnabled = true
-        videoPlayerControlsHeightConstraint.constant = 44
-        mediaScrubProgressBar.spacing = 5
-        resetIdleTimer()
-    }
-}
-
 // MARK: - QueueViewControllerDelegate
 
 extension VideoPlayerViewController: QueueViewControllerDelegate {
@@ -1626,34 +1568,125 @@ extension VideoPlayerViewController: QueueViewControllerDelegate {
     }
 }
 
-// MARK: - TrackSelectorViewControllerDelegate
+// MARK: - TrackSelectorViewDelegate
 
-extension VideoPlayerViewController: TrackSelectorViewControllerDelegate {
-    func trackSelector(_ controller: TrackSelectorViewController, didRequestLoadExternalFileForAudio audio: Bool) {
-        controller.dismiss(animated: true) { [weak self] in
-            guard let self = self else { return }
-            self.externalTrackRequestIsAudio = audio
-            let picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .open)
-            picker.delegate = self
-            self.present(picker, animated: true)
+extension VideoPlayerViewController: TrackSelectorViewDelegate {
+    func showTrackSelectorCard() {
+        guard !(overlayCardView is TrackSelectorView) else {
+            return
+        }
+
+        let trackSelectorCard = TrackSelectorView()
+        trackSelectorCard.delegate = self
+        showOverlayCard(trackSelectorCard)
+        trackSelectorCard.focusForAccessibility()
+    }
+
+    func trackSelectorView(_ trackSelectorView: TrackSelectorView, didRequestLoadExternalFileForAudio audio: Bool) {
+        dismissOverlayCard()
+        externalTrackRequestIsAudio = audio
+        let picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .open)
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    func trackSelectorViewDidRequestDownloadSubtitles(_ trackSelectorView: TrackSelectorView) {
+        dismissOverlayCard()
+        downloadMoreSPU()
+    }
+
+    func trackSelectorView(_ trackSelectorView: TrackSelectorView, didRequestDelayForAudio audio: Bool) {
+        showDelayView(for: audio ? .audio : .subtitle)
+    }
+
+    func trackSelectorViewDidRequestDismissal(_ trackSelectorView: TrackSelectorView) {
+        dismissOverlayCard()
+    }
+}
+
+// MARK: - Delay
+
+extension VideoPlayerViewController {
+    func showDelayView(for kind: PlaybackDelayView.Kind) {
+        if let delayView = delayView, delayView.kind == kind {
+            delayView.refresh()
+            return
+        }
+
+        let delayView = PlaybackDelayView(kind: kind)
+        delayView.delegate = self
+        showOverlayCard(delayView)
+        delayView.focusForAccessibility()
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        var commands = super.keyCommands ?? []
+
+        let decreaseAudioDelay = UIKeyCommand(input: "j", modifierFlags: [], action: #selector(keyDecreaseAudioDelay))
+        decreaseAudioDelay.discoverabilityTitle = NSLocalizedString("KEY_DECREASE_AUDIO_DELAY", comment: "")
+        let increaseAudioDelay = UIKeyCommand(input: "k", modifierFlags: [], action: #selector(keyIncreaseAudioDelay))
+        increaseAudioDelay.discoverabilityTitle = NSLocalizedString("KEY_INCREASE_AUDIO_DELAY", comment: "")
+        commands += [decreaseAudioDelay, increaseAudioDelay]
+
+        if !playbackService.metadata.isAudioOnly {
+            let decreaseSubtitleDelay = UIKeyCommand(input: "g", modifierFlags: [], action: #selector(keyDecreaseSubtitleDelay))
+            decreaseSubtitleDelay.discoverabilityTitle = NSLocalizedString("KEY_DECREASE_SUBTITLE_DELAY", comment: "")
+            let increaseSubtitleDelay = UIKeyCommand(input: "h", modifierFlags: [], action: #selector(keyIncreaseSubtitleDelay))
+            increaseSubtitleDelay.discoverabilityTitle = NSLocalizedString("KEY_INCREASE_SUBTITLE_DELAY", comment: "")
+            commands += [decreaseSubtitleDelay, increaseSubtitleDelay]
+        }
+
+        return commands
+    }
+
+    @objc func keyDecreaseAudioDelay() {
+        nudgeDelayFromKeyboard(kind: .audio, increasing: false)
+    }
+
+    @objc func keyIncreaseAudioDelay() {
+        nudgeDelayFromKeyboard(kind: .audio, increasing: true)
+    }
+
+    @objc func keyDecreaseSubtitleDelay() {
+        nudgeDelayFromKeyboard(kind: .subtitle, increasing: false)
+    }
+
+    @objc func keyIncreaseSubtitleDelay() {
+        nudgeDelayFromKeyboard(kind: .subtitle, increasing: true)
+    }
+
+    private func nudgeDelayFromKeyboard(kind: PlaybackDelayView.Kind, increasing: Bool) {
+        showDelayView(for: kind)
+        delayView?.nudgeDelay(increasing: increasing)
+        scheduleDelayViewHideTimer()
+    }
+
+    private func scheduleDelayViewHideTimer() {
+        delayViewHideTimer?.invalidate()
+        delayViewHideTimer = Timer.scheduledTimer(timeInterval: 4,
+                                                  target: self,
+                                                  selector: #selector(delayViewHideTimerFired),
+                                                  userInfo: nil,
+                                                  repeats: false)
+    }
+
+    @objc private func delayViewHideTimerFired() {
+        dismissOverlayCard()
+    }
+}
+
+// MARK: - PlaybackDelayViewDelegate
+
+extension VideoPlayerViewController: PlaybackDelayViewDelegate {
+    func playbackDelayViewDidChangeDelay(_ delayView: PlaybackDelayView) {
+        updatePlaybackSpeedIcon()
+        if delayViewHideTimer != nil {
+            scheduleDelayViewHideTimer()
         }
     }
 
-    func trackSelectorDidRequestDownloadSubtitles(_ controller: TrackSelectorViewController) {
-        controller.dismiss(animated: true) { [weak self] in
-            self?.downloadMoreSPU()
-        }
-    }
-
-    func trackSelectorDidRequestSpeedAndSync(_ controller: TrackSelectorViewController) {
-        controller.dismiss(animated: true) { [weak self] in
-            guard let self = self else { return }
-            self.present(self.moreOptionsActionSheet, animated: false) {
-                self.moreOptionsActionSheet.interfaceDisabled = self.playerController.isInterfaceLocked
-                self.moreOptionsActionSheet.hidePlayer()
-                self.moreOptionsActionSheet.addView(.playback)
-            }
-        }
+    func playbackDelayViewDidRequestDismissal(_ delayView: PlaybackDelayView) {
+        dismissOverlayCard()
     }
 }
 

@@ -53,6 +53,7 @@ private enum RendererActionSheetContent: Int, CaseIterable {
         closeButton.addGestureRecognizer(longPressGesture)
         closeButton.addGestureRecognizer(tapGesture)
         closeButton.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        closeButton.accessibilityIdentifier = VLCAccessibilityIdentifier.closePlayback
         return closeButton
     }()
 
@@ -198,7 +199,6 @@ private enum RendererActionSheetContent: Int, CaseIterable {
     }
 
 #if os(iOS)
-    @available(iOS 15.0, *)
     func addPictureInPictureButton() {
         addArrangedSubview(pictureInPictureButton)
         NSLayoutConstraint.activate([
@@ -310,11 +310,7 @@ private enum RendererActionSheetContent: Int, CaseIterable {
             return
         }
 
-        if #available(iOS 13.0, *) {
-            favoriteButton.setImage(UIImage(systemName: isFavorite ? "heart.fill" : "heart"), for: .normal)
-        } else {
-            favoriteButton.setImage(UIImage(named: isFavorite ? "heart-fill" : "heart"), for: .normal)
-        }
+        favoriteButton.setImage(UIImage(systemName: isFavorite ? "heart.fill" : "heart"), for: .normal)
 
         favoriteButton.accessibilityLabel = isFavorite ? NSLocalizedString("REMOVE_FAVORITE", comment: "")
                                                        : NSLocalizedString("ADD_FAVORITE", comment: "")

@@ -31,7 +31,6 @@ class AudioPlayerViewController: PlayerViewController {
 
     private var isQueueHidden: Bool = true
 
-    private var displayedPlaybackSpeed: Float = 1.0
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         get { return UIInterfaceOrientationMask.allButUpsideDown }
@@ -56,15 +55,8 @@ class AudioPlayerViewController: PlayerViewController {
         moreOptionsButton.setImage(UIImage(named: "iconMoreOptions"), for: .normal)
         moreOptionsButton.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         moreOptionsButton.addTarget(self, action: #selector(handleMoreOptionsButton), for: .touchUpInside)
+        moreOptionsButton.accessibilityIdentifier = VLCAccessibilityIdentifier.moreOptions
         return moreOptionsButton
-    }()
-
-    private lazy var equalizerPopupTopConstraint: NSLayoutConstraint = {
-        equalizerPopupView.topAnchor.constraint(equalTo: audioPlayerView.navigationBarView.topAnchor, constant: 10)
-    }()
-
-    private lazy var equalizerPopupBottomConstraint: NSLayoutConstraint = {
-        equalizerPopupView.bottomAnchor.constraint(equalTo: audioPlayerView.progressionView.topAnchor, constant: -10)
     }()
 
     // MARK: - Init
@@ -77,7 +69,6 @@ class AudioPlayerViewController: PlayerViewController {
                    rendererDiscovererManager: rendererDiscovererManager,
                    playerController: playerController,
                    isBrightnessControlAvailable: false)
-        NotificationCenter.default.addObserver(self, selector: #selector(playbackRateDidChange(_:)), name: Notification.Name(VLCPlaybackServicePlaybackRateDidChange), object: nil)
 
         self.playerController.delegate = self
         mediaNavigationBar.addMoreOptionsButton(moreOptionsButton)
@@ -97,7 +88,6 @@ class AudioPlayerViewController: PlayerViewController {
 #else
     @objc override init(mediaLibraryService: MediaLibraryService, playerController: PlayerController) {
         super.init(mediaLibraryService: mediaLibraryService, playerController: playerController)
-        NotificationCenter.default.addObserver(self, selector: #selector(playbackRateDidChange(_:)), name: Notification.Name(VLCPlaybackServicePlaybackRateDidChange), object: nil)
 
         self.playerController.delegate = self
         mediaNavigationBar.addMoreOptionsButton(moreOptionsButton)
@@ -137,9 +127,6 @@ class AudioPlayerViewController: PlayerViewController {
         let isLandscape = view.bounds.width > view.bounds.height
         audioPlayerView.updateLayout(isLandscape: isLandscape)
         mediaScrubProgressBar.shouldHideScrubLabels = isLandscape
-
-        let displayShortcutView: Bool = UserDefaults.standard.bool(forKey: kVLCPlayerShowPlaybackSpeedShortcut)
-        audioPlayerView.shouldDisplaySecondaryStackView(displayShortcutView)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -178,35 +165,15 @@ class AudioPlayerViewController: PlayerViewController {
         return true
     }
     
-    @objc func playbackRateDidChange(_ notification: NSNotification) {
+    override func updatePlaybackSpeedIcon() {
+        super.updatePlaybackSpeedIcon()
         refreshPlaybackSpeed()
     }
 
     private func refreshPlaybackSpeed() {
-        displayedPlaybackSpeed = playbackService.playbackRate
-        audioPlayerView.updatePlaybackSpeedButton(with: displayedPlaybackSpeed)
-    }
-
-    override func showPopup(_ popupView: PopupView, with contentView: UIView, accessoryViewsDelegate: PopupViewAccessoryViewsDelegate? = nil) {
-        moreOptionsButton.isEnabled = false
-        super.showPopup(popupView, with: contentView, accessoryViewsDelegate: accessoryViewsDelegate)
-
-        let iPhone5width: CGFloat = 320
-        let leadingConstraint = popupView.leadingAnchor.constraint(equalTo: audioPlayerView.safeAreaLayoutGuide.leadingAnchor, constant: 10)
-        let trailingConstraint = popupView.trailingAnchor.constraint(equalTo: audioPlayerView.safeAreaLayoutGuide.trailingAnchor, constant: -10)
-        leadingConstraint.priority = .required
-        trailingConstraint.priority = .required
-
-        let newConstraints = [
-            equalizerPopupTopConstraint,
-            equalizerPopupBottomConstraint,
-            leadingConstraint,
-            trailingConstraint,
-            popupView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            popupView.widthAnchor.constraint(greaterThanOrEqualToConstant: iPhone5width)
-        ]
-
-        NSLayoutConstraint.activate(newConstraints)
+        let playbackSpeed = playbackService.playbackRate
+        audioPlayerView.updatePlaybackSpeedButton(with: playbackSpeed)
+        audioPlayerView.shouldDisplaySecondaryStackView(abs(playbackSpeed - 1) > 0.001)
     }
 
     @objc func setupQueueViewController(with qvc: QueueViewController) {
@@ -440,26 +407,16 @@ extension AudioPlayerViewController: AudioPlayerViewDelegate {
     }
 
     func audioPlayerViewDelegateDidTapPlaybackSpeedButton(_ audioPlayerView: AudioPlayerView) {
-        let speedOffset: Float = 0.25
-        var requestedSpeed = displayedPlaybackSpeed + speedOffset
-
-        if requestedSpeed > 2.0 {
-            requestedSpeed = 1.0
-            mediaMoreOptionsActionSheetHideIcon(for: .playbackSpeed)
-        } else {
-            mediaMoreOptionsActionSheetShowIcon(for: .playbackSpeed)
-        }
-
-        playbackService.playbackRate = requestedSpeed
-        displayedPlaybackSpeed = requestedSpeed
-        audioPlayerView.updatePlaybackSpeedButton(with: requestedSpeed)
+        showPlaybackSpeedCard()
     }
 
     func audioPlayerViewDelegateDidLongPressPlaybackSpeedButton(_ audioPlayerView: AudioPlayerView) {
-        present(moreOptionsActionSheet, animated: false) {
-            [unowned self] in
-            self.moreOptionsActionSheet.addView(.playback)
+        let speedManager = PlaybackSpeedCustomManager.shared
+        playbackService.playbackRate = 1
+        if speedManager.appliesToAllMedia {
+            speedManager.setDefaultSpeed(1)
         }
+        updatePlaybackSpeedIcon()
     }
 
 }
@@ -474,7 +431,7 @@ extension AudioPlayerViewController {
         let metadata = playbackService.metadata
         audioPlayerView.updateLabels(title: metadata.title, artist: metadata.artist, album: metadata.albumName, isQueueHidden: isQueueHidden)
         updateNavigationBar(with: isQueueHidden ? nil : metadata.title)
-        mediaScrubProgressBar.setLiveStream(metadata.isLiveStream && !playbackService.isSeekable)
+        mediaScrubProgressBar.updateLiveStreamState()
 
         if let qvc = queueViewController, !isQueueHidden {
             showPlayqueue(from: qvc)
@@ -525,7 +482,7 @@ extension AudioPlayerViewController {
     func displayMetadata(for playbackService: PlaybackService, metadata: VLCMetaData) {
         audioPlayerView.updateLabels(title: metadata.title, artist: metadata.artist, album: metadata.albumName, isQueueHidden: isQueueHidden)
         updateNavigationBar(with: isQueueHidden ? nil : metadata.title)
-        mediaScrubProgressBar.setLiveStream(metadata.isLiveStream && !playbackService.isSeekable)
+        mediaScrubProgressBar.updateLiveStreamState()
 
         if metadata.artworkImage != audioPlayerView.thumbnailImageView.image {
             audioPlayerView.updateThumbnailImageView()
@@ -539,10 +496,6 @@ extension AudioPlayerViewController {
 
 #if os(iOS)
     func updateWidgetsIfNeeded() {
-        guard #available(iOS 14.0, *) else {
-            return
-        }
-
         let widgetCenter = WidgetCenter.shared
         widgetCenter.getCurrentConfigurations({ result in
             switch result {
@@ -648,10 +601,6 @@ extension AudioPlayerViewController {
         audioPlayerView.shouldDisableControls(false)
     }
 
-    func mediaMoreOptionsActionSheetShowPlaybackSpeedShortcut(_ displayView: Bool) {
-        audioPlayerView.shouldDisplaySecondaryStackView(displayView)
-    }
-
     override func mediaMoreOptionsActionSheetPresentABRepeatView(with abView: ABRepeatView) {
         super.mediaMoreOptionsActionSheetPresentABRepeatView(with: abView)
 
@@ -666,15 +615,6 @@ extension AudioPlayerViewController {
             abRepeatView.centerXAnchor.constraint(equalTo: audioPlayerView.safeAreaLayoutGuide.centerXAnchor),
             abRepeatView.bottomAnchor.constraint(equalTo: mediaScrubProgressBar.topAnchor, constant: -10.0),
         ])
-    }
-}
-
-// MARK: - PopupViewDelegate
-
-extension AudioPlayerViewController {
-    override func popupViewDidClose(_ popupView: PopupView) {
-        super.popupViewDidClose(popupView)
-        moreOptionsButton.isEnabled = true
     }
 }
 

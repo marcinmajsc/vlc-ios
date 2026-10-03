@@ -28,10 +28,10 @@
 
 @implementation VLCThumbnailsCache
 
-#define MAX_CACHE_SIZE_IPHONE (16 * 1024 * 1024)
-#define MAX_CACHE_SIZE_IPAD   (24 * 1024 * 1024)
+#define MAX_CACHE_SIZE_IPHONE (32 * 1024 * 1024)
+#define MAX_CACHE_SIZE_IPAD   (48 * 1024 * 1024)
 #define MAX_CACHE_SIZE_WATCH  (8 * 1024 * 1024)
-#define MAX_CACHE_SIZE_tvOS   (64 * 1024 * 1024)
+#define MAX_CACHE_SIZE_tvOS   (128 * 1024 * 1024)
 #define DEFAULT_MAX_PIXEL_SIZE 1024.f
 
 - (instancetype)init
@@ -89,6 +89,74 @@
     return [sharedCache _thumbnailForURL:url maxPixelSize:maxPixelSize];
 }
 
++ (UIImage *)cachedImageForURL:(NSURL *)url
+{
+    if (!url) {
+        return nil;
+    }
+    VLCThumbnailsCache *sharedCache = [VLCThumbnailsCache sharedThumbnailCache];
+    return [sharedCache _largestCachedImageForURL:url];
+}
+
++ (UIImage *)cachedImageForURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize
+{
+    if (!url) {
+        return nil;
+    }
+    VLCThumbnailsCache *sharedCache = [VLCThumbnailsCache sharedThumbnailCache];
+    return [sharedCache->_thumbnailCache objectForKey:[sharedCache cacheKeyForURL:url maxPixelSize:maxPixelSize]];
+}
+
++ (UIImage *)imageFromData:(NSData *)data forURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize
+{
+    if (maxPixelSize <= 0.) {
+        maxPixelSize = DEFAULT_MAX_PIXEL_SIZE;
+    }
+    UIImage *image = [VLCThumbnailsCache downsampledImageFromData:data maxPixelSize:maxPixelSize];
+    if (image && url) {
+        VLCThumbnailsCache *sharedCache = [VLCThumbnailsCache sharedThumbnailCache];
+        [sharedCache storeImage:image forKey:[sharedCache cacheKeyForURL:url maxPixelSize:maxPixelSize] maxPixelSize:maxPixelSize];
+    }
+    return image;
+}
+
++ (UIImage *)downsampledImageFromData:(NSData *)data maxPixelSize:(CGFloat)maxPixelSize
+{
+    if (data.length == 0) {
+        return nil;
+    }
+
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+    if (source == NULL) {
+        return nil;
+    }
+
+    UIImage *image = [VLCThumbnailsCache downsampledImageFromSource:source maxPixelSize:maxPixelSize];
+    CFRelease(source);
+
+    return image;
+}
+
++ (UIImage *)downsampledImageFromSource:(CGImageSourceRef)source maxPixelSize:(CGFloat)maxPixelSize
+{
+    NSDictionary *options = @{
+        (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
+        (__bridge NSString *)kCGImageSourceCreateThumbnailWithTransform: @YES,
+        (__bridge NSString *)kCGImageSourceShouldCacheImmediately: @YES,
+        (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize: @(maxPixelSize)
+    };
+
+    CGImageRef cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
+    if (cgImage == NULL) {
+        return nil;
+    }
+
+    UIImage *image = [UIImage imageWithCGImage:cgImage];
+    CGImageRelease(cgImage);
+
+    return image;
+}
+
 + (void)invalidateThumbnailForURL:(nullable NSURL *)url
 {
     if (!url) {
@@ -100,7 +168,8 @@
 
 - (NSString *)cacheKeyForURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize
 {
-    return [NSString stringWithFormat:@"%@|%.0f", url.path, maxPixelSize];
+    NSString *identifier = url.isFileURL ? url.path : url.absoluteString;
+    return [NSString stringWithFormat:@"%@|%.0f", identifier, maxPixelSize];
 }
 
 - (UIImage *)_thumbnailForURL:(NSURL *)url maxPixelSize:(CGFloat)maxPixelSize
@@ -123,13 +192,34 @@
         return nil;
     }
 
+    [self storeImage:theImage forKey:key maxPixelSize:maxPixelSize];
+
+    return theImage;
+}
+
+- (void)storeImage:(UIImage *)image forKey:(NSString *)key maxPixelSize:(CGFloat)maxPixelSize
+{
     [_knownMaxPixelSizesLock lock];
     [_knownMaxPixelSizes addObject:@(maxPixelSize)];
     [_knownMaxPixelSizesLock unlock];
 
-    [_thumbnailCache setObject:theImage forKey:key cost:[self costForImage:theImage]];
+    [_thumbnailCache setObject:image forKey:key cost:[self costForImage:image]];
+}
 
-    return theImage;
+- (UIImage *)_largestCachedImageForURL:(NSURL *)url
+{
+    [_knownMaxPixelSizesLock lock];
+    NSArray<NSNumber *> *maxPixelSizes = [_knownMaxPixelSizes.allObjects sortedArrayUsingSelector:@selector(compare:)];
+    [_knownMaxPixelSizesLock unlock];
+
+    for (NSNumber *maxPixelSize in maxPixelSizes.reverseObjectEnumerator) {
+        UIImage *image = [_thumbnailCache objectForKey:[self cacheKeyForURL:url
+                                                               maxPixelSize:maxPixelSize.doubleValue]];
+        if (image) {
+            return image;
+        }
+    }
+    return nil;
 }
 
 - (UIImage *)downsampledImageAtPath:(NSString *)path maxPixelSize:(CGFloat)maxPixelSize
@@ -141,23 +231,12 @@
         return nil;
     }
 
-    NSDictionary *options = @{
-        (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
-        (__bridge NSString *)kCGImageSourceCreateThumbnailWithTransform: @YES,
-        (__bridge NSString *)kCGImageSourceShouldCacheImmediately: @YES,
-        (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize: @(maxPixelSize)
-    };
-
-    CGImageRef cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
+    UIImage *image = [VLCThumbnailsCache downsampledImageFromSource:source maxPixelSize:maxPixelSize];
     CFRelease(source);
 
-    if (cgImage == NULL) {
+    if (image == nil) {
         APLog(@"Failed to decode thumbnail at path '%@'", path);
-        return nil;
     }
-
-    UIImage *image = [UIImage imageWithCGImage:cgImage];
-    CGImageRelease(cgImage);
 
     return image;
 }

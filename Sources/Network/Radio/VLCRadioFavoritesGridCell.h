@@ -22,7 +22,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)favoritesGridCell:(VLCRadioFavoritesGridCell *)cell didRequestRemovalOfFavoriteAtIndex:(NSInteger)index;
 @optional
 - (nullable NSArray<UIMenuElement *> *)favoritesGridCell:(VLCRadioFavoritesGridCell *)cell
-                            menuElementsForFavoriteAtIndex:(NSInteger)index API_AVAILABLE(ios(14.0));
+                            menuElementsForFavoriteAtIndex:(NSInteger)index;
 - (BOOL)favoritesGridCell:(VLCRadioFavoritesGridCell *)cell hasAlarmForFavoriteAtIndex:(NSInteger)index;
 @end
 
@@ -37,6 +37,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (CGFloat)heightForFavoriteCount:(NSInteger)count width:(CGFloat)width;
 + (NSInteger)columnsForWidth:(CGFloat)width;
++ (CGFloat)tileWidthForWidth:(CGFloat)width columns:(NSInteger)columns;
 
 @end
 

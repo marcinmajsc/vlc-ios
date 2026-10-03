@@ -133,10 +133,32 @@ class PodcastEpisodeDetailViewController: UIViewController {
                                        selector: #selector(refresh),
                                        name: Notification.Name(VLCPlaybackServicePlaybackDidStop),
                                        object: nil)
+        notificationCenter.addObserver(self,
+                                       selector: #selector(miniPlayerIsShown),
+                                       name: NSNotification.Name(rawValue: VLCPlayerDisplayControllerDisplayMiniPlayer),
+                                       object: nil)
+        notificationCenter.addObserver(self,
+                                       selector: #selector(miniPlayerIsHidden),
+                                       name: NSNotification.Name(rawValue: VLCPlayerDisplayControllerHideMiniPlayer),
+                                       object: nil)
 
         store.addObserver(self)
         applyTheme()
         refresh()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        PlaybackService.sharedInstance().playerDisplayController.isMiniPlayerVisible
+            ? miniPlayerIsShown() : miniPlayerIsHidden()
+    }
+
+    @objc private func miniPlayerIsShown() {
+        scrollView.setMiniPlayerInset(true)
+    }
+
+    @objc private func miniPlayerIsHidden() {
+        scrollView.setMiniPlayerInset(false)
     }
 
     deinit {
@@ -199,7 +221,7 @@ class PodcastEpisodeDetailViewController: UIViewController {
     }
 
     @objc private func refresh() {
-        if let updated = store.episodes(forShowId: show.id).first(where: { $0.id == episodeId }) {
+        if let updated = store.episode(withId: episodeId, showId: show.id) {
             episode = updated
         }
 
@@ -242,10 +264,6 @@ class PodcastEpisodeDetailViewController: UIViewController {
             overflowButton.image = UIImage(named: "EllipseCircle")
         }
         overflowButton.accessibilityLabel = NSLocalizedString("BUTTON_MENU", comment: "")
-        if #unavailable(iOS 14.0) {
-            overflowButton.target = self
-            overflowButton.action = #selector(showOverflowActionSheet)
-        }
 
         playBarButton.target = self
         playBarButton.action = #selector(didTapPlay)
@@ -256,17 +274,10 @@ class PodcastEpisodeDetailViewController: UIViewController {
 
     private func updatePlayBarButton() {
         let isPlaying = store.isPlaying && store.nowPlayingEpisodeId == episodeId
-        guard #available(iOS 13.0, *) else {
-            playBarButton.image = UIImage(named: isPlaying ? "pauseIcon" : "iconPlay")
-            return
-        }
         playBarButton.image = UIImage(systemName: isPlaying ? "pause.fill" : "play.fill")
     }
 
     private func updateOverflowMenu() {
-        guard #available(iOS 14.0, *) else {
-            return
-        }
         overflowButton.menu = overflowActions.menu()
     }
 
@@ -278,9 +289,7 @@ class PodcastEpisodeDetailViewController: UIViewController {
                               imageName: "text.append") { [weak self] in self?.appendToQueue() },
             PodcastMenuAction(title: NSLocalizedString("PODCAST_EXPORT_MEDIA_FILE", comment: ""),
                               imageName: "arrow.down.doc",
-                              isEnabled: episode.downloaded) { [weak self] in self?.shareDownload() },
-            PodcastMenuAction(title: NSLocalizedString("PODCAST_OPEN_LINK", comment: ""),
-                              imageName: "safari", isEnabled: false) {}
+                              isEnabled: episode.downloaded) { [weak self] in self?.shareDownload() }
         ]
 
         if store.isDownloading(episodeId: episodeId) {
@@ -296,10 +305,6 @@ class PodcastEpisodeDetailViewController: UIViewController {
                                              imageName: "arrow.down.circle") { [weak self] in self?.download() })
         }
         return actions
-    }
-
-    @objc private func showOverflowActionSheet(_ sender: UIBarButtonItem) {
-        overflowActions.presentActionSheet(title: episode.title, from: sender, in: self)
     }
 
     private func updateNotes() {
@@ -330,46 +335,7 @@ class PodcastEpisodeDetailViewController: UIViewController {
             return cachedNotes
         }
 
-        let attributedNotes = attributedNotes(from: notes)
-        let range = NSRange(location: 0, length: attributedNotes.length)
-        let bodyFont = UIFont.preferredCustomFont(forTextStyle: .callout)
-
-        if #available(iOS 15.0, *) {
-            attributedNotes.enumerateAttribute(.inlinePresentationIntent, in: range, options: []) { value, subrange, _ in
-                guard let rawValue = (value as? NSNumber)?.uintValue else {
-                    return
-                }
-                let intent = InlinePresentationIntent(rawValue: rawValue)
-                var traits: UIFontDescriptor.SymbolicTraits = []
-                if intent.contains(.stronglyEmphasized) {
-                    traits.insert(.traitBold)
-                }
-                if intent.contains(.emphasized) {
-                    traits.insert(.traitItalic)
-                }
-                guard let descriptor = bodyFont.fontDescriptor.withSymbolicTraits(traits) else {
-                    return
-                }
-                attributedNotes.addAttribute(.font, value: UIFont(descriptor: descriptor, size: 0), range: subrange)
-            }
-        }
-
-        attributedNotes.enumerateAttribute(.font, in: range, options: []) { value, subrange, _ in
-            let traits = (value as? UIFont)?.fontDescriptor.symbolicTraits ?? []
-            guard let descriptor = bodyFont.fontDescriptor.withSymbolicTraits(traits) else {
-                attributedNotes.addAttribute(.font, value: bodyFont, range: subrange)
-                return
-            }
-            attributedNotes.addAttribute(.font, value: UIFont(descriptor: descriptor, size: 0), range: subrange)
-        }
-
-        attributedNotes.enumerateAttribute(.paragraphStyle, in: range, options: []) { value, subrange, _ in
-            let style = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle
-                ?? NSMutableParagraphStyle()
-            style.lineHeightMultiple = 1.55
-            attributedNotes.addAttribute(.paragraphStyle, value: style, range: subrange)
-        }
-
+        let attributedNotes = PodcastNotes.attributedString(from: notes)
         linkTimestamps(in: attributedNotes)
 
         cachedNotes = attributedNotes
@@ -441,29 +407,6 @@ class PodcastEpisodeDetailViewController: UIViewController {
             return -1
         }
         return Float(Double(seconds * 1000) / Double(episode.durationValue))
-    }
-
-    // Feeds put HTML in content:encoded and, within CDATA, in description and itunes:summary alike.
-    // Anything without tags or entities is plain text that the publisher may have written as markdown.
-    private func attributedNotes(from notes: String) -> NSMutableAttributedString {
-        if notes.range(of: "<[^>]+>|&[a-zA-Z]+;|&#[0-9]+;", options: .regularExpression) != nil,
-           let data = notes.data(using: .utf8),
-           let html = try? NSMutableAttributedString(data: data,
-                                                     options: [.documentType: NSAttributedString.DocumentType.html,
-                                                               .characterEncoding: String.Encoding.utf8.rawValue],
-                                                     documentAttributes: nil) {
-            return html
-        }
-
-        guard #available(iOS 15.0, *) else {
-            return NSMutableAttributedString(string: notes)
-        }
-
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        guard let markdown = try? AttributedString(markdown: notes, options: options) else {
-            return NSMutableAttributedString(string: notes)
-        }
-        return NSMutableAttributedString(attributedString: NSAttributedString(markdown))
     }
 
     @objc private func didTapPlay() {

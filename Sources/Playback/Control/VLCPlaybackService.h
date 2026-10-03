@@ -27,6 +27,7 @@ extern NSString *const VLCPlaybackServicePlaybackPositionUpdated;
 extern NSString *const VLCPlaybackServicePlaybackModeUpdated;
 extern NSString *const VLCPlaybackServiceShuffleModeUpdated;
 extern NSString *const VLCPlaybackServicePlaybackDidMoveOnToNextItem;
+extern NSString *const VLCPlaybackServiceSleepTimerDidChange;
 extern NSString *const VLCLastPlaylistPlayedMedia;
 
 @class VLCPlaybackService;
@@ -37,6 +38,7 @@ extern NSString *const VLCLastPlaylistPlayedMedia;
 @class VLCMediaPlayerTitleDescription;
 @class VLCMediaPlayerChapterDescription;
 @class VLCMediaPlayerTrack;
+@class VLCAudioEqualizerPreset;
 
 @protocol VLCPlaybackServiceDelegate <NSObject>
 @optional
@@ -121,7 +123,9 @@ NS_SWIFT_NAME(PlaybackService)
 @property (readonly) BOOL isNextMediaAvailable;
 @property (readonly) NSNumber *playbackTime;
 @property (nonatomic, readonly) NSDictionary *mediaOptionsDictionary;
-@property (nonatomic, readonly) NSTimer *sleepTimer;
+@property (nonatomic, readonly, nullable) NSTimer *sleepTimer;
+@property (nonatomic, readonly) NSTimeInterval sleepTimerInterval;
+@property (nonatomic) BOOL stopAfterCurrentItem;
 
 @property (nonatomic, readwrite) CGFloat preAmplification;
 
@@ -151,6 +155,8 @@ NS_SWIFT_NAME(PlaybackService)
 - (void)previousFrame;
 - (void)toggleRepeatMode;
 - (void)changePlaybackRateByFactor:(float)factor;
+- (float)restorePlaybackRateForCurrentMedia;
+- (void)savePlaybackRateForCurrentMedia;
 
 - (void)setABLoopFromPosition:(double)from toPosition:(double)to;
 - (void)resetABLoop;
@@ -189,6 +195,7 @@ NS_SWIFT_NAME(PlaybackService)
 
 - (void)setNeedsMetadataUpdate;
 - (void)scheduleSleepTimerWithInterval:(NSTimeInterval)timeInterval;
+- (void)cancelSleepTimer;
 - (void)performNavigationAction:(VLCMediaPlaybackNavigationAction)action;
 - (void)playMediaList:(VLCMediaList *)mediaList firstIndex:(NSInteger)index subtitlesFilePath:(nullable NSString *)subsFilePath;
 - (void)playMediaList:(VLCMediaList *)mediaList firstIndex:(NSInteger)index subtitlesFilePath:(nullable NSString *)subsFilePath completion:(void (^ __nullable)(BOOL success))completion;
@@ -196,6 +203,10 @@ NS_SWIFT_NAME(PlaybackService)
 - (void)addSubtitlesToCurrentPlaybackFromURL:(NSURL *)subtitleURL;
 
 - (void)setAmplification:(CGFloat)amplification forBand:(unsigned int)index;
+- (CGFloat)amplificationOfBand:(unsigned int)index;
+- (unsigned int)numberOfBands;
+- (CGFloat)frequencyOfBandAtIndex:(unsigned int)index;
+- (NSArray<VLCAudioEqualizerPreset *> *)equalizerProfiles;
 - (void)togglePictureInPicture;
 - (void)saveSnapshotWithCompletion:(void (^)(BOOL success, NSError *_Nullable error))completion;
 
@@ -207,6 +218,14 @@ NS_SWIFT_NAME(PlaybackService)
 - (BOOL)mediaListContains:(NSURL *)url;
 - (void)removeMediaFromMediaListAtIndex:(NSUInteger)index;
 - (NSIndexPath *)selectedEqualizerProfile;
+@property (nonatomic, readonly) NSArray<NSString *> *customEqualizerProfileNames;
+- (void)applyEqualizerPreset:(unsigned int)profile;
+- (void)applyCustomEqualizerProfileAtIndex:(NSUInteger)index;
+- (void)restoreSavedEqualizerProfile;
+- (void)saveCustomEqualizerProfileWithName:(NSString *)name;
+- (void)renameCustomEqualizerProfileAtIndex:(NSUInteger)index toName:(NSString *)name;
+- (void)deleteCustomEqualizerProfileAtIndex:(NSUInteger)index;
+- (void)moveCustomEqualizerProfileAtIndex:(NSUInteger)index up:(BOOL)up;
 #endif
 
 #if !TARGET_OS_WATCH
