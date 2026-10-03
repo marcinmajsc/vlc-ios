@@ -13,6 +13,9 @@ import Foundation
 
 enum MediaLibraryCorruptionReason: String {
     case databaseCorrupted = "database-corrupted"
+    case migrationFailed = "migration-failed"
+    case schemaMismatch = "schema-mismatch"
+    case foreignKeyViolation = "foreign-key-violation"
     case setupFailed = "setup-failed"
     case unhandledException = "unhandled-exception"
 }
@@ -20,6 +23,7 @@ enum MediaLibraryCorruptionReason: String {
 class MediaLibraryCorruptionReport {
     private static let directoryName = "MediaLibraryCorruptionReport"
     private static let metadataFileName = "report.json"
+    private static let logFileName = "medialibrary.log"
     private static let databaseSuffixes = ["", "-shm", "-wal", "-journal"]
 
     private static var directory: URL? {
@@ -41,7 +45,8 @@ class MediaLibraryCorruptionReport {
 
     static func preserve(databasePath: String,
                          reason: MediaLibraryCorruptionReason,
-                         details: String?) {
+                         details: String?,
+                         log: [String]) {
         guard let directory = directory else {
             return
         }
@@ -77,6 +82,16 @@ class MediaLibraryCorruptionReport {
         guard !preservedFiles.isEmpty else {
             try? fileManager.removeItem(at: directory)
             return
+        }
+
+        if !log.isEmpty {
+            do {
+                try log.joined(separator: "\n").write(to: directory.appendingPathComponent(logFileName),
+                                                      atomically: true,
+                                                      encoding: .utf8)
+            } catch let error as NSError {
+                APLog("MediaLibraryCorruptionReport: Failed to write log: \(error.localizedDescription)")
+            }
         }
 
         excludeFromDeviceBackup(directory)
