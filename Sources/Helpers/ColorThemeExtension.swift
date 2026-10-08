@@ -68,8 +68,13 @@ extension UINavigationController {
 
     @objc func themeDidChange() {
 #if !os(tvOS)
-        if #unavailable(iOS 26.0) {
+        if #available(iOS 26.0, *) {
+            let textColor = PresentationTheme.current.colors.navigationbarTextColor
+            navigationBar.titleTextAttributes = [.foregroundColor: textColor]
+            navigationBar.largeTitleTextAttributes = [.foregroundColor: textColor]
+        } else {
             navigationBar.standardAppearance = AppearanceManager.navigationbarAppearance()
+            navigationBar.compactAppearance = AppearanceManager.navigationbarAppearance()
             navigationBar.scrollEdgeAppearance = AppearanceManager.navigationbarAppearance()
             navigationBar.barTintColor = PresentationTheme.current.colors.navigationbarColor
         }

@@ -26,6 +26,8 @@ enum PasscodeAction {
 
 class PasscodeLockController: UIViewController {
     // MARK: - Properties
+    @objc static private(set) var isEvaluatingBiometricAuthentication = false
+
     private let notificationCenter = NotificationCenter.default
 
     let action: PasscodeAction
@@ -66,6 +68,17 @@ class PasscodeLockController: UIViewController {
     }
 
     // MARK: - UI Elements
+    private let coneView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        imageView.contentMode = .scaleAspectFit
+        imageView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        imageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+
+        return imageView
+    }()
+
     private let messageLabel: UILabel = {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -175,6 +188,15 @@ class PasscodeLockController: UIViewController {
         avoidPromptingBiometricAuth = false
 
         passcodeField.resignFirstResponder()
+
+        if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            takeCompletionHandler()?(false, nil)
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        coneView.isHidden = coneView.bounds.height < 40
     }
 
     // MARK: - Setup
@@ -197,6 +219,7 @@ class PasscodeLockController: UIViewController {
             messageLabel.text = NSLocalizedString("Enter your passcode", comment: "")
         }
 
+        view.addSubview(coneView)
         view.addSubview(messageLabel)
         view.addSubview(passcodeField)
         view.addSubview(failedLabel)
@@ -204,7 +227,19 @@ class PasscodeLockController: UIViewController {
         // Create center y constraint
         passcodeFieldCenterYConstraint = view.centerYAnchor.constraint(equalTo: passcodeField.centerYAnchor)
 
+        let coneHeightConstraint = coneView.heightAnchor.constraint(equalToConstant: 80)
+        coneHeightConstraint.priority = .defaultHigh
+
+        let coneTopConstraint = coneView.topAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor, constant: 20)
+        coneTopConstraint.priority = .required - 1
+
         NSLayoutConstraint.activate([
+            coneView.bottomAnchor.constraint(equalTo: messageLabel.topAnchor, constant: -20),
+            coneView.centerXAnchor.constraint(equalTo: passcodeField.centerXAnchor),
+            coneView.widthAnchor.constraint(equalTo: coneView.heightAnchor),
+            coneView.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
+            coneHeightConstraint,
+            coneTopConstraint,
             // Put messageLabel top on passcodeField
             passcodeField.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 30),
             passcodeField.centerXAnchor.constraint(equalTo: messageLabel.centerXAnchor),
@@ -297,6 +332,7 @@ class PasscodeLockController: UIViewController {
 
     @objc private func setupTheme() {
         view.backgroundColor = PresentationTheme.current.colors.background
+        coneView.image = UIImage(named: PresentationTheme.current.colors.isDark ? "VLCCone26-dark-512x512" : "VLCCone26-512x512")
         messageLabel.textColor = PresentationTheme.current.colors.cellTextColor
         setNavBarAppearance()
     }
@@ -308,7 +344,7 @@ class PasscodeLockController: UIViewController {
     }
 
     @objc private func handleCancel() {
-        completionHandler?(false, nil)
+        takeCompletionHandler()?(false, nil)
 
 #if os(iOS)
         ImpactFeedbackGenerator().selectionChanged()
@@ -322,7 +358,14 @@ class PasscodeLockController: UIViewController {
     }
 
     @objc private func handleApplicationWillTerminate() {
-        completionHandler?(false, nil)
+        takeCompletionHandler()?(false, nil)
+    }
+
+    private func takeCompletionHandler() -> ((Bool, String?) -> Void)? {
+        defer {
+            completionHandler = nil
+        }
+        return completionHandler
     }
 }
 
@@ -341,6 +384,7 @@ extension PasscodeLockController: PasscodeFieldDelegate {
 
                 // Update label
                 messageLabel.text = NSLocalizedString("Re-enter your passcode", comment: "")
+                failedLabel.isHidden = true
 
                 // Hide passcode options
                 passcodeOptionsButton.isHidden = true
@@ -354,7 +398,7 @@ extension PasscodeLockController: PasscodeFieldDelegate {
                     failedLabel.isHidden = true
 
                     // Two time entry has matched. Call completionHandler with success and passcode.
-                    completionHandler?(true, passcode)
+                    takeCompletionHandler()?(true, passcode)
 
 #if os(iOS)
                     NotificationFeedbackGenerator().success()
@@ -362,6 +406,10 @@ extension PasscodeLockController: PasscodeFieldDelegate {
 
                     dismiss(animated: true)
                 } else {
+                    tempPasscode = ""
+                    messageLabel.text = NSLocalizedString("Enter a passcode", comment: "")
+                    passcodeOptionsButton.isHidden = false
+
                     // Update label
                     failedLabel.isHidden = false
 
@@ -376,7 +424,7 @@ extension PasscodeLockController: PasscodeFieldDelegate {
         case .enter:
             if keychainService.isSecretValid(passcode) {
                 // Call completion handler with success but don't give passcode
-                completionHandler?(true, nil)
+                takeCompletionHandler()?(true, nil)
 
 #if os(iOS)
                 ImpactFeedbackGenerator().selectionChanged()
@@ -418,20 +466,24 @@ extension PasscodeLockController {
         }
 
         avoidPromptingBiometricAuth = true
+        PasscodeLockController.isEvaluatingBiometricAuthentication = true
 
         let context = LAContext()
 
         context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
                                localizedReason: NSLocalizedString("BIOMETRIC_UNLOCK", comment: "")) { [weak self] success, _ in
-            guard let self = self else {
-                return
-            }
-
             DispatchQueue.main.async {
+                PasscodeLockController.isEvaluatingBiometricAuthentication = false
+
+                guard let self = self else {
+                    return
+                }
+
                 if success {
                     // Dismiss and call completion handler
+                    let completionHandler = self.takeCompletionHandler()
                     self.dismiss(animated: true) {
-                        self.completionHandler?(true, nil)
+                        completionHandler?(true, nil)
                     }
                 } else {
                     // User hit cancel and wants to enter the passcode

@@ -25,7 +25,7 @@
 
 @interface VLCDropboxController ()
 
-@property (strong, nonatomic) DBUserClient *client;
+@property (readonly, nonatomic) DBUserClient *client;
 @property (strong, nonatomic) NSArray *currentFileList;
 @property (strong, nonatomic) NSArray *folderFileList;
 @property (strong, nonatomic) NSMutableArray *listOfDropboxFilesToDownload;
@@ -96,16 +96,19 @@
         [self.delegate mediaListUpdated];
 }
 
+- (void)sessionWasUpdated
+{
+    if ([self.delegate respondsToSelector:@selector(sessionWasUpdated)])
+        [self.delegate sessionWasUpdated];
+}
+
 - (BOOL)isAuthorized
 {
     return [DBClientsManager authorizedClient];
 }
 
 - (DBUserClient *)client {
-    if (!_client) {
-        _client = [DBClientsManager authorizedClient];
-    }
-    return _client;
+    return [DBClientsManager authorizedClient];
 }
 
 
@@ -196,9 +199,7 @@
         if (response) {
             [list addObjectsFromArray:response.entries];
             if ([response.hasMore boolValue]) {
-                if (downloadingFolder) {
-                    [self listFolderContinueWithClient: client cursor:response.cursor list:list: downloadingFolder];
-                }
+                [self listFolderContinueWithClient: client cursor:response.cursor list:list: downloadingFolder];
             } else {
                 if (downloadingFolder) {
                     [self sendMediaListUpdatedWithList:list :YES];
@@ -207,13 +208,18 @@
                 }
             }
         } else {
-            NSLog(@"%@\n%@\n", routeError, networkError);
+            APLog(@"listFolderContinue failed with network error %li and error tag %li", (long)networkError.statusCode, (long)networkError.tag);
+            [self _handleError:[NSError errorWithDomain:networkError.description code:networkError.statusCode.integerValue userInfo:nil]];
         }
     }];
 }
 
 - (void)sendMediaListUpdatedWithList:(NSArray *)list : (BOOL)downloadingFolder
 {
+    if (!self.isAuthorized) {
+        return;
+    }
+
     if (downloadingFolder) {
         self.folderFileList = [[list sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
             NSString *first = [(DBFILESMetadata*)a name];
@@ -221,7 +227,7 @@
             return [first caseInsensitiveCompare:second];
         }] copy];
         for (DBFILESMetadata *file in self.folderFileList) {
-            if ([file isKindOfClass:[DBFILESFileMetadata class]]) {
+            if ([file isKindOfClass:[DBFILESFileMetadata class]] && [self _supportedFileExtension:file.name]) {
                 [self downloadFileToDocumentFolder:file];
             }
         }
@@ -251,10 +257,11 @@
     [[[self client].filesRoutes listFolder:path] setResponseBlock:^(DBFILESListFolderResult * _Nullable result, DBFILESListFolderError * _Nullable routeError, DBRequestError * _Nullable networkError) {
         if (result) {
             if ([result.hasMore boolValue]) {
+                [stock addObjectsFromArray:result.entries];
                 if (downloadingFolder) {
-                    [self listFolderContinueWithClient:self->_client cursor:result.cursor list:stock: YES];
+                    [self listFolderContinueWithClient:self.client cursor:result.cursor list:stock: YES];
                 } else {
-                    [self listFolderContinueWithClient:self->_client cursor:result.cursor list:stock: NO];
+                    [self listFolderContinueWithClient:self.client cursor:result.cursor list:stock: NO];
                 }
             } else {
                 if (downloadingFolder) {
@@ -430,6 +437,7 @@
 - (void)reset
 {
     self.currentFileList = nil;
+    [self.listOfDropboxFilesToDownload removeAllObjects];
 }
 
 @end

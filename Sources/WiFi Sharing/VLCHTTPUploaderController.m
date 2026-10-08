@@ -30,6 +30,7 @@
 #import "VLC-Swift.h"
 
 NSString *VLCHTTPUploaderBackgroundTaskName = @"VLCHTTPUploaderBackgroundTaskName";
+NSString * const VLCHTTPUploaderControllerReachabilityDidChangeNotification = @"VLCHTTPUploaderControllerReachabilityDidChangeNotification";
 
 @interface VLCHTTPUploaderController()
 {
@@ -53,9 +54,11 @@ NSString *VLCHTTPUploaderBackgroundTaskName = @"VLCHTTPUploaderBackgroundTaskNam
                        name:UIApplicationDidBecomeActiveNotification
                      object:nil];
         [center addObserver:self
-                   selector:@selector(netReachabilityChanged)
+                   selector:@selector(reachabilityDidChange)
                        name:kReachabilityChangedNotification
                      object:nil];
+        _reachability = [Reachability reachabilityForLocalWiFi];
+        [_reachability startNotifier];
 
         BOOL isHTTPServerOn = [[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingSaveHTTPUploadServerStatus];
         [self netReachabilityChanged];
@@ -71,8 +74,23 @@ NSString *VLCHTTPUploaderBackgroundTaskName = @"VLCHTTPUploaderBackgroundTaskNam
 
 - (void)applicationDidBecomeActive:(NSNotification *)notification
 {
+    [self updateReachabilityIfNeeded];
     if (!_httpServer.isRunning)
         [self changeHTTPServerState:[[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingSaveHTTPUploadServerStatus]];
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCHTTPUploaderControllerReachabilityDidChangeNotification object:self];
+}
+
+- (void)reachabilityDidChange
+{
+    [self netReachabilityChanged];
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCHTTPUploaderControllerReachabilityDidChangeNotification object:self];
+}
+
+- (void)updateReachabilityIfNeeded
+{
+    if (!_isReachable) {
+        [self netReachabilityChanged];
+    }
 }
 
 - (void)beginBackgroundTask
@@ -145,7 +163,7 @@ NSString *VLCHTTPUploaderBackgroundTaskName = @"VLCHTTPUploaderBackgroundTaskNam
 
 - (BOOL)isUsingEthernet
 {
-    return [_nameOfUsedNetworkInterface isEqualToString:@"en3"];
+    return [_nameOfUsedNetworkInterface hasPrefix:@"en"] && ![_nameOfUsedNetworkInterface isEqualToString:@"en0"];
 }
 
 - (void)netReachabilityChanged
@@ -218,26 +236,22 @@ NSString *VLCHTTPUploaderBackgroundTaskName = @"VLCHTTPUploaderBackgroundTaskNam
 
 - (BOOL)interfaceIsSuitableForUse:(struct ifaddrs *)anInterface
 {
-    /* check for primary interface first */
-    if ([self necessaryFlagsSetOnInterface:anInterface withName:"en0"]) {
-        return YES;
+    if (![self necessaryFlagsSetOnInterface:anInterface withName:"en"]
+        && ![self necessaryFlagsSetOnInterface:anInterface withName:"bridge100"]) {
+        return NO;
     }
 
-    /* oh well, let's move on to the secondary interface */
-    if ([self necessaryFlagsSetOnInterface:anInterface withName:"en1"]) {
-        return YES;
-    }
+    return ![self addressIsLinkLocal:anInterface->ifa_addr];
+}
 
-    /* we can do ethernet, too */
-    if ([self necessaryFlagsSetOnInterface:anInterface withName:"en3"]) {
-        return YES;
+- (BOOL)addressIsLinkLocal:(struct sockaddr *)address
+{
+    if (address->sa_family == AF_INET) {
+        return IN_LINKLOCAL(ntohl(((struct sockaddr_in *)address)->sin_addr.s_addr));
     }
-
-    /* we can also run on the tethering interface */
-    if ([self necessaryFlagsSetOnInterface:anInterface withName:"bridge100"]) {
-        return YES;
+    if (address->sa_family == AF_INET6) {
+        return IN6_IS_ADDR_LINKLOCAL(&((struct sockaddr_in6 *)address)->sin6_addr);
     }
-
     return NO;
 }
 
@@ -351,10 +365,7 @@ NSString *VLCHTTPUploaderBackgroundTaskName = @"VLCHTTPUploaderBackgroundTaskNam
 
     /* return the IPv4 address in dual stack networks as it is more readable */
     if (ipv4address.length > 0) {
-        /* ignore link-local addresses following RFC 3927 */
-        if (![ipv4address hasPrefix:@"169.254."]) {
-            return ipv4address;
-        }
+        return ipv4address;
     }
     return [NSString stringWithFormat:@"[%@]", ipv6address];
 }

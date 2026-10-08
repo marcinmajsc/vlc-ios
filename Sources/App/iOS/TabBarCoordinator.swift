@@ -290,6 +290,17 @@ class TabBarCoordinator: NSObject {
         }
     }
 
+    @objc(showTabForMedia:) func showTab(for media: VLCMLMedia) {
+        let isVideo = media.type() == .video
+        if let index = tabBarController.viewControllers?.firstIndex(where: {
+            let rootViewController = ($0 as? UINavigationController)?.viewControllers.first
+            return isVideo ? rootViewController is VideoViewController
+                           : rootViewController is AudioViewController || rootViewController is TracksViewController
+        }) {
+            tabBarController.selectedIndex = index
+        }
+    }
+
     private func handleLastPlayedShortcut() {
         guard !KeychainCoordinator.passcodeService.hasSecret,
               let lastMedia = mediaLibraryService.lastPlayedMedia() else {
@@ -404,6 +415,13 @@ extension TabBarCoordinator: MediaLibraryObserver {
 // MARK: - UITabBarControllerDelegate
 
 extension TabBarCoordinator: UITabBarControllerDelegate {
+    func tabBarController(_ tabBarController: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
+        if viewController === tabBarController.selectedViewController {
+            ((viewController as? UINavigationController)?.topViewController as? MediaViewController)?.scrollToTop()
+        }
+        return true
+    }
+
     func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
         let viewControllerIndex: Int = tabBarController.viewControllers?.firstIndex(of: viewController) ?? 0
         UserDefaults.standard.set(viewControllerIndex, forKey: kVLCTabBarIndex)

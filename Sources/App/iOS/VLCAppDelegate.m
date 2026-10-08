@@ -31,8 +31,6 @@
 @interface VLCAppDelegate ()
 {
     BOOL _isComingFromHandoff;
-    id<VLCURLHandler> _urlHandlerToExecute;
-    NSURL *_urlToHandle;
 #if (TARGET_OS_IOS || TARGET_OS_WATCH) && !NO_WATCH
     VLCSessionDelegate *sessionDelegate;
 # endif
@@ -165,6 +163,7 @@
 
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     [defaults setInteger:([defaults integerForKey:kVLCNumberOfLaunches] + 1) forKey:kVLCNumberOfLaunches];
+    [defaults setBool:[[VLCKeychainCoordinator passcodeService] hasSecret] forKey:kVLCSettingPasscodeOnKey];
 
     UIApplicationShortcutItem *shortcutItem = launchOptions[UIApplicationLaunchOptionsShortcutItemKey];
     if (shortcutItem) {
@@ -203,6 +202,7 @@
     if (!media) return NO;
 
     [self validatePasscodeIfNeededWithCompletion:^{
+        [[VLCAppCoordinator sharedInstance] showTabForMedia:media];
         [[VLCPlaybackService sharedInstance] playMedia:media];
     }];
     return YES;
@@ -221,15 +221,12 @@
 {
     for (id<VLCURLHandler> handler in URLHandlers.handlers) {
         if ([handler canHandleOpenWithUrl:url options:options]) {
-            /* if no passcode is set, immediately execute the handler
-             * otherwise, store it for later use by the passcode controller's completion function */
-            if (![[VLCKeychainCoordinator passcodeService] hasSecret]) {
-                return [handler performOpenWithUrl:url options:options];
-            } else {
-                _urlHandlerToExecute = handler;
-                _urlToHandle = url;
-                return YES;
-            }
+            [self validatePasscodeIfNeededWithCompletion:^{
+                if (![handler performOpenWithUrl:url options:options]) {
+                    APLog(@"Failed to execute %@", url);
+                }
+            }];
+            return YES;
         }
     }
     return NO;
@@ -237,19 +234,14 @@
 
 - (void)applicationWillResignActive:(UIApplication *)application
 {
+    if (PasscodeLockController.isEvaluatingBiometricAuthentication) {
+        return;
+    }
+
     [self validatePasscodeIfNeededWithCompletion:^{
         //TODO: handle updating the videoview and
         if ([VLCPlaybackService sharedInstance].isPlaying){
             //TODO: push playback
-        }
-
-        /* execute a potential URL handler that was set when the app was moved into foreground */
-        if (self->_urlHandlerToExecute) {
-            if (![self->_urlHandlerToExecute performOpenWithUrl:self->_urlToHandle options:@{}]) {
-                APLog(@"Failed to execute %@", self->_urlToHandle);
-            }
-            self->_urlHandlerToExecute = nil;
-            self->_urlToHandle = nil;
         }
     }];
 }
@@ -298,17 +290,12 @@
 #pragma mark - pass code validation
 - (void)validatePasscodeIfNeededWithCompletion:(void(^)(void))completion
 {
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingPasscodeOnKey] &&
-        [[VLCKeychainCoordinator passcodeService] hasSecret]) {
+    if ([[VLCKeychainCoordinator passcodeService] hasSecret]) {
         //TODO: Dismiss playback
         BOOL allowBiometricAuthentication = [[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingPasscodeEnableBiometricAuth];
 
-        [[VLCKeychainCoordinator passcodeService]
-         validateSecretWithAllowBiometricAuthentication:allowBiometricAuthentication
-         isCancellable:NO
-         completion:^(BOOL success){
-            completion();
-        }];
+        [[VLCKeychainCoordinator passcodeService] lockApplicationWithAllowBiometricAuthentication:allowBiometricAuthentication
+                                                                                       completion:completion];
     } else {
         completion();
     }

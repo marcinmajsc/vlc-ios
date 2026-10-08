@@ -23,6 +23,9 @@ class KeychainCoordinator: NSObject {
 
     let serviceIdentifier: String
 
+    private weak var applicationLockController: PasscodeLockController?
+    private var actionsAfterUnlock: [() -> Void] = []
+
     init(serviceIdentifier: String) {
         self.serviceIdentifier = serviceIdentifier
     }
@@ -30,6 +33,10 @@ class KeychainCoordinator: NSObject {
     @objc var hasSecret: Bool {
         // If there is a passcode in keychain, passcode is enabled
         return secretFromKeychain != nil
+    }
+
+    @objc var isApplicationLocked: Bool {
+        applicationLockController != nil
     }
 
     private var secretFromKeychain: String? {
@@ -43,7 +50,7 @@ class KeychainCoordinator: NSObject {
         keychainItem.account = serviceIdentifier
         keychainItem.secret.stringValue = secret
 
-        try? keychainItem.save()
+        try keychainItem.save()
     }
 
     func removeSecret() throws {
@@ -95,6 +102,31 @@ extension KeychainCoordinator {
         }
     }
 
+    @objc func lockApplication(allowBiometricAuthentication: Bool, completion: @escaping () -> Void) {
+        actionsAfterUnlock.append(completion)
+        guard applicationLockController == nil,
+              let presentingViewController = UIApplication.shared.dismissPresentedScreensAbovePlayer() else {
+            return
+        }
+
+        let passcodeController = PasscodeLockController(action: .enter, keychainService: self) { [weak self] success, _ in
+            guard success, let self else {
+                return
+            }
+
+            applicationLockController = nil
+            let actions = actionsAfterUnlock
+            actionsAfterUnlock.removeAll()
+            actions.forEach { $0() }
+        }
+        passcodeController.allowBiometricAuthentication = allowBiometricAuthentication
+        applicationLockController = passcodeController
+
+        present(passcodeController,
+                from: presentingViewController,
+                animated: UIApplication.shared.applicationState != .background)
+    }
+
     /// The handler called on completion. On ``PasscodeAction/set`` action passcode provided. Otherwise nil.
     private func showPasscodeController(action: PasscodeAction, allowBiometricAuthentication: Bool = false, isCancellable: Bool = false, completion: @escaping (Bool, String?) -> Void) {
         // Check if a presentingViewController exists and passcode not already showing
@@ -108,11 +140,15 @@ extension KeychainCoordinator {
         passcodeController.allowBiometricAuthentication = allowBiometricAuthentication
         passcodeController.isCancellable = isCancellable
 
+        present(passcodeController, from: presentingViewController)
+    }
+
+    private func present(_ passcodeController: PasscodeLockController, from presentingViewController: UIViewController, animated: Bool = true) {
         let passcodeNavigationController = UINavigationController(rootViewController: passcodeController)
         passcodeNavigationController.modalPresentationStyle = .fullScreen
         passcodeNavigationController.modalTransitionStyle = .crossDissolve
 
-        presentingViewController.present(passcodeNavigationController, animated: true)
+        presentingViewController.present(passcodeNavigationController, animated: animated)
     }
 
     private var presentingViewController: UIViewController? {
