@@ -17,7 +17,6 @@
 #import <BackgroundTasks/BackgroundTasks.h>
 
 static const NSTimeInterval kVLCPodcastRefreshInterval = 2 * 60 * 60;
-static const NSTimeInterval kVLCPodcastDownloadDelay = 15 * 60;
 
 @implementation PodcastBackgroundRefresher
 {
@@ -73,7 +72,10 @@ static const NSTimeInterval kVLCPodcastDownloadDelay = 15 * 60;
     }];
 
     if (registered) {
-        [self scheduleRefreshTask];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(scheduleRefreshTask)
+                                                     name:UIApplicationDidEnterBackgroundNotification
+                                                   object:nil];
     } else {
         APLog(@"podcast background refresh: the task identifier is not permitted");
     }
@@ -116,8 +118,6 @@ static const NSTimeInterval kVLCPodcastDownloadDelay = 15 * 60;
         [self completeRefreshWithSuccess:NO];
     };
 
-    [PodcastsOnAirBridge configureWithMediaLibraryService:VLCAppCoordinator.sharedInstance.mediaLibraryService];
-
     if (PodcastsOnAirBridge.numberOfShows == 0) {
         [self completeRefreshWithSuccess:YES];
         return;
@@ -149,7 +149,6 @@ static const NSTimeInterval kVLCPodcastDownloadDelay = 15 * 60;
 {
     BGProcessingTaskRequest *request =
         [[BGProcessingTaskRequest alloc] initWithIdentifier:_downloadTaskIdentifier];
-    request.earliestBeginDate = [NSDate dateWithTimeIntervalSinceNow:kVLCPodcastDownloadDelay];
     request.requiresNetworkConnectivity = YES;
     request.requiresExternalPower = YES;
 
@@ -167,8 +166,6 @@ static const NSTimeInterval kVLCPodcastDownloadDelay = 15 * 60;
         [self scheduleDownloadTask];
         [self completeDownloadWithSuccess:NO];
     };
-
-    [PodcastsOnAirBridge configureWithMediaLibraryService:VLCAppCoordinator.sharedInstance.mediaLibraryService];
 
     if ([PodcastsOnAirBridge cacheNewEpisodes]) {
         return;
