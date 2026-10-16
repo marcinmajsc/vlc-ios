@@ -22,10 +22,14 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSUInteger)maximumItemCount;
 + (CGSize)listItemIconSize;
 + (nullable UIImage *)placeholderForSymbol:(NSString *)symbol;
++ (void)setArtworkFromURL:(NSURL *)artworkURL onListItem:(CPListItem *)listItem;
 
 - (CPListTemplate *)tabTemplateWithTitle:(NSString *)title
                                   symbol:(NSString *)symbol
                                 sections:(NSArray<CPListSection *> *)sections;
+- (CPGridButton *)buttonWithTitle:(NSString *)title
+                           symbol:(NSString *)symbol
+                         template:(CPListTemplate *(^)(void))templateProvider;
 - (void)pushListWithTitle:(NSString *)title items:(NSArray<CPListItem *> *)items;
 
 - (NSArray<CPListItem *> *)albumItems:(NSArray<VLCMLAlbum *> *)albums;

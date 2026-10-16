@@ -19,6 +19,10 @@ class FolderModel: MLBaseModel {
     var files = [VLCMLFolder]()
     var folderMediaFiles = [VLCMLMedia]()
     var currentFolder: VLCMLFolder?
+    private var externalFolderIdentifiers = Set<VLCMLIdentifier>()
+    private var externalFolderLocations = [VLCMLIdentifier: VLCMLFolder.Location]()
+    private let reloadQueue = DispatchQueue(label: "org.videolan.vlc-ios.folder-model")
+    private var isReloadPending = false
 
     var currentPage = 0
     var hasMorePages = false
@@ -60,11 +64,69 @@ class FolderModel: MLBaseModel {
             return
         }
 
-        files = currentFolder.subfolders(with: sortModel.currentSort, desc: sortModel.desc) ?? []
+        let externalFolders = self.externalFolders(sortingCriteria: sortModel.currentSort, desc: sortModel.desc)
+        externalFolderIdentifiers = Set(externalFolders.map { $0.identifier() })
+        updateLocations(of: externalFolders)
+        files = externalFolders + (currentFolder.subfolders(with: sortModel.currentSort, desc: sortModel.desc) ?? [])
         if self.isAudio {
             folderMediaFiles = currentFolder.media(of: .audio, sortingCriteria: sortModel.currentSort, desc: sortModel.desc) ?? []
         } else {
             folderMediaFiles = currentFolder.media(of: .video, sortingCriteria: sortModel.currentSort, desc: sortModel.desc) ?? []
+        }
+    }
+
+    var isRoot: Bool {
+        guard let currentFolder = currentFolder, let baseFolder = medialibrary.baseFolder() else {
+            return false
+        }
+        return currentFolder.identifier() == baseFolder.identifier()
+    }
+
+    private func externalFolders(sortingCriteria criteria: VLCMLSortingCriteria, desc: Bool) -> [VLCMLFolder] {
+        guard isRoot else {
+            return []
+        }
+        return medialibrary.medialib.externalFolders(with: criteria, desc: desc)
+    }
+
+    func isExternalFolder(_ folder: VLCMLFolder) -> Bool {
+        fileArrayLock.lock()
+        defer { fileArrayLock.unlock() }
+        return externalFolderIdentifiers.contains(folder.identifier())
+    }
+
+    func location(of folder: VLCMLFolder) -> VLCMLFolder.Location? {
+        fileArrayLock.lock()
+        defer { fileArrayLock.unlock() }
+        return externalFolderLocations[folder.identifier()]
+    }
+
+    private func updateLocations(of folders: [VLCMLFolder]) {
+        let mrls = folders.compactMap { folder in folder.mrl.map { (folder.identifier(), $0) } }
+        guard !mrls.isEmpty else {
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            var locations = [VLCMLIdentifier: VLCMLFolder.Location]()
+            for (identifier, mrl) in mrls {
+                locations[identifier] = VLCMLFolder.Location(url: mrl)
+            }
+
+            DispatchQueue.main.async {
+                self.fileArrayLock.lock()
+                let previousLocations = self.externalFolderLocations
+                self.externalFolderLocations.merge(locations) { _, location in location }
+                let didChange = self.externalFolderLocations != previousLocations
+                self.fileArrayLock.unlock()
+
+                guard didChange else {
+                    return
+                }
+                self.observable.notifyObservers {
+                    $0.mediaLibraryBaseModelReloadView()
+                }
+            }
         }
     }
 
@@ -76,6 +138,11 @@ class FolderModel: MLBaseModel {
         var parentDirectories = Set<URL>()
 
         for folder in items {
+            if isExternalFolder(folder) {
+                medialibrary.medialib.deleteExternalFolder(folder)
+                continue
+            }
+
             guard let mrl = folder.mrl else {
                 continue
             }
@@ -97,6 +164,18 @@ class FolderModel: MLBaseModel {
         fileArrayLock.unlock()
 
         medialibrary.reload()
+
+        observable.notifyObservers() {
+            $0.mediaLibraryBaseModelReloadView()
+        }
+    }
+
+    func removeFromLibrary(_ folder: VLCMLFolder) {
+        medialibrary.medialib.removeExternalFolder(folder)
+
+        fileArrayLock.lock()
+        files.removeAll { $0.identifier() == folder.identifier() }
+        fileArrayLock.unlock()
 
         observable.notifyObservers() {
             $0.mediaLibraryBaseModelReloadView()
@@ -144,9 +223,11 @@ class FolderModel: MLBaseModel {
     }
 
     private func removeEmptiedDirectories(_ directories: Set<URL>) {
+        let externalFolders = medialibrary.medialib.externalFolders(with: .default, desc: false).compactMap { $0.mrl }
         for directory in directories {
             do {
-                try FileManager.default.deleteMediaFolder(name: directory.lastPathComponent, at: directory)
+                try FileManager.default.deleteMediaFolder(name: directory.lastPathComponent, at: directory,
+                                                          externalFolders: externalFolders)
             } catch let error as NSError {
                 APLog("FolderModel: Failed to remove the emptied directory \(directory.path): \(error.localizedDescription)")
             }
@@ -157,7 +238,10 @@ class FolderModel: MLBaseModel {
         fileArrayLock.lock()
         defer { fileArrayLock.unlock() }
         if let currentFolder = currentFolder {
-            files = currentFolder.subfolders(with: criteria, desc: desc) ?? []
+            let externalFolders = self.externalFolders(sortingCriteria: criteria, desc: desc)
+            externalFolderIdentifiers = Set(externalFolders.map { $0.identifier() })
+            updateLocations(of: externalFolders)
+            files = externalFolders + (currentFolder.subfolders(with: criteria, desc: desc) ?? [])
             if self.isAudio {
                 folderMediaFiles = currentFolder.media(of: .audio, sortingCriteria: criteria, desc: desc) ?? []
             } else {
@@ -187,18 +271,65 @@ extension FolderModel: MediaLibraryObserver {
     func medialibrary(_ medialibrary: MediaLibraryService, didDeleteMediaWithIds ids: [NSNumber]) {
         reloadContents()
     }
+    func medialibrary(_ medialibrary: MediaLibraryService, didAddEntryPoint entryPoint: String) {
+        reloadContents()
+    }
+    func medialibrary(_ medialibrary: MediaLibraryService, didRemoveEntryPoint entryPoint: String) {
+        reloadContents()
+    }
+    func medialibraryDidUpdateExternalFolders(_ medialibrary: MediaLibraryService) {
+        reloadContents()
+    }
 
     private func reloadContents() {
-        guard Thread.isMainThread else {
+        reloadQueue.async {
+            guard !self.isReloadPending else {
+                return
+            }
+            self.isReloadPending = true
+            self.reloadQueue.asyncAfter(deadline: .now() + .milliseconds(500)) {
+                self.isReloadPending = false
+                self.fetchContents()
+            }
+        }
+    }
+
+    private func fetchContents() {
+        fileArrayLock.lock()
+        let folder = currentFolder
+        let criteria = sortModel.currentSort
+        let desc = sortModel.desc
+        fileArrayLock.unlock()
+
+        guard let folder = folder else {
             DispatchQueue.main.async {
-                self.reloadContents()
+                self.setupData()
+                self.observable.notifyObservers() {
+                    $0.mediaLibraryBaseModelReloadView()
+                }
             }
             return
         }
 
-        setupData()
-        observable.notifyObservers() {
-            $0.mediaLibraryBaseModelReloadView()
+        let externalFolders = self.externalFolders(sortingCriteria: criteria, desc: desc)
+        let subfolders = folder.subfolders(with: criteria, desc: desc) ?? []
+        let media = folder.media(of: isAudio ? .audio : .video, sortingCriteria: criteria, desc: desc) ?? []
+        updateLocations(of: externalFolders)
+
+        DispatchQueue.main.async {
+            self.fileArrayLock.lock()
+            guard self.sortModel.currentSort == criteria, self.sortModel.desc == desc else {
+                self.fileArrayLock.unlock()
+                return
+            }
+            self.externalFolderIdentifiers = Set(externalFolders.map { $0.identifier() })
+            self.files = externalFolders + subfolders
+            self.folderMediaFiles = media
+            self.fileArrayLock.unlock()
+
+            self.observable.notifyObservers() {
+                $0.mediaLibraryBaseModelReloadView()
+            }
         }
     }
 }

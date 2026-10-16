@@ -31,6 +31,50 @@
     return [UIImage paddedImageForSymbol:symbol ofSize:[self listItemIconSize]];
 }
 
++ (UIImage *)artworkScaledToIconSize:(UIImage *)artwork
+{
+    CGSize iconSize = [self listItemIconSize];
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:iconSize];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext * _Nonnull context) {
+        CGSize artworkSize = artwork.size;
+        CGFloat scale = MIN(iconSize.width / artworkSize.width, iconSize.height / artworkSize.height);
+        CGSize scaledSize = CGSizeMake(artworkSize.width * scale, artworkSize.height * scale);
+        [artwork drawInRect:CGRectMake((iconSize.width - scaledSize.width) / 2.0,
+                                       (iconSize.height - scaledSize.height) / 2.0,
+                                       scaledSize.width, scaledSize.height)];
+    }];
+}
+
++ (void)setArtworkFromURL:(NSURL *)artworkURL onListItem:(CPListItem *)listItem
+{
+    UIImage *cachedArtwork = [VLCThumbnailsCache cachedImageForURL:artworkURL];
+    if (cachedArtwork) {
+        [listItem setImage:[self artworkScaledToIconSize:cachedArtwork]];
+        return;
+    }
+
+    CGSize iconSize = [self listItemIconSize];
+    CGFloat maxPixelSize = MAX(iconSize.width, iconSize.height) * [UIGraphicsImageRendererFormat preferredFormat].scale;
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:artworkURL
+                                                            completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSHTTPURLResponse *httpResponse = [response isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse *)response : nil;
+        if (error || (httpResponse && httpResponse.statusCode != 200)) {
+            return;
+        }
+
+        UIImage *artwork = [VLCThumbnailsCache imageFromData:data forURL:artworkURL maxPixelSize:maxPixelSize];
+        if (!artwork) {
+            return;
+        }
+
+        UIImage *scaledArtwork = [self artworkScaledToIconSize:artwork];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [listItem setImage:scaledArtwork];
+        });
+    }];
+    [task resume];
+}
+
 - (CPListTemplate *)tabTemplateWithTitle:(NSString *)title
                                   symbol:(NSString *)symbol
                                 sections:(NSArray<CPListSection *> *)sections
@@ -39,6 +83,17 @@
     template.tabTitle = title;
     template.tabImage = [UIImage systemImageNamed:symbol];
     return template;
+}
+
+- (CPGridButton *)buttonWithTitle:(NSString *)title
+                           symbol:(NSString *)symbol
+                         template:(CPListTemplate *(^)(void))templateProvider
+{
+    return [[CPGridButton alloc] initWithTitleVariants:@[title]
+                                                 image:[VLCCarPlayBrowserController placeholderForSymbol:symbol]
+                                               handler:^(CPGridButton * _Nonnull button) {
+        [self.interfaceController pushTemplateWithinDepthLimit:templateProvider() animated:YES];
+    }];
 }
 
 - (void)pushListWithTitle:(NSString *)title items:(NSArray<CPListItem *> *)items

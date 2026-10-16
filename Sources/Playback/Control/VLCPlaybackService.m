@@ -72,6 +72,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
     VLCMediaListPlayer *_listPlayer;
     BOOL _shouldResumePlaying;
     BOOL _sessionWillRestart;
+    VLCMedia *_openedMedia;
     VLCMediaPlayerTrack *videoTrack;
 
     NSString *_pathToExternalSubtitlesFile;
@@ -1084,6 +1085,7 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
         switch (currentState) {
             case VLCMediaPlayerStateOpening: {
                 APLog(@"%s: opening", __func__);
+                self->_openedMedia = self->_mediaPlayer.media;
 
                 /* attach delegate */
                 self->_mediaPlayer.media.delegate = self;
@@ -2080,14 +2082,16 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 
     CGFloat lastPosition = libraryMedia.progress;
 
-    if (_mediaPlayer.position < lastPosition) {
+    if (lastPosition > .0) {
         NSInteger continuePlayback;
 
         if ([libraryMedia isWatched]) {
             return;
         }
 
-        if (libraryMedia.type == VLCMLMediaTypeAudio) {
+        if (libraryMedia.nbSubscriptions > 0) {
+            continuePlayback = 1;
+        } else if (libraryMedia.type == VLCMLMediaTypeAudio) {
             if (!libraryMedia.isPodcast) {
                 return;
             }
@@ -2095,6 +2099,12 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
         } else {
             continuePlayback = [[[NSUserDefaults standardUserDefaults] objectForKey:kVLCSettingContinuePlayback] integerValue];
         }
+
+        #if TARGET_OS_IOS
+        if (continuePlayback == 0 && [self _carPlayIsConnected]) {
+            continuePlayback = 1;
+        }
+        #endif
 
         if (continuePlayback == 1) {
             [self _restorePlaybackPosition:lastPosition];
@@ -2127,6 +2137,18 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
         }
     }
 }
+
+#if TARGET_OS_IOS
+- (BOOL)_carPlayIsConnected
+{
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if ([scene.session.role isEqualToString:@"CPTemplateApplicationSceneSessionRoleApplication"]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+#endif
 
 - (void)_findCachedSubtitlesForMedia:(VLCMedia *)media
 {
@@ -2327,8 +2349,8 @@ static const float kVLCPlaybackRateMaximum = 8.0f;
 - (void)savePlaybackState
 {
     BOOL activePlaybackSession = self.isPlaying || _playerIsSetup;
-    if (activePlaybackSession)
-        [[VLCAppCoordinator sharedInstance].mediaLibraryService savePlaybackStateFrom:self];
+    if (activePlaybackSession && _openedMedia)
+        [[VLCAppCoordinator sharedInstance].mediaLibraryService savePlaybackStateOf:_openedMedia from:self];
 }
 
 - (BOOL)mediaListContains:(NSURL *)url

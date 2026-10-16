@@ -159,6 +159,7 @@
 "COUNTRIES" = "Countries";
 "ALL_COUNTRIES" = "All Countries";
 "SEE_ALL" = "See All";
+"LOAD_MORE" = "Load More";
 "STATION_COUNT" = "%lu stations";
 "RADIO_COUNTRIES_LOADING_FAILED" = "Couldn't load the list of countries. Please check your connection and try again.";
 "RADIO_STATIONS_LOADING_FAILED" = "Couldn't load the stations. Please check your connection and try again.";
@@ -195,7 +196,6 @@
 "BROWSE_NETWORK_STREAM" = "Network stream";
 "BROWSE_WIFI_SHARING" = "Wi-Fi sharing";
 "BROWSE_ADD_SERVER" = "Add server";
-"STREAMS" = "Streams";
 "LOCAL_NETWORK" = "Local Network";
 "CONNECT_TO_SERVER" = "Connect to Server";
 "USER_LABEL" = "User";
@@ -403,6 +403,7 @@
 "DELETE_MESSAGE_PLAYLISTS" = "Are you sure to delete the selected playlists?\nAssociated media files won't be deleted.";
 "DELETE_MESSAGE_PLAYLIST_CONTENT" = "Are you sure to remove the selected media from the playlist?\nThey won't be deleted from the disk.";
 "DELETE_MESSAGE_FOLDER" = "Are you sure to delete the selection?\nEvery media file inside the selected folders will be deleted from the disk, too.";
+"DELETE_MESSAGE_EXTERNAL_FOLDER" = "Are you sure to delete the selection?\nThe selected folders and everything inside them will be deleted from the disk. Drives are only removed from the library.";
 "DELETE_MESSAGE_HISTORY" = "Are you sure to remove the selected media from the history?\nThey won't be deleted from the disk, but their playback progress will be lost.";
 
 // MARK: - Drag and Drop
@@ -910,6 +911,14 @@
 "EMPTY_FOLDER_DES_AUDIO" = "We couldn't find any audio files here. This folder may still contain videos.";
 "SUBFOLDER_DESCRIPTION" = "1 folder";
 "SUBFOLDERS_DESCRIPTION" = "%d folders";
+"FOLDER_LOCATION_DEVICE" = "On This Device";
+"FOLDER_LOCATION_EXTERNAL_DRIVE" = "External Drive";
+"FOLDER_LOCATION_ICLOUD_DRIVE" = "iCloud Drive";
+"ADD_EXTERNAL_FOLDER" = "Add External Folder…";
+"EXTERNAL_FOLDER_NOT_ADDED" = "Folder Not Added";
+"EXTERNAL_FOLDER_OVERLAPPING" = "This folder is already part of your library.";
+"EXTERNAL_FOLDER_FAILED" = "VLC can't access this folder.";
+"REMOVE_FROM_LIBRARY" = "Remove from Library";
 
 "ACCESSIBILITY_SELECTED" = "selected";
 "TRACK_SELECTOR_OFF" = "Off";

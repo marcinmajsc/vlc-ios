@@ -200,6 +200,9 @@ extension EditActions {
             }
         } else if (model as? CollectionModel)?.mediaCollection is VLCMLPlaylist {
             message = NSLocalizedString("DELETE_MESSAGE_PLAYLIST_CONTENT", comment: "")
+        } else if let folderModel = model as? FolderModel,
+                  objects.compactMap({ $0 as? VLCMLFolder }).contains(where: folderModel.isExternalFolder) {
+            message = NSLocalizedString("DELETE_MESSAGE_EXTERNAL_FOLDER", comment: "")
         } else if objects.contains(where: { $0 is VLCMLFolder }) {
             message = NSLocalizedString("DELETE_MESSAGE_FOLDER", comment: "")
         } else if model is HistoryModel {
@@ -345,7 +348,7 @@ private extension EditActions {
         } else if let genre = mlObject as? VLCMLGenre {
             return genre.title()
         } else if let folder = mlObject as? VLCMLFolder {
-            return folder.name
+            return folder.displayName
         } else {
             assertionFailure("EditActions: Rename/Delete called with wrong model.")
             return nil

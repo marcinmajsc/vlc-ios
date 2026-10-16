@@ -2,10 +2,11 @@
  * MediaLibraryService.swift
  * VLC for iOS
  *****************************************************************************
- * Copyright © 2018-2022 VideoLAN. All rights reserved.
- * Copyright © 2018-2022 Videolabs
+ * Copyright © 2018-2026 VideoLAN. All rights reserved.
+ * Copyright © 2018-2026 Videolabs
  *
  * Authors: Soomin Lee <bubu # mikan.io>
+ *          Felix Paul Kühne <fkuehne # videolan.org>
  *
  * Refer to the COPYING file of the official project for license.
  *****************************************************************************/
@@ -153,6 +154,15 @@ extension NSNotification {
     // History
     @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
                                      historyChangedOfType type: VLCMLHistoryType)
+
+    // Entry points
+    @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
+                                     didAddEntryPoint entryPoint: String)
+
+    @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
+                                     didRemoveEntryPoint entryPoint: String)
+
+    @objc optional func medialibraryDidUpdateExternalFolders(_ medialibrary: MediaLibraryService)
 
     // Force Rescan
     @objc optional func medialibraryDidStartRescan()
@@ -701,10 +711,8 @@ private extension MediaLibraryService {
         }
     }
 
-    func savePlaybackState(from player: PlaybackService) {
-        let media: VLCMedia? = player.currentlyPlayingMedia
-
-        guard let mrl = media?.url?.absoluteURL else {
+    func savePlaybackState(of media: VLCMedia, from player: PlaybackService) {
+        guard let mrl = media.url?.absoluteURL else {
             // No URL from currently played media
             return
         }
@@ -1270,6 +1278,34 @@ extension MediaLibraryService {
     func medialibrary(_ medialibrary: VLCMediaLibrary, historyChangedOf type: VLCMLHistoryType) {
         observable.notifyObservers {
             $0.medialibrary?(self, historyChangedOfType: type)
+        }
+    }
+}
+
+// MARK: - VLCMediaLibraryDelegate - Entry points
+
+extension MediaLibraryService {
+    func medialibrary(_ medialibrary: VLCMediaLibrary, didAddEntryPoint entryPoint: String, withSuccess success: Bool) {
+        guard success else {
+            return
+        }
+        observable.notifyObservers {
+            $0.medialibrary?(self, didAddEntryPoint: entryPoint)
+        }
+    }
+
+    func medialibrary(_ medialibrary: VLCMediaLibrary, didRemoveEntryPoint entryPoint: String, withSuccess success: Bool) {
+        guard success else {
+            return
+        }
+        observable.notifyObservers {
+            $0.medialibrary?(self, didRemoveEntryPoint: entryPoint)
+        }
+    }
+
+    func medialibraryDidUpdateExternalFolders(_ medialibrary: VLCMediaLibrary) {
+        observable.notifyObservers {
+            $0.medialibraryDidUpdateExternalFolders?(self)
         }
     }
 }
