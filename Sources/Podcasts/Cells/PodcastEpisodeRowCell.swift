@@ -231,8 +231,7 @@ class PodcastEpisodeRowCell: UITableViewCell {
 
         artworkView.configure(name: showName ?? episode.title,
                               artworkURL: episode.artworkURL ?? showArtworkURL,
-                              cornerRadius: PodcastEpisodeRowCell.artworkRadius,
-                              fontSize: 20)
+                              cornerRadius: PodcastEpisodeRowCell.artworkRadius)
 
         isUnplayed = episode.isUnplayed
         let indicatorImage = isUnplayed ? PodcastEpisodeRowCell.unplayedImage
@@ -330,7 +329,7 @@ class PodcastEpisodeRowCell: UITableViewCell {
         let colors = PresentationTheme.current.colors
         backgroundColor = colors.background
         contentView.backgroundColor = colors.background
-        selectedBackgroundView?.backgroundColor = colors.pageBackground
+        selectedBackgroundView?.backgroundColor = colors.mediaCategorySeparatorColor
         separatorView.backgroundColor = colors.mediaCategorySeparatorColor
         updateStatusIndicatorColor()
         setDateText(dateLabel.attributedText?.string ?? "", unplayed: isUnplayed)

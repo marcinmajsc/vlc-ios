@@ -112,6 +112,34 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     var isSearchActive: Bool {
         return searchDataSource.isSearching
     }
+
+    var tabSearchScope: LibrarySearchScope? {
+        didSet {
+            guard let tabSearchScope = tabSearchScope else {
+                tabSearchDataSource = nil
+                return
+            }
+            let tabSearchDataSource = LibraryTabSearchDataSource(scope: tabSearchScope,
+                                                                 mediaLibraryService: mediaLibraryService)
+            tabSearchDataSource.delegate = self
+            self.tabSearchDataSource = tabSearchDataSource
+        }
+    }
+
+    private var tabSearchDataSource: LibraryTabSearchDataSource?
+    private var isShowingTabSearchResults: Bool = false
+    private var isTabSearchRefreshScheduled: Bool = false
+    private let tabSearchRefreshDelay: TimeInterval = 0.5
+
+    private lazy var noSearchResultsLabel: UILabel = {
+        let label = UILabel()
+        label.text = NSLocalizedString("SEARCH_NO_RESULTS", comment: "")
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.font = UIFont.preferredFont(forTextStyle: .body)
+        return label
+    }()
+
     private let userDefaults = UserDefaults.standard
 #if os(iOS)
     private lazy var rendererButton: UIButton = VLCAppCoordinator.sharedInstance().rendererDiscovererManager.setupRendererButton()
@@ -338,7 +366,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             self.secondModel = videoModel
         }
 
-        self.searchDataSource = LibrarySearchDataSource(model: model)
+        self.searchDataSource = LibrarySearchDataSource(model: self.model)
 
         super.init(collectionViewLayout: UICollectionViewFlowLayout())
     }
@@ -599,6 +627,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             self.loadSort()
             self.reloadData()
             self.configureFABButton()
+            self.refreshTabSearchResultsIfNeeded()
         }
 
         if (model is MediaGroupViewModel && userDefaults.bool(forKey: KVLCFolderViewLayout)) ||
@@ -903,6 +932,8 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         collectionView.dragDelegate = editing ? editController : nil
         collectionView.dropDelegate = editing ? editController : nil
         collectionView.dragInteractionEnabled = editing
+        isShowingTabSearchResults = false
+        updateTabSearchResultsVisibility()
         /// Those changes are highly recommended in order to prevent a UICollectionView gesture
         /// issue when cells are embedding a UIScrollView
         /// See https://code.videolan.org/umxprime/collection-view-bug
@@ -1585,6 +1616,8 @@ extension MediaCategoryViewController: UISearchControllerDelegate, UISearchResul
         searchDataSource.shouldReloadFor(searchString: "")
         searchBar.setShowsCancelButton(false, animated: true)
         searchDataSource.isSearching = false
+        tabSearchDataSource?.reset()
+        updateTabSearchResultsVisibility()
         delegate?.enableCategorySwitching(for: self, enable: true)
         reloadData()
         handleFABButtonVisibility()
@@ -1604,7 +1637,116 @@ extension MediaCategoryViewController: UISearchControllerDelegate, UISearchResul
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         searchDataSource.shouldReloadFor(searchString: searchText)
-        reloadData()
+
+        guard let tabSearchDataSource = activeTabSearchDataSource else {
+            reloadData()
+            return
+        }
+
+        tabSearchDataSource.search(for: searchText) { [weak self] in
+            guard let self = self, self.searchDataSource.isSearching else {
+                return
+            }
+            self.updateTabSearchResultsVisibility()
+            self.reloadData()
+        }
+    }
+}
+
+// MARK: - LibraryTabSearchDataSourceDelegate
+
+extension MediaCategoryViewController: LibraryTabSearchDataSourceDelegate {
+    private var activeTabSearchDataSource: LibraryTabSearchDataSource? {
+        return model is FolderModel ? nil : tabSearchDataSource
+    }
+
+    private var shouldShowTabSearchResults: Bool {
+        guard let tabSearchDataSource = activeTabSearchDataSource else {
+            return false
+        }
+
+        return searchDataSource.isSearching && !isEditing && tabSearchDataSource.hasSearchablePattern
+    }
+
+    private func updateTabSearchResultsVisibility() {
+        let shouldShow = shouldShowTabSearchResults
+
+        if shouldShow != isShowingTabSearchResults {
+            isShowingTabSearchResults = shouldShow
+            collectionView?.dataSource = shouldShow ? tabSearchDataSource : self
+            collectionView?.delegate = shouldShow ? tabSearchDataSource : self
+            cachedCellSize = .zero
+            collectionView?.collectionViewLayout.invalidateLayout()
+        }
+
+        if shouldShow {
+            noSearchResultsLabel.textColor = PresentationTheme.current.colors.cellDetailTextColor
+            collectionView?.backgroundView = tabSearchDataSource?.isEmpty == true ? noSearchResultsLabel : nil
+        } else if collectionView?.backgroundView === noSearchResultsLabel {
+            collectionView?.backgroundView = nil
+        }
+    }
+
+    func refreshTabSearchResultsIfNeeded() {
+        guard let tabSearchDataSource = activeTabSearchDataSource, searchDataSource.isSearching else {
+            return
+        }
+
+        searchBar(searchBar, textDidChange: tabSearchDataSource.searchString)
+    }
+
+    func scheduleTabSearchRefresh() {
+        // The library is updated in batches while scanning, refresh the results once per delay
+        // instead of once per batch.
+        guard !isTabSearchRefreshScheduled else {
+            return
+        }
+
+        isTabSearchRefreshScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + tabSearchRefreshDelay) { [weak self] in
+            guard let self = self else { return }
+            self.isTabSearchRefreshScheduled = false
+            self.refreshTabSearchResultsIfNeeded()
+        }
+    }
+
+    func libraryTabSearchDataSource(_ dataSource: LibraryTabSearchDataSource,
+                                    didSelect item: VLCMLObject,
+                                    in section: LibrarySearchSection) {
+        searchBar.resignFirstResponder()
+        searchController.searchBar.resignFirstResponder()
+        delegate?.enableCategorySwitching(for: self, enable: true)
+
+        let playbackService = PlaybackService.sharedInstance()
+        playbackService.playAsAudio = false
+
+        if let media = item as? VLCMLMedia {
+            let tracks = section.items.compactMap { $0 as? VLCMLMedia }
+            playbackService.fullscreenSessionRequested = media.type() != .audio
+#if !os(tvOS)
+            mediaLibraryService.currentlyPlayingCollection = nil
+#endif
+
+            if userDefaults.bool(forKey: kVLCAutomaticallyPlayNextItem) {
+                let index = tracks.firstIndex { $0.identifier() == media.identifier() } ?? 0
+                playbackService.playMedia(at: index, fromCollection: tracks)
+            } else {
+                playbackService.play(media)
+            }
+#if !os(tvOS)
+            createSpotlightItem(media: media)
+#endif
+        } else if let artist = item as? VLCMLArtist {
+            showArtist(artist)
+        } else if let mediaCollection = item as? MediaCollectionModel {
+            pushCollectionViewController(for: mediaCollection)
+        }
+    }
+
+    func libraryTabSearchDataSourceWillBeginDragging(_ dataSource: LibraryTabSearchDataSource) {
+        searchBar.endEditing(true)
+        searchController.searchBar.endEditing(true)
+        delegate?.enableCategorySwitching(for: self, enable: true)
     }
 }
 
@@ -2015,17 +2157,21 @@ extension MediaCategoryViewController {
             createSpotlightItem(media: media)
 #endif
         } else if let artist = modelContent as? VLCMLArtist {
-            if artist.albumsCount() == 1,
-               let album = artist.albums()?.first,
-               album.numberOfTracks() == artist.tracksCount() {
-                // Single album and no non-album tracks: skip the artist view
-                pushCollectionViewController(for: album)
-            } else {
-                let artistViewController = ArtistViewController(mediaLibraryService: mediaLibraryService, mediaCollection: artist)
-                navigationController?.pushViewController(artistViewController, animated: true)
-            }
+            showArtist(artist)
         } else if let mediaCollection = modelContent as? MediaCollectionModel {
             pushCollectionViewController(for: mediaCollection)
+        }
+    }
+
+    func showArtist(_ artist: VLCMLArtist) {
+        if artist.albumsCount() == 1,
+           let album = artist.albums()?.first,
+           album.numberOfTracks() == artist.tracksCount() {
+            // Single album and no non-album tracks: skip the artist view
+            pushCollectionViewController(for: album)
+        } else {
+            let artistViewController = ArtistViewController(mediaLibraryService: mediaLibraryService, mediaCollection: artist)
+            navigationController?.pushViewController(artistViewController, animated: true)
         }
     }
 
@@ -2061,9 +2207,11 @@ extension MediaCategoryViewController {
             }
         }
         let cell = collectionView.cellForItem(at: indexPath)
-        let thumbnail = (cell as? MovieCollectionViewCell)?.thumbnailView.image
-            ?? (cell as? MediaCollectionViewCell)?.thumbnailView.image
-            ?? (cell as? MediaGridCollectionCell)?.thumbnailView.image
+        let thumbnailView = (cell as? MovieCollectionViewCell)?.thumbnailView
+            ?? (cell as? MediaCollectionViewCell)?.thumbnailView
+            ?? (cell as? MediaGridCollectionCell)?.thumbnailView
+        let thumbnail = thumbnailView?.image
+        let placeholderName = thumbnailView?.placeholderName
         let videoMedia: VLCMLMedia?
         if let media = modelContent as? VLCMLMedia, media.type() == .video {
             videoMedia = media
@@ -2078,7 +2226,9 @@ extension MediaCategoryViewController {
             if let videoMedia = videoMedia {
                 return VideoPreviewController(media: videoMedia, thumbnail: thumbnail)
             }
-            guard let thumbnail = thumbnail else {
+            guard let thumbnail = thumbnail ?? placeholderName.map({
+                VLCPlaceholderArtwork.placeholderImage(forName: $0, pixelSize: 1024)
+            }) else {
                 return nil
             }
             return CollectionViewCellPreviewController(thumbnail: thumbnail, with: modelContent)
@@ -2213,7 +2363,10 @@ extension MediaCategoryViewController {
     }
 
     @objc private func updateNowPlayingIndicators() {
-        guard let collectionView = collectionView else { return }
+        guard let collectionView = collectionView,
+              !isShowingTabSearchResults else {
+            return
+        }
 
         for indexPath in collectionView.indexPathsForVisibleItems {
             guard let cell = collectionView.cellForItem(at: indexPath) as? MediaCollectionViewCell,
@@ -2244,11 +2397,11 @@ extension MediaCategoryViewController {
 
     private func setupArtworkHeaderReusableView(headerView: CollectionArtworkHeader, collection: MediaCollectionModel) -> UICollectionReusableView {
         if let album = collection as? VLCMLAlbum {
-            headerView.updateImage(with: album.thumbnail())
+            headerView.updateImage(with: album.thumbnail(), placeholderName: album.placeholderName())
             headerView.updateThumbnailTitle(album.title)
             headerView.collection = album
         } else if let playlist = collection as? VLCMLPlaylist {
-            headerView.updateImage(with: playlist.thumbnailImage())
+            headerView.updateImage(with: playlist.thumbnailImage(), placeholderName: playlist.placeholderName())
             headerView.updateThumbnailTitle(playlist.title())
             headerView.collection = playlist
         }
@@ -2542,6 +2695,9 @@ private extension MediaCategoryViewController {
 extension MediaCategoryViewController: MediaLibraryBaseModelObserver {
     func mediaLibraryBaseModelReloadView() {
         reloadData()
+        DispatchQueue.main.async { [weak self] in
+            self?.scheduleTabSearchRefresh()
+        }
     }
 }
 
@@ -2570,16 +2726,9 @@ extension MediaCategoryViewController {
 
         if let mediaGroupModel = model as? MediaGroupViewModel {
             mediaGroupModel.fileArrayLock.lock(); defer { mediaGroupModel.fileArrayLock.unlock() }; do {
-                var singleGroup = [VLCMLMediaGroup]()
-
-                if searchDataSource.isSearching,
-                   let dataSet = currentDataSet as? [VLCMLMediaGroup] {
-                    singleGroup = dataSet
-                } else {
-                    // The model is paginated, so its loaded `files` only cover a prefix of the
-                    // library. Fetch all groups so playback (incl. shuffle) considers everything.
-                    singleGroup = mediaGroupModel.fetchAllItems()
-                }
+                // The model is paginated, so its loaded `files` only cover a prefix of the
+                // library. Fetch all groups so playback (incl. shuffle) considers everything.
+                var singleGroup = mediaGroupModel.fetchAllItems()
 
                 // Filter single groups
                 singleGroup = singleGroup.filter() {
@@ -2602,9 +2751,11 @@ extension MediaCategoryViewController {
             tracks = model.folderMediaFiles
             index = index - model.files.count
             model.fileArrayLock.unlock()
-        } else if !searchDataSource.isSearching, let mediaModel = model as? (any MediaModel) {
+        } else if !searchDataSource.isSearching || searchDataSource.searchString.isEmpty,
+                  let mediaModel = model as? (any MediaModel) {
             // The model is paginated, so its loaded `files` only cover a prefix of the
             // library. Fetch the complete list so playback (incl. shuffle) considers all media.
+            // An empty search string does not filter anything, the whole list is played as well.
             tracks = mediaModel.fetchAllItems()
             index = tracks.firstIndex(where: { $0.identifier() == media.identifier() }) ?? index
         } else {

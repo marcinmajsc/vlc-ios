@@ -12,6 +12,8 @@
 
 #import "VLCPlaceholderArtwork.h"
 
+static CGFloat const kVLCPlaceholderArtworkFontSizeRatio = 0.28;
+
 @implementation VLCPlaceholderArtwork
 
 + (NSString *)leadingCharacters:(NSUInteger)count ofString:(NSString *)string
@@ -31,9 +33,9 @@
     if (trimmed.length == 0)
         return @"?";
 
-    /* The separators cover every dash Unicode knows, as feeds title their shows
-     * with all of them. */
-    NSCharacterSet *wordSeparators = [NSCharacterSet characterSetWithCharactersInString:@" _|/·•-‐‑‒–—―"];
+    /* The separators cover dots for file names and every dash Unicode knows,
+     * as feeds title their shows with all of them. */
+    NSCharacterSet *wordSeparators = [NSCharacterSet characterSetWithCharactersInString:@" _|/·•.-‐‑‒–—―"];
     NSMutableArray<NSString *> *words = [NSMutableArray array];
     for (NSString *component in [trimmed componentsSeparatedByCharactersInSet:wordSeparators]) {
         if (component.length > 0)
@@ -76,34 +78,53 @@
     return [UIColor whiteColor];
 }
 
-+ (UIImage *)placeholderImageForName:(NSString *)name
-                                size:(CGSize)size
-                        cornerRadius:(CGFloat)cornerRadius
-                            fontSize:(CGFloat)fontSize
++ (CGFloat)fontSizeForSide:(CGFloat)side
+{
+    return side * kVLCPlaceholderArtworkFontSizeRatio;
+}
+
++ (void)drawPlaceholderForName:(NSString *)name inRect:(CGRect)bounds
 {
     UIColor *backgroundColor = [self backgroundColorForName:name];
     UIColor *foregroundColor = [self foregroundColorForName:name];
     NSString *initials = [self initialsForName:name];
 
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size];
+    [backgroundColor setFill];
+    UIRectFill(bounds);
+
+    NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
+    paragraphStyle.alignment = NSTextAlignmentCenter;
+    CGFloat fontSize = [self fontSizeForSide:MIN(bounds.size.width, bounds.size.height)];
+    NSDictionary *attributes = @{
+        NSFontAttributeName: [UIFont systemFontOfSize:fontSize weight:UIFontWeightHeavy],
+        NSForegroundColorAttributeName: foregroundColor,
+        NSParagraphStyleAttributeName: paragraphStyle
+    };
+
+    CGSize textSize = [initials sizeWithAttributes:attributes];
+    CGRect textRect = CGRectMake(0, (bounds.size.height - textSize.height) / 2.0, bounds.size.width, textSize.height);
+    [initials drawInRect:textRect withAttributes:attributes];
+}
+
++ (UIImage *)placeholderImageForName:(NSString *)name pixelSize:(CGFloat)pixelSize
+{
+    CGRect bounds = CGRectMake(0, 0, pixelSize, pixelSize);
+#if TARGET_OS_WATCH
+    UIGraphicsBeginImageContextWithOptions(bounds.size, YES, 1.0);
+    [self drawPlaceholderForName:name inRect:bounds];
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return image;
+#else
+    UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat preferredFormat];
+    format.scale = 1.0;
+    format.opaque = YES;
+
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:bounds.size format:format];
     return [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-        CGRect bounds = CGRectMake(0, 0, size.width, size.height);
-        UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:bounds cornerRadius:cornerRadius];
-        [backgroundColor setFill];
-        [path fill];
-
-        NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
-        paragraphStyle.alignment = NSTextAlignmentCenter;
-        NSDictionary *attributes = @{
-            NSFontAttributeName: [UIFont systemFontOfSize:fontSize weight:UIFontWeightHeavy],
-            NSForegroundColorAttributeName: foregroundColor,
-            NSParagraphStyleAttributeName: paragraphStyle
-        };
-
-        CGSize textSize = [initials sizeWithAttributes:attributes];
-        CGRect textRect = CGRectMake(0, (size.height - textSize.height) / 2.0, size.width, textSize.height);
-        [initials drawInRect:textRect withAttributes:attributes];
+        [self drawPlaceholderForName:name inRect:bounds];
     }];
+#endif
 }
 
 @end
