@@ -2,7 +2,7 @@
  * PlayerViewController.swift
  * VLC for iOS
  *****************************************************************************
- * Copyright © 2022 VLC authors and VideoLAN
+ * Copyright © 2022-2026 VLC authors and VideoLAN
  *
  * Authors: Diogo Simao Marques <dogo@videolabs.io>
  *
@@ -42,11 +42,15 @@ class PlayerViewController: UIViewController {
         private var deviceSetter: (Float) -> Void
         private let deviceGetter: () -> Float
         var value: Float = 0.5
-        let speed: Float = UIDevice.current.userInterfaceIdiom == UIUserInterfaceIdiom.pad ? 1.0 / 70000 : 1.0 / 20000
         init(deviceSetter: @escaping (Float) -> Void, deviceGetter: @escaping () -> Float) {
             self.deviceGetter = deviceGetter
             self.deviceSetter = deviceSetter
             self.fetchDeviceValue()
+        }
+
+        func speed(for traitCollection: UITraitCollection) -> Float {
+            let isRegular = traitCollection.horizontalSizeClass == .regular && traitCollection.verticalSizeClass == .regular
+            return isRegular ? 1.0 / 70000 : 1.0 / 20000
         }
 
         mutating func fetchDeviceValue() -> Void {
@@ -638,7 +642,14 @@ class PlayerViewController: UIViewController {
     func applyCornerRadius() {
         var cornerRadius: CGFloat
 #if os(iOS)
-        cornerRadius = screenForCurrentWindow()?.displayCornerRadius ?? 0.0
+        if #available(iOS 26.0, *) {
+            let cornerConfiguration = view.cornerConfiguration
+            view.cornerConfiguration = .uniformCorners(radius: .containerConcentric())
+            cornerRadius = view.effectiveRadius(corner: .topLeft)
+            view.cornerConfiguration = cornerConfiguration
+        } else {
+            cornerRadius = screenForCurrentWindow()?.displayCornerRadius ?? 0.0
+        }
 #else
         cornerRadius = 5.0
 #endif
@@ -911,10 +922,9 @@ class PlayerViewController: UIViewController {
     }
 
     private func detectPanType(_ recognizer: UIPanGestureRecognizer) -> PlayerPanType {
-        let window: UIWindow = (UIApplication.shared.delegate?.window!)!
-        let windowWidth: CGFloat = window.bounds.width
-        let location: CGPoint = recognizer.location(in: window)
-        let velocity = recognizer.velocity(in: window)
+        let viewWidth: CGFloat = view.bounds.width
+        let location: CGPoint = recognizer.location(in: view)
+        let velocity = recognizer.velocity(in: view)
 
         // If minimization handler not ended yet, don't detect other gestures to don't block it.
         guard minimizationInitialCenter == nil else {
@@ -939,9 +949,9 @@ class PlayerViewController: UIViewController {
                 panType = .frame
             }
         } else if !isHorizontalSwipe {
-            if location.x < windowWidth / 2 && playerController.isBrightnessGestureEnabled && isBrightnessControlAvailable {
+            if location.x < viewWidth / 2 && playerController.isBrightnessGestureEnabled && isBrightnessControlAvailable {
                 panType = .brightness
-            } else if location.x > windowWidth / 2 && playerController.isVolumeGestureEnabled {
+            } else if location.x > viewWidth / 2 && playerController.isVolumeGestureEnabled {
                 panType = .volume
             }
         }
@@ -1231,7 +1241,7 @@ class PlayerViewController: UIViewController {
 #if os(iOS)
         case .volume:
             if recognizer.state == .changed || recognizer.state == .ended {
-                let newValue = volumeControl.value - (verticalPanVelocity * volumeControl.speed)
+                let newValue = volumeControl.value - (verticalPanVelocity * volumeControl.speed(for: traitCollection))
                 volumeControl.value = min(max(newValue, 0), 1)
                 volumeControl.applyValueToDevice()
                 volumeControlView.updateIcon(level: volumeControl.value)
@@ -1239,7 +1249,7 @@ class PlayerViewController: UIViewController {
             break
         case .brightness:
             if recognizer.state == .changed || recognizer.state == .ended {
-                let newValue = brightnessControl.value - (verticalPanVelocity * brightnessControl.speed)
+                let newValue = brightnessControl.value - (verticalPanVelocity * brightnessControl.speed(for: traitCollection))
                 brightnessControl.value = min(max(newValue, 0), 1)
                 brightnessControl.applyValueToDevice()
                 brightnessControlView.updateIcon(level: brightnessControl.value)

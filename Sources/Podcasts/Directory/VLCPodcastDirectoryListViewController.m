@@ -18,9 +18,6 @@
 #import "VLC-Swift.h"
 
 static NSString *const VLCPodcastDirectoryListCellIdentifier = @"LocalNetworkCell";
-static const CGFloat VLCPodcastDirectoryListArtworkSize = 72.;
-static const CGFloat VLCPodcastDirectoryListArtworkRadius = 9.;
-static const CGFloat VLCPodcastDirectoryListVerticalPadding = 8.;
 
 @interface VLCPodcastDirectoryListViewController () <VLCMediaLibraryBaseModelObserver>
 @end
@@ -31,7 +28,6 @@ static const CGFloat VLCPodcastDirectoryListVerticalPadding = 8.;
     PodcastStore *_store;
     VLCPodcastIndexShelf *_shelf;
     NSArray<VLCPodcastIndexFeed *> *_feeds;
-    NSURLSessionTask *_searchTask;
 }
 
 - (instancetype)initWithService:(VLCPodcastIndexService *)service
@@ -42,7 +38,7 @@ static const CGFloat VLCPodcastDirectoryListVerticalPadding = 8.;
         _service = service;
         _store = [VLCAppCoordinator sharedInstance].podcastStore;
         _shelf = shelf;
-        _feeds = shelf ? shelf.feeds : @[];
+        _feeds = shelf.feeds;
     }
     return self;
 }
@@ -63,15 +59,9 @@ static const CGFloat VLCPodcastDirectoryListVerticalPadding = 8.;
     [self.tableView registerNib:[UINib nibWithNibName:@"VLCNetworkListCell" bundle:nil]
          forCellReuseIdentifier:VLCPodcastDirectoryListCellIdentifier];
 
-    if (_shelf) {
-        self.title = _shelf.title;
-        self.navigationItem.searchController = nil;
-        [self loadCategory];
-    } else {
-        self.title = NSLocalizedString(@"SEARCH", nil);
-        self.searchController.searchBar.placeholder = NSLocalizedString(@"PODCAST_DIRECTORY_SEARCH_PLACEHOLDER", nil);
-        self.searchController.searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    }
+    self.title = _shelf.title;
+    self.navigationItem.searchController = nil;
+    [self loadCategory];
 
     [_store addObserver:self];
 
@@ -87,26 +77,6 @@ static const CGFloat VLCPodcastDirectoryListVerticalPadding = 8.;
 
     self.navigationController.navigationBar.prefersLargeTitles = NO;
     [self.tableView reloadData];
-}
-
-- (void)viewDidAppear:(BOOL)animated
-{
-    [super viewDidAppear:animated];
-
-    if (!_shelf && !self.searchController.isActive) {
-        self.searchController.active = YES;
-        [self.searchController.searchBar becomeFirstResponder];
-    }
-}
-
-- (void)viewWillDisappear:(BOOL)animated
-{
-    [super viewWillDisappear:animated];
-
-    if (self.isMovingFromParentViewController) {
-        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(performSearch) object:nil];
-        [_searchTask cancel];
-    }
 }
 
 - (void)themeDidChange
@@ -125,29 +95,6 @@ static const CGFloat VLCPodcastDirectoryListVerticalPadding = 8.;
 
     [self beginLoading];
     [_service loadTrendingForCategory:category completion:^(NSArray<VLCPodcastIndexFeed *> *feeds, NSError *error) {
-        [self endLoadingWithFeeds:feeds error:error];
-    }];
-}
-
-- (void)performSearch
-{
-    [_searchTask cancel];
-    _searchTask = nil;
-
-    NSString *query = [self.searchController.searchBar.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (query.length == 0) {
-        _feeds = @[];
-        [self stopActivityIndicator];
-        self.tableView.backgroundView = nil;
-        [self.tableView reloadData];
-        return;
-    }
-
-    [self beginLoading];
-    _searchTask = [_service searchFeedsMatching:query completion:^(NSArray<VLCPodcastIndexFeed *> *feeds, NSError *error) {
-        if ([error.domain isEqualToString:NSURLErrorDomain] && error.code == NSURLErrorCancelled) {
-            return;
-        }
         [self endLoadingWithFeeds:feeds error:error];
     }];
 }
@@ -206,47 +153,16 @@ static const CGFloat VLCPodcastDirectoryListVerticalPadding = 8.;
                                                                forIndexPath:indexPath];
 
     VLCPodcastIndexFeed *feed = _feeds[indexPath.row];
-    cell.title = feed.title;
-    cell.subtitle = feed.subtitle;
-    [cell.thumbnailView setImage:nil placeholderName:feed.title];
-    cell.iconURL = feed.artworkURL;
-    cell.thumbnailWidthConstraint.constant = VLCPodcastDirectoryListArtworkSize;
-    cell.thumbnailHeightConstraint.constant = VLCPodcastDirectoryListArtworkSize;
-    cell.thumbnailView.layer.cornerRadius = VLCPodcastDirectoryListArtworkRadius;
-    cell.isDownloadable = NO;
-    cell.isFavorable = NO;
-    [self applyState:[_store subscriptionStateForFeedURL:feed.feedURL] toCell:cell];
+    [cell configureWithPodcastFeed:feed subscriptionState:[_store subscriptionStateForFeedURL:feed.feedURL]];
 
     return cell;
-}
-
-- (void)applyState:(PodcastSubscriptionState)state toCell:(VLCNetworkListCell *)cell
-{
-    switch (state) {
-        case PodcastSubscriptionStateAvailable:
-            cell.accessoryView = nil;
-            cell.accessoryType = UITableViewCellAccessoryNone;
-            break;
-        case PodcastSubscriptionStatePending: {
-            VLCPulsingConeView *coneView = [[VLCPulsingConeView alloc] initWithConeSize:22.];
-            [coneView startAnimating];
-            cell.accessoryType = UITableViewCellAccessoryNone;
-            cell.accessoryView = coneView;
-            break;
-        }
-        case PodcastSubscriptionStateSubscribed:
-            cell.accessoryView = nil;
-            cell.accessoryType = UITableViewCellAccessoryCheckmark;
-            cell.tintColor = PresentationTheme.current.colors.orangeUI;
-            break;
-    }
 }
 
 #pragma mark - table view delegate
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    return VLCPodcastDirectoryListArtworkSize + 2. * VLCPodcastDirectoryListVerticalPadding;
+    return VLCNetworkListCell.podcastFeedHeight;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
@@ -259,14 +175,6 @@ static const CGFloat VLCPodcastDirectoryListVerticalPadding = 8.;
     [self.navigationController pushViewController:feedViewController animated:YES];
 }
 
-#pragma mark - search
-
-- (void)updateSearchResultsForSearchController:(UISearchController *)searchController
-{
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(performSearch) object:nil];
-    [self performSelector:@selector(performSearch) withObject:nil afterDelay:0.5];
-}
-
 #pragma mark - store observer
 
 - (void)mediaLibraryBaseModelReloadView
@@ -274,7 +182,7 @@ static const CGFloat VLCPodcastDirectoryListVerticalPadding = 8.;
     for (NSIndexPath *indexPath in self.tableView.indexPathsForVisibleRows) {
         VLCNetworkListCell *cell = [self.tableView cellForRowAtIndexPath:indexPath];
         VLCPodcastIndexFeed *feed = _feeds[indexPath.row];
-        [self applyState:[_store subscriptionStateForFeedURL:feed.feedURL] toCell:cell];
+        [cell applyPodcastSubscriptionState:[_store subscriptionStateForFeedURL:feed.feedURL]];
     }
 }
 

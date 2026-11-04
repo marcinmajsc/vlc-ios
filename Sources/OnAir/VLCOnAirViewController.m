@@ -36,6 +36,7 @@ typedef NS_ENUM(NSInteger, VLCOnAirSection) {
 
 static CGFloat const kVLCOnAirSideMargin = 20.0;
 static CGFloat const kVLCOnAirHeaderHeight = 44.0;
+static CGFloat const kVLCOnAirSubsectionHeaderHeight = 22.0;
 static CGFloat const kVLCOnAirRailSpacing = 12.0;
 
 @interface VLCOnAirViewController () <UITableViewDataSource, UITableViewDelegate,
@@ -310,7 +311,7 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
     }
 
     [self updateResumeItemWithStreams:_radioFavorites];
-    [self updateResumeItemWithStreams:_recentStreams];
+    [self updateResumeItemWithStreams:[[[VLCAppCoordinator sharedInstance] radioService] playedStreams]];
 
     PodcastResumeItem *episode = PodcastsOnAirBridge.resumeEpisode;
     if (!episode) {
@@ -481,7 +482,7 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
         cell.delegate = self;
         [cell configureWithItems:[self railItemsForSection:section]
                   showsSubtitles:section == VLCOnAirSectionPodcasts
-                    showsAddTile:section == VLCOnAirSectionRadio];
+                    showsAddTile:section == VLCOnAirSectionRadio || section == VLCOnAirSectionPodcasts];
         return cell;
     }
 
@@ -508,7 +509,6 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
     for (VLCFavorite *stream in streams) {
         VLCOnAirRailItem *item = [[VLCOnAirRailItem alloc] initWithName:stream.userVisibleName
                                                              artworkURL:stream.artworkURL];
-        item.badge = VLCArtworkTileBadgePlay;
         [items addObject:item];
     }
     return items;
@@ -563,6 +563,20 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
     }
 }
 
+- (NSString *)subsectionTitleForSection:(VLCOnAirSection)section
+{
+    if (_radioIsEmpty || _recentStreams.count == 0) {
+        return nil;
+    }
+    if (section == VLCOnAirSectionRadio) {
+        return NSLocalizedString(@"FAVORITES", nil);
+    }
+    if (section == VLCOnAirSectionRadioRecent) {
+        return NSLocalizedString(@"RECENT_STREAMS", nil);
+    }
+    return nil;
+}
+
 - (UIImage *)glyphForSection:(VLCOnAirSection)section
 {
     switch (section) {
@@ -592,14 +606,15 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section
 {
     VLCOnAirSection onAirSection = [self sectionAtIndex:section];
+    BOOL hasSubsection = [self subsectionTitleForSection:onAirSection] != nil;
     if (onAirSection == VLCOnAirSectionRadioRecent) {
-        return kVLCOnAirRailSpacing;
+        return hasSubsection ? 4.0 + kVLCOnAirSubsectionHeaderHeight : kVLCOnAirRailSpacing;
     }
     if (![self sectionHasHeader:onAirSection]) {
         return CGFLOAT_MIN;
     }
 
-    return kVLCOnAirHeaderHeight;
+    return kVLCOnAirHeaderHeight + (hasSubsection ? kVLCOnAirSubsectionHeaderHeight : 0.0);
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section
@@ -610,18 +625,19 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section
 {
     VLCOnAirSection onAirSection = [self sectionAtIndex:section];
-    if (onAirSection == VLCOnAirSectionRadioRecent) {
-        UIView *spacer = [[UIView alloc] init];
-        spacer.backgroundColor = [UIColor clearColor];
-        return spacer;
-    }
-    if (![self sectionHasHeader:onAirSection]) {
-        return nil;
+    UIView *sectionHeader;
+    if ([self sectionHasHeader:onAirSection]) {
+        sectionHeader = [self sectionHeaderViewWithTitle:[self titleForSection:onAirSection]
+                                                     tag:section
+                                             showsSeeAll:[self sectionHasRail:onAirSection]];
     }
 
-    return [self sectionHeaderViewWithTitle:[self titleForSection:onAirSection]
-                                        tag:section
-                                showsSeeAll:[self sectionHasRail:onAirSection]];
+    NSString *subsectionTitle = [self subsectionTitleForSection:onAirSection];
+    if (!subsectionTitle) {
+        return sectionHeader;
+    }
+
+    return [self subsectionHeaderViewWithTitle:subsectionTitle belowSectionHeader:sectionHeader];
 }
 
 - (BOOL)sectionHasHeader:(VLCOnAirSection)section
@@ -684,6 +700,40 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
     return header;
 }
 
+- (UIView *)subsectionHeaderViewWithTitle:(NSString *)title belowSectionHeader:(UIView *)sectionHeader
+{
+    UIView *header = [[UIView alloc] init];
+    header.backgroundColor = [UIColor clearColor];
+
+    if (sectionHeader) {
+        sectionHeader.translatesAutoresizingMaskIntoConstraints = NO;
+        [header addSubview:sectionHeader];
+
+        [NSLayoutConstraint activateConstraints:@[
+            [sectionHeader.topAnchor constraintEqualToAnchor:header.topAnchor],
+            [sectionHeader.leadingAnchor constraintEqualToAnchor:header.leadingAnchor],
+            [sectionHeader.trailingAnchor constraintEqualToAnchor:header.trailingAnchor],
+            [sectionHeader.heightAnchor constraintEqualToConstant:kVLCOnAirHeaderHeight]
+        ]];
+    }
+
+    UILabel *label = [[UILabel alloc] init];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    label.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
+    label.textColor = PresentationTheme.current.colors.cellDetailTextColor;
+    label.accessibilityTraits = UIAccessibilityTraitHeader;
+    label.text = title;
+    [header addSubview:label];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [label.leadingAnchor constraintEqualToAnchor:header.safeAreaLayoutGuide.leadingAnchor constant:kVLCOnAirSideMargin],
+        [label.trailingAnchor constraintLessThanOrEqualToAnchor:header.safeAreaLayoutGuide.trailingAnchor constant:-kVLCOnAirSideMargin],
+        [label.bottomAnchor constraintEqualToAnchor:header.bottomAnchor constant:-4.0]
+    ]];
+
+    return header;
+}
+
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
@@ -718,6 +768,16 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
 
 - (void)railCellDidSelectAddTile:(VLCOnAirRailCell *)cell
 {
+    NSIndexPath *indexPath = [_tableView indexPathForCell:cell];
+    if (!indexPath) {
+        return;
+    }
+
+    if ([self sectionAtIndex:indexPath.section] == VLCOnAirSectionPodcasts) {
+        [self showPodcastDirectory];
+        return;
+    }
+
     [self showRadio];
 }
 
@@ -747,7 +807,7 @@ static CGFloat const kVLCOnAirRailSpacing = 12.0;
             [self showRadio];
             break;
         case VLCOnAirSectionPodcasts:
-            index == 0 ? [self showPodcasts] : [self showPodcastDirectory];
+            index == 0 ? [PodcastsOnAirBridge presentAddSubscriptionAlertFrom:self] : [self showPodcastDirectory];
             break;
         case VLCOnAirSectionTV:
             index == 0 ? [self showTVDirectory] : [self showAddM3U];

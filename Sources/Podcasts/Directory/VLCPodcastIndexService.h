@@ -50,14 +50,33 @@ FOUNDATION_EXPORT NSString *const VLCPodcastIndexShelvesDidUpdateNotification;
 
 @end
 
+@interface VLCPodcastIndexEpisode : NSObject
+
+@property (readonly) NSInteger episodeIdentifier;
+@property (readonly) NSURL *enclosureURL;
+@property (readonly) NSString *title;
+@property (readonly) NSDate *releaseDate;
+@property (readonly) NSTimeInterval duration;
+@property (readonly) NSInteger seasonNumber;
+@property (readonly) NSInteger episodeNumber;
+@property (readonly, nullable) NSURL *artworkURL;
+@property (readonly, nullable) NSString *summary;
+@property (readonly, getter=isVideo) BOOL video;
+
+- (instancetype)init NS_UNAVAILABLE;
+
+@end
+
 typedef void (^VLCPodcastIndexFeedsCompletion)(NSArray<VLCPodcastIndexFeed *> *feeds, NSError *_Nullable error);
 typedef void (^VLCPodcastIndexFeedCompletion)(VLCPodcastIndexFeed *_Nullable feed, NSError *_Nullable error);
+typedef void (^VLCPodcastIndexEpisodesCompletion)(NSArray<VLCPodcastIndexEpisode *> *episodes, NSError *_Nullable error);
 
 @interface VLCPodcastIndexService : NSObject
 
 @property (class, readonly, getter=isAvailable) BOOL available;
 
 @property (readonly) NSArray<NSString *> *availableLanguageCodes;
+@property (readonly) NSArray<NSString *> *suggestedLanguageCodes;
 @property (nonatomic, copy) NSString *languageCode;
 
 @property (readonly) NSArray<VLCPodcastIndexShelf *> *shelves;
@@ -72,6 +91,8 @@ typedef void (^VLCPodcastIndexFeedCompletion)(VLCPodcastIndexFeed *_Nullable fee
                                         completion:(VLCPodcastIndexFeedsCompletion)completion;
 - (void)loadDetailsForFeed:(VLCPodcastIndexFeed *)feed
                 completion:(VLCPodcastIndexFeedCompletion)completion;
+- (void)loadRecentEpisodesForFeed:(VLCPodcastIndexFeed *)feed
+                       completion:(VLCPodcastIndexEpisodesCompletion)completion;
 
 + (NSArray<NSString *> *)localizedTitlesForCategoryNames:(NSArray<NSString *> *)names;
 
