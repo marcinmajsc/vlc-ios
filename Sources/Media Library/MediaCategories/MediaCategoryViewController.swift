@@ -530,7 +530,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     override func viewDidLoad() {
         super.viewDidLoad()
         setupCollectionView()
-        setupEditToolBar()
         if let model = model as? CollectionModel,
            let collection = model.mediaCollection as? VLCMLAlbum {
             navItemTitle.text = collection.albumName()
@@ -866,6 +865,11 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 
         coordinator.animate(alongsideTransition: { [weak self] _ in
             self?.updateFABButtonBottomConstraint()
+        }, completion: { [weak self] _ in
+            guard let self = self, self.isEditing else {
+                return
+            }
+            self.displayEditToolbar()
         })
     }
 
@@ -960,10 +964,9 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         (tabBarController as? BottomTabBarController)?.ensureEditToolbarSetup()
 #if os(iOS)
         if #available(iOS 18.0, *),
-           UIDevice.current.userInterfaceIdiom == .pad,
            let tabBarController = tabBarController,
-           let sideToolBar = tabBarController.sidebar.bottomBarView as? EditToolbar,
-           !tabBarController.sidebar.isHidden {
+           tabBarController.isSidebarShown,
+           let sideToolBar = tabBarController.sidebar.bottomBarView as? EditToolbar {
             return sideToolBar
         }
 #endif
@@ -971,40 +974,53 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
            let editToolBar = tabBarController.editToolBar() {
             return editToolBar
         }
+        installEditToolBarIfNeeded()
         return editToolBar
+    }
+
+    private func installedEditToolbars() -> [EditToolbar] {
+        var toolbars: [EditToolbar] = []
+
+#if os(iOS)
+        if #available(iOS 18.0, *),
+           let sideToolBar = tabBarController?.sidebar.bottomBarView as? EditToolbar {
+            toolbars.append(sideToolBar)
+        }
+#endif
+
+        if let bottomToolbar = (tabBarController as? BottomTabBarController)?.bottomEditToolbar {
+            toolbars.append(bottomToolbar)
+        }
+
+        if editToolBar.superview != nil {
+            toolbars.append(editToolBar)
+        }
+
+        return toolbars
     }
 
     private func displayEditToolbar() {
         let toolBar = activeEditToolbar()
+        for otherToolBar in installedEditToolbars() where otherToolBar !== toolBar {
+            otherToolBar.isHidden = true
+        }
+
         toolBar.delegate = editController
         toolBar.updateEditToolbar(for: model)
-        toolBar.isHidden = isEditing ? false : true
+        toolBar.isHidden = !isEditing
+
+        if isEditing {
+            toolBar.enableEditActionsIfNeeded()
+        }
     }
 
 #if os(iOS)
     @objc private func handleEditToolBar() {
-        guard #available(iOS 18.0, *),
-              UIDevice.current.userInterfaceIdiom == .pad,
-              isEditing,
-              let tabBarController = tabBarController,
-              let sideToolBar = tabBarController.sidebar.bottomBarView as? EditToolbar else {
+        guard isEditing else {
             return
         }
 
-        let toolBar: EditToolbar
-        if tabBarController.sidebar.isHidden {
-            sideToolBar.isHidden = true
-            editToolBar.isHidden = false
-            toolBar = editToolBar
-        } else {
-            sideToolBar.isHidden = false
-            editToolBar.isHidden = true
-            toolBar = sideToolBar
-        }
-
-        toolBar.delegate = editController
-        toolBar.updateEditToolbar(for: model)
-        toolBar.enableEditActionsIfNeeded()
+        displayEditToolbar()
     }
 #endif
 
@@ -2692,9 +2708,9 @@ private extension MediaCategoryViewController {
         collectionView?.contentInsetAdjustmentBehavior = .always
     }
 
-    func setupEditToolBar() {
-        guard #available(iOS 18.0, *),
-              UIDevice.current.userInterfaceIdiom == .pad else {
+    func installEditToolBarIfNeeded() {
+#if os(iOS)
+        guard editToolBar.superview == nil else {
             return
         }
 
@@ -2707,6 +2723,7 @@ private extension MediaCategoryViewController {
             editToolBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             editToolBar.heightAnchor.constraint(equalToConstant: EditToolbar.height)
         ])
+#endif
     }
 }
 
@@ -3015,16 +3032,15 @@ extension MediaCategoryViewController {
 
         let anchorsToContainerBottom: Bool
 #if os(iOS)
-        if #available(iOS 18.0, *), UIDevice.current.userInterfaceIdiom == .pad {
-            anchorsToContainerBottom = traitCollection.horizontalSizeClass == .regular
-        } else {
-            anchorsToContainerBottom = false
-        }
+        anchorsToContainerBottom = (tabBarController?.isSidebarAvailable == true
+            && traitCollection.horizontalSizeClass == .regular)
+            || !tabBar.isDescendant(of: containerView)
 #else
         anchorsToContainerBottom = false
 #endif
 
-        if fabAnchorsToContainerBottom == anchorsToContainerBottom { return }
+        if fabAnchorsToContainerBottom == anchorsToContainerBottom,
+           fabBottomConstraint?.isActive == true { return }
         fabAnchorsToContainerBottom = anchorsToContainerBottom
 
         let anchor = anchorsToContainerBottom ? containerView.bottomAnchor : tabBar.topAnchor
