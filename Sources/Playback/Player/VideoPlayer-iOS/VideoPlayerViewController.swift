@@ -478,10 +478,6 @@ class VideoPlayerViewController: PlayerViewController {
         volumeControlView.alpha = 0
         brightnessControlView.alpha = 0
 #endif
-
-        numberOfGestureSeek = 0
-        totalSeekDuration = 0
-        previousSeekState = .default
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -952,14 +948,13 @@ class VideoPlayerViewController: PlayerViewController {
             playbackService.pause()
         }
 
-        numberOfGestureSeek = 0
-        totalSeekDuration = 0
         setControlsHidden(!playerController.isControlsHidden, animated: true)
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         if playbackService.isPlaying && playerController.isControlsHidden && overlayCardView == nil {
             setControlsHidden(false, animated: true)
+            resetIdleTimer()
         }
 
         videoPlayerButtons()
@@ -1217,8 +1212,6 @@ class VideoPlayerViewController: PlayerViewController {
         }
 
         idleTimer = nil
-        numberOfGestureSeek = 0
-        totalSeekDuration = 0
         if !playerController.isControlsHidden && !isGestureActive {
             setControlsHidden(!playerController.isControlsHidden, animated: true)
         }

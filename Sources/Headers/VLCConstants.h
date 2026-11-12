@@ -97,6 +97,8 @@
 #define kVLCSettingOpenAppForPlaybackDefaultValue @YES
 #define kVLCSettingShowThumbnails @"ShowThumbnails"
 #define kVLCSettingShowThumbnailsDefaultValue @YES
+#define kVLCSettingPlayVideoPreviews @"PlayVideoPreviews"
+#define kVLCSettingPlayVideoPreviewsDefaultValue @YES
 #define kVLCSettingShowArtworks @"ShowArtworks"
 #define kVLCSettingShowArtworksDefaultValue @YES
 #define kVLCSettingsDisableGrouping @"MLDisableGrouping"
@@ -158,6 +160,9 @@
 #define kVLCPlayerIsShuffleEnabledDefaultValue @NO
 #define kVLCPlayerIsRepeatEnabled @"PlayerIsRepeatEnabled"
 #define kVLCPlayerIsRepeatEnabledDefaultValue @(0)
+
+#define kVLCMiniPlayerDisplayedNotification @"VLCMiniPlayerDisplayedNotification"
+#define kVLCMiniPlayerHiddenNotification @"VLCMiniPlayerHiddenNotification"
 
 #define kVLCCustomProfileEnabled @"kVLCCustomProfileEnabled"
 #define kVLCCustomEqualizerProfiles @"kVLCCustomEqualizerProfiles"

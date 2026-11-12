@@ -54,6 +54,8 @@ NSString *const VLCPlaybackServicePlaybackDidFail = @"VLCPlaybackServicePlayback
 NSString *const VLCPlaybackServicePlaybackPositionUpdated = @"VLCPlaybackServicePlaybackPositionUpdated";
 NSString *const VLCPlaybackServicePlaybackModeUpdated = @"VLCPlaybackServicePlaybackModeUpdated";
 NSString *const VLCPlaybackServiceShuffleModeUpdated = @"VLCPlaybackServiceShuffleModeUpdated";
+NSString *const VLCPlaybackServiceMediaListDidChange = @"VLCPlaybackServiceMediaListDidChange";
+NSString *const VLCPlaybackServiceMediaDurationDidChange = @"VLCPlaybackServiceMediaDurationDidChange";
 NSString *const VLCPlaybackServicePlaybackDidMoveOnToNextItem = @"VLCPlaybackServicePlaybackDidMoveOnToNextItem";
 NSString *const VLCPlaybackServiceSleepTimerDidChange = @"VLCPlaybackServiceSleepTimerDidChange";
 NSString *const VLCLastPlaylistPlayedMedia = @"LastPlaylistPlayedMedia";
@@ -113,10 +115,13 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
     VLCMLMedia *_currentlyPlayingLibraryMedia;
     NSURL *_metadataMediaURL;
     NSMutableArray *_shuffledOrder;
+    VLCMedia *_lastDurationMedia;
+    NSString *_lastQueueDuration;
 
     BOOL _openInMiniPlayer;
-    NSInteger _primaryVideoSubtitleTrackIndex;
-    NSInteger _secondaryVideoSubtitleTrackIndex;
+    NSString *_primaryVideoSubtitleTrackId;
+    NSString *_secondaryVideoSubtitleTrackId;
+    BOOL _pendingSubtitleSlaveSelection;
 }
 
 #if !TARGET_OS_WATCH
@@ -217,9 +222,6 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
 
         _mediaList = [[VLCMediaList alloc] init];
 
-        _primaryVideoSubtitleTrackIndex = -1;
-        _secondaryVideoSubtitleTrackIndex = -1;
-        
         _openedLocalURLs = [[NSMutableArray alloc] init];
         dispatch_async(dispatch_get_main_queue(), ^{
             self->_externalAudioPlaybackDeviceConnected = [self isExternalAudioPlaybackDeviceConnected];
@@ -237,7 +239,9 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
 
 - (void)addSubtitlesToCurrentPlaybackFromURL:(NSURL *)subtitleURL
 {
-    [_mediaPlayer addPlaybackSlave:subtitleURL type:VLCMediaPlaybackSlaveTypeSubtitle enforce:YES];
+    if ([_mediaPlayer addPlaybackSlave:subtitleURL type:VLCMediaPlaybackSlaveTypeSubtitle enforce:YES] == 0) {
+        _pendingSubtitleSlaveSelection = YES;
+    }
 }
 
 - (void)playMediaList:(VLCMediaList *)mediaList firstIndex:(NSInteger)index subtitlesFilePath:(NSString * _Nullable)subsFilePath
@@ -544,6 +548,8 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
     _playerIsSetup = YES;
 
     [_playbackSessionManagementLock unlock];
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceMediaListDidChange object:self];
 }
 
 - (void)_playNewMedia
@@ -615,6 +621,7 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
             _mediaList = nil;
             _mediaList = [[VLCMediaList alloc] init];
             _listPlayer.mediaList = _mediaList;
+            [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceMediaListDidChange object:self];
 
             for (NSURL *url in _openedLocalURLs) {
                 [url stopAccessingSecurityScopedResource];
@@ -667,8 +674,8 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
         }
 
         if (disableSubtitles) {
-            _primaryVideoSubtitleTrackIndex = -1;
-            _secondaryVideoSubtitleTrackIndex = -1;
+            _primaryVideoSubtitleTrackId = nil;
+            _secondaryVideoSubtitleTrackId = nil;
             [self syncVideoSubtitleState];
             return;
         } else {
@@ -676,6 +683,8 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
             [self selectPrimaryVideoSubtitleAtIndex:media.primarySubtitleTrackIndex];
             [self selectSecondaryVideoSubtitleAtIndex:media.secondarySubtitleTrackIndex];
         }
+    } else {
+        [self disableSubtitlesIfNeeded];
     }
 }
 
@@ -889,11 +898,27 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
 }
 
 - (NSInteger)indexOfCurrentPrimaryVideoSubtitleTrack {
-    return _primaryVideoSubtitleTrackIndex;
+    return [self _indexOfTextTrackWithId:_primaryVideoSubtitleTrackId];
 }
 
 - (NSInteger)indexOfCurrentSecondaryVideoSubtitleTrack {
-    return _secondaryVideoSubtitleTrackIndex;
+    return [self _indexOfTextTrackWithId:_secondaryVideoSubtitleTrackId];
+}
+
+- (NSInteger)_indexOfTextTrackWithId:(NSString *)trackId
+{
+    if (!trackId) {
+        return -1;
+    }
+
+    NSArray<VLCMediaPlayerTrack *> *textTracks = [_mediaPlayer textTracks];
+    NSInteger count = textTracks.count;
+    for (NSInteger index = 0; index < count; index++) {
+        if ([textTracks[index].trackId isEqualToString:trackId]) {
+            return index;
+        }
+    }
+    return -1;
 }
 
 - (VLCMediaPlayerChapterDescription *)currentChapterDescription
@@ -1008,11 +1033,12 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
     NSArray *textTracks = [_mediaPlayer textTracks];
     
     if (index >= 0 && index < textTracks.count) {
-        if (_secondaryVideoSubtitleTrackIndex == index) {
-            _secondaryVideoSubtitleTrackIndex = -1;
+        VLCMediaPlayerTrack *track = textTracks[index];
+        if ([_secondaryVideoSubtitleTrackId isEqualToString:track.trackId]) {
+            _secondaryVideoSubtitleTrackId = nil;
         }
-        
-        _primaryVideoSubtitleTrackIndex = index;
+
+        _primaryVideoSubtitleTrackId = track.trackId;
         [self syncVideoSubtitleState];
     }
 }
@@ -1021,39 +1047,49 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
     NSArray *textTracks = [_mediaPlayer textTracks];
     
     if (index >= 0 && index < textTracks.count) {
-        if (_primaryVideoSubtitleTrackIndex == index) {
-            _primaryVideoSubtitleTrackIndex = -1;
+        VLCMediaPlayerTrack *track = textTracks[index];
+        if ([_primaryVideoSubtitleTrackId isEqualToString:track.trackId]) {
+            _primaryVideoSubtitleTrackId = nil;
         }
-        _secondaryVideoSubtitleTrackIndex = index;
+        _secondaryVideoSubtitleTrackId = track.trackId;
         [self syncVideoSubtitleState];
     }
 }
 
 - (void)syncVideoSubtitleState
 {
-    NSArray *textTracks = [_mediaPlayer textTracks];
+    NSArray<VLCMediaPlayerTrack *> *textTracks = [_mediaPlayer textTracks];
+    VLCMediaPlayerTrack *primaryTrack;
+    VLCMediaPlayerTrack *secondaryTrack;
+
+    for (VLCMediaPlayerTrack *track in textTracks) {
+        if ([track.trackId isEqualToString:_primaryVideoSubtitleTrackId]) {
+            primaryTrack = track;
+        } else if ([track.trackId isEqualToString:_secondaryVideoSubtitleTrackId]) {
+            secondaryTrack = track;
+        }
+    }
+
     NSMutableArray<VLCMediaPlayerTrack *> *tracksToSelect = [NSMutableArray array];
-    
-    if (_primaryVideoSubtitleTrackIndex >= 0 && _primaryVideoSubtitleTrackIndex < textTracks.count) {
-        [tracksToSelect addObject:textTracks[_primaryVideoSubtitleTrackIndex]];
+    if (primaryTrack) {
+        [tracksToSelect addObject:primaryTrack];
     }
-    
-    if (_secondaryVideoSubtitleTrackIndex >= 0 && _secondaryVideoSubtitleTrackIndex < textTracks.count) {
-        [tracksToSelect addObject:textTracks[_secondaryVideoSubtitleTrackIndex]];
+    if (secondaryTrack) {
+        [tracksToSelect addObject:secondaryTrack];
     }
-    
+
     [_mediaPlayer selectTextTracks:tracksToSelect];
 }
 
 - (void)disablePrimaryVideoSubtitle
 {
-    _primaryVideoSubtitleTrackIndex = -1;
+    _primaryVideoSubtitleTrackId = nil;
     [self syncVideoSubtitleState];
 }
 
 - (void)disableSecondaryVideoSubtitle
 {
-    _secondaryVideoSubtitleTrackIndex = -1;
+    _secondaryVideoSubtitleTrackId = nil;
     [self syncVideoSubtitleState];
 }
 
@@ -1109,6 +1145,7 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
             case VLCMediaPlayerStateOpening: {
                 APLog(@"%s: opening", __func__);
                 self->_openedMedia = self->_mediaPlayer.media;
+                self->_pendingSubtitleSlaveSelection = NO;
 
                 /* attach delegate */
                 self->_mediaPlayer.media.delegate = self;
@@ -1214,6 +1251,58 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
     });
 }
 
+- (void)mediaPlayerTrackAdded:(NSString *)trackId withType:(VLCMediaTrackType)trackType
+{
+    if (trackType != VLCMediaTrackTypeText) {
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self->_pendingSubtitleSlaveSelection) {
+            return;
+        }
+
+        self->_pendingSubtitleSlaveSelection = NO;
+        [self selectPrimaryVideoSubtitleAtIndex:[self _indexOfTextTrackWithId:trackId]];
+        [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackMetadataDidChange object:nil];
+    });
+}
+
+- (void)mediaPlayerTrackSelected:(VLCMediaTrackType)trackType selectedId:(NSString *)selectedId unselectedId:(NSString *)unselectedId
+{
+    if (trackType != VLCMediaTrackTypeText) {
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL selectionChanged = NO;
+
+        if ([unselectedId isEqualToString:self->_primaryVideoSubtitleTrackId]) {
+            self->_primaryVideoSubtitleTrackId = nil;
+            selectionChanged = YES;
+        } else if ([unselectedId isEqualToString:self->_secondaryVideoSubtitleTrackId]) {
+            self->_secondaryVideoSubtitleTrackId = nil;
+            selectionChanged = YES;
+        }
+
+        if (selectedId
+            && ![selectedId isEqualToString:self->_primaryVideoSubtitleTrackId]
+            && ![selectedId isEqualToString:self->_secondaryVideoSubtitleTrackId]) {
+            if (!self->_primaryVideoSubtitleTrackId) {
+                self->_primaryVideoSubtitleTrackId = selectedId;
+                selectionChanged = YES;
+            } else if (!self->_secondaryVideoSubtitleTrackId) {
+                self->_secondaryVideoSubtitleTrackId = selectedId;
+                selectionChanged = YES;
+            }
+        }
+
+        if (selectionChanged) {
+            [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServicePlaybackMetadataDidChange object:nil];
+        }
+    });
+}
+
 #pragma mark - playback controls
 - (void)playPause
 {
@@ -1241,6 +1330,53 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
 
     if ([self.delegate respondsToSelector:@selector(prepareForMediaPlayback:)])
         [self.delegate prepareForMediaPlayback:self];
+}
+
+- (NSUInteger)appendMedia:(VLCMedia *)media
+{
+    NSAssert(NSThread.isMainThread, @"Queue changes must run on the main thread");
+    if (!_mediaList)
+        _mediaList = [[VLCMediaList alloc] init];
+    if (_shuffleMode && _mediaList.count == 0)
+        _shuffledList = nil;
+    if (_shuffleMode && !_shuffledList) {
+        [self shuffleMediaList];
+        _currentIndex = 0;
+        [self rebuildShuffledListIfNeeded];
+    }
+
+    [_mediaList lock];
+    NSUInteger index = [_mediaList addMedia:media];
+    [_mediaList unlock];
+    if (_shuffleMode) {
+        [_shuffledList lock];
+        [_shuffledList addMedia:media];
+        [_shuffledList unlock];
+        @synchronized (_shuffledOrder) {
+            [_shuffledOrder addObject:@(index)];
+        }
+    }
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceMediaListDidChange object:self];
+    if ([self.delegate respondsToSelector:@selector(reloadPlayQueue)])
+        [self.delegate reloadPlayQueue];
+    return index;
+}
+
+- (NSString *)queueTitleForMedia:(VLCMedia *)media libraryMedia:(VLCMLMedia *)libraryMedia libraryTitle:(NSString *)libraryTitle
+{
+    BOOL isLibraryMedia = libraryMedia && (!libraryMedia.isExternalMedia || libraryMedia.nbSubscriptions > 0);
+    if (isLibraryMedia && libraryTitle.length > 0)
+        return libraryTitle;
+    return media.metaData.title ?: @"";
+}
+
+- (NSString *)queueDurationForMedia:(VLCMedia *)media libraryMedia:(VLCMLMedia *)libraryMedia
+{
+    NSNumber *duration = media.length.value;
+    if (!duration)
+        duration = @(libraryMedia.duration);
+    return duration.longLongValue > 0 ? [VLCTime timeWithNumber:duration].stringValue : @"";
 }
 
 - (void)setShuffleMode:(BOOL)shuffleMode
@@ -1273,16 +1409,15 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
     @synchronized (_shuffledOrder) {
         NSInteger mediaListLength = _mediaList.count;
 
-        if (mediaListLength <= 1) {
-            return;
-        }
-
         [_shuffledOrder removeAllObjects];
 
         for (int i = 0; i < mediaListLength; i++)
         {
             [_shuffledOrder addObject:[NSNumber numberWithInt:i]];
         }
+        if (mediaListLength <= 1)
+            return;
+
         if (_currentIndex > 0 && _currentIndex < mediaListLength) {
             [_shuffledOrder exchangeObjectAtIndex:0 withObjectAtIndex:_currentIndex];
         }
@@ -1325,7 +1460,9 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
 
     NSInteger nextIndex = 0;
     if (!_currentIndex) {
-        _currentIndex = [currentMediaList indexOfMedia:self.currentlyPlayingMedia];
+        NSUInteger playingIndex = [currentMediaList indexOfMedia:self.currentlyPlayingMedia];
+        if (playingIndex != NSNotFound)
+            _currentIndex = playingIndex;
     }
 
     if (self.repeatMode == VLCRepeatCurrentItem && !isButtonPressed) {
@@ -1389,7 +1526,9 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
 
             if (!_currentIndex) {
                 VLCMediaList *currentMediaList = _shuffleMode ? _shuffledList : _mediaList;
-                _currentIndex = [currentMediaList indexOfMedia:self.currentlyPlayingMedia];
+                NSUInteger playingIndex = [currentMediaList indexOfMedia:self.currentlyPlayingMedia];
+                if (playingIndex != NSNotFound)
+                    _currentIndex = playingIndex;
             }
 
             if (_currentIndex > 0) {
@@ -1963,57 +2102,108 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
 - (void)mediaDidFinishParsing:(VLCMedia *)aMedia
 {
     dispatch_async(dispatch_get_main_queue(), ^{
-        VLCMediaList *subitems = aMedia.subitems;
-        if (subitems && subitems.count > 0) {
-            [self _expandMediaList:subitems forMedia:aMedia];
-        }
         [self setNeedsMetadataUpdate];
-#if TARGET_OS_IOS
         [self restoreAudioAndSubtitleTrack];
-#endif
+    });
+}
+
+- (void)mediaPlayerSubitemsChanged:(VLCMedia *)media
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self _expandMediaList:media.subitems forMedia:media];
+    });
+}
+
+- (void)mediaPlayerLengthChanged:(int64_t)length
+{
+    VLCMedia *media = self.currentlyPlayingMedia;
+    if (!media)
+        return;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSUInteger index = self->_mediaList ? [self->_mediaList indexOfMedia:media] : NSNotFound;
+        if (index == NSNotFound)
+            return;
+
+        VLCMedia *queuedMedia = [self->_mediaList mediaAtIndex:index];
+        NSString *displayDuration = [self queueDurationForMedia:queuedMedia libraryMedia:nil];
+        if ([self->_lastDurationMedia isEqual:queuedMedia] && [self->_lastQueueDuration isEqualToString:displayDuration])
+            return;
+        self->_lastDurationMedia = queuedMedia;
+        self->_lastQueueDuration = displayDuration;
+        [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceMediaDurationDidChange
+                                                            object:self
+                                                          userInfo:@{@"media": queuedMedia}];
     });
 }
 
 - (void)_expandMediaList:(VLCMediaList *)subitems forMedia:(VLCMedia *)parentMedia
 {
-    NSUInteger subItemsCount = subitems.count;
-    NSMutableArray<VLCMedia *> *uniqueSubitems = [NSMutableArray arrayWithCapacity:subItemsCount];
-    NSMutableSet<NSString *> *seenURLs = [NSMutableSet setWithCapacity:subItemsCount];
-    for (NSUInteger i = 0; i < subItemsCount; i++) {
-        VLCMedia *child = [subitems mediaAtIndex:i];
-        NSString *urlKey = child.url.absoluteString ?: [NSString stringWithFormat:@"<anon-%p>", child];
-        if ([seenURLs containsObject:urlKey])
-            continue;
-        [seenURLs addObject:urlKey];
-        [uniqueSubitems addObject:child];
-    }
+    NSAssert(NSThread.isMainThread, @"Queue changes must run on the main thread");
+    NSUInteger parentIndex = _mediaList ? [_mediaList indexOfMedia:parentMedia] : NSNotFound;
+    if (parentIndex == NSNotFound)
+        return;
 
-    VLCMediaList *newList = [[VLCMediaList alloc] init];
-    NSInteger insertionIndex = NSNotFound;
+    [subitems lock];
+    NSUInteger subitemsCount = subitems.count;
+    NSMutableArray<VLCMedia *> *children = [NSMutableArray arrayWithCapacity:subitemsCount];
+    NSMutableSet<NSString *> *seenURLs = [NSMutableSet setWithCapacity:subitemsCount];
+    for (NSUInteger i = 0; i < subitemsCount; i++) {
+        VLCMedia *child = [subitems mediaAtIndex:i];
+        NSString *url = child.url.absoluteString;
+        if (url && [seenURLs containsObject:url])
+            continue;
+        if (url)
+            [seenURLs addObject:url];
+        [children addObject:child];
+    }
+    [subitems unlock];
+    if (children.count == 0)
+        return;
+
     [_mediaList lock];
-    NSInteger parentIndex = [_mediaList indexOfMedia:parentMedia];
-    NSUInteger mediaListCount = _mediaList.count;
-    for (NSUInteger i = 0; i < mediaListCount; i++) {
-        if ((NSInteger)i == parentIndex) {
-            insertionIndex = (NSInteger)newList.count;
-            for (VLCMedia *child in uniqueSubitems) {
-                [newList addMedia:child];
-            }
-        } else {
-            [newList addMedia:[_mediaList mediaAtIndex:i]];
-        }
+    NSUInteger count = _mediaList.count;
+    NSMutableArray<VLCMedia *> *entries = [NSMutableArray arrayWithCapacity:count - 1 + children.count];
+    for (NSUInteger i = 0; i < count; i++) {
+        if (i == parentIndex)
+            [entries addObjectsFromArray:children];
+        else
+            [entries addObject:[_mediaList mediaAtIndex:i]];
     }
     [_mediaList unlock];
 
-    _mediaList = newList;
-    [_listPlayer setMediaList:_mediaList];
-    NSInteger playIndex = insertionIndex != NSNotFound ? insertionIndex : 0;
-    [_listPlayer playItemAtNumber:@(playIndex)];
-    _currentIndex = (int)playIndex;
-
-    if ([self.delegate respondsToSelector:@selector(reloadPlayQueue)]) {
-        [self.delegate reloadPlayQueue];
+    VLCMedia *playing = self.currentlyPlayingMedia;
+    VLCMedia *selected = [parentMedia isEqual:playing] ? children.firstObject : playing;
+    _mediaList = [[VLCMediaList alloc] initWithArray:entries];
+    if (_shuffleMode) {
+        NSMutableArray<VLCMedia *> *effective = [NSMutableArray arrayWithCapacity:entries.count];
+        [_shuffledList lock];
+        NSUInteger shuffledCount = _shuffledList.count;
+        for (NSUInteger i = 0; i < shuffledCount; i++) {
+            VLCMedia *entry = [_shuffledList mediaAtIndex:i];
+            if ([entry isEqual:parentMedia])
+                [effective addObjectsFromArray:children];
+            else
+                [effective addObject:entry];
+        }
+        [_shuffledList unlock];
+        if (effective.count == 0)
+            [effective addObjectsFromArray:entries];
+        _shuffledList = [[VLCMediaList alloc] initWithArray:effective];
+        @synchronized (_shuffledOrder) {
+            [_shuffledOrder removeAllObjects];
+            for (VLCMedia *entry in effective)
+                [_shuffledOrder addObject:@([_mediaList indexOfMedia:entry])];
+        }
     }
+    VLCMediaList *effectiveList = _shuffleMode ? _shuffledList : _mediaList;
+    NSUInteger selectedIndex = selected ? [effectiveList indexOfMedia:selected] : NSNotFound;
+    _currentIndex = selectedIndex != NSNotFound ? selectedIndex : 0;
+    _listPlayer.mediaList = effectiveList;
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceMediaListDidChange object:self];
+    if ([self.delegate respondsToSelector:@selector(reloadPlayQueue)])
+        [self.delegate reloadPlayQueue];
 }
 
 - (void)mediaMetaDataDidChange:(VLCMedia*)aMedia
@@ -2236,8 +2426,8 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
 {
     if ([[NSUserDefaults standardUserDefaults] boolForKey:kVLCSettingDisableSubtitles]) {
         [_mediaPlayer deselectAllTextTracks];
-        _primaryVideoSubtitleTrackIndex = -1;
-        _secondaryVideoSubtitleTrackIndex = -1;
+        _primaryVideoSubtitleTrackId = nil;
+        _secondaryVideoSubtitleTrackId = nil;
     }
 }
 
@@ -2390,16 +2580,39 @@ static const NSInteger kVLCPreampLevelMinimum = -12;
 
 - (void)removeMediaFromMediaListAtIndex:(NSUInteger)index
 {
-    BOOL deleteCurrentMedia = [_mediaList indexOfMedia:self.currentlyPlayingMedia] == index ? YES : NO;
+    BOOL shuffled = _shuffleMode && _shuffledList;
+    VLCMediaList *list = shuffled ? _shuffledList : _mediaList;
+    VLCMedia *media = [list mediaAtIndex:index];
+    if (!media)
+        return;
 
-    [_mediaList removeMediaAtIndex:index];
+    BOOL deleteCurrentMedia = [media isEqual:self.currentlyPlayingMedia];
+    NSUInteger mediaListIndex = [_mediaList indexOfMedia:media];
+    [_mediaList removeMediaAtIndex:mediaListIndex];
+    if (shuffled) {
+        [_shuffledList removeMediaAtIndex:index];
+        @synchronized (_shuffledOrder) {
+            if (index < _shuffledOrder.count)
+                [_shuffledOrder removeObjectAtIndex:index];
+            NSUInteger orderCount = _shuffledOrder.count;
+            for (NSUInteger i = 0; i < orderCount; i++) {
+                NSUInteger entry = [_shuffledOrder[i] unsignedIntegerValue];
+                if (entry > mediaListIndex)
+                    _shuffledOrder[i] = @(entry - 1);
+            }
+        }
+    }
+    if (!deleteCurrentMedia && (NSInteger)index < _currentIndex)
+        _currentIndex -= 1;
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:VLCPlaybackServiceMediaListDidChange object:self];
     [_delegate reloadPlayQueue];
 
     if (deleteCurrentMedia && _mediaList.count == 1) {
         _currentIndex = 0;
         [_listPlayer playItemAtNumber:@(_currentIndex)];
     } else if (deleteCurrentMedia) {
-        _currentIndex -= 1;
+        _currentIndex = (NSInteger)index - 1;
         [self next];
     }
 }

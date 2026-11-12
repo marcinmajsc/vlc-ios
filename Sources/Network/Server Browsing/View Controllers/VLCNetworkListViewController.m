@@ -100,14 +100,6 @@ NSString *VLCNetworkListCellIdentifier = @"VLCNetworkListCellIdentifier";
                            selector:@selector(adjustForKeyboard:)
                                name:UIKeyboardWillHideNotification
                              object:nil];
-    [notificationCenter addObserver:self
-                           selector:@selector(updateBottomInsets)
-                               name:VLCPlayerDisplayControllerDisplayMiniPlayer
-                             object:nil];
-    [notificationCenter addObserver:self
-                           selector:@selector(updateBottomInsets)
-                               name:VLCPlayerDisplayControllerHideMiniPlayer
-                             object:nil];
 }
 
 - (void)updateBottomInsets
@@ -126,10 +118,6 @@ NSString *VLCNetworkListCellIdentifier = @"VLCNetworkListCellIdentifier";
     // ensure that the last row is not cut-off on iPad by the tab bar
     if (self.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPad && self.tabBarController) {
         inset += self.tabBarController.tabBar.frame.size.height;
-    }
-
-    if (VLCPlaybackService.sharedInstance.playerDisplayController.isMiniPlayerVisible) {
-        inset += VLCAudioMiniPlayer.height;
     }
 
     return inset;

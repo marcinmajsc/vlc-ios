@@ -153,6 +153,14 @@ class QueueViewController: UIViewController {
                                       name: Notification.Name(name),
                                       object: nil)
         }
+        defaultCenter.addObserver(self,
+                                  selector: #selector(queueMediaDidChange),
+                                  name: VLCMedia.metaChangedNotification,
+                                  object: nil)
+        defaultCenter.addObserver(self,
+                                  selector: #selector(queueMediaDidChange),
+                                  name: Notification.Name(VLCPlaybackServiceMediaDurationDidChange),
+                                  object: playbackService)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -173,62 +181,41 @@ class QueueViewController: UIViewController {
     }
 
     override func didMove(toParent parent: UIViewController?) {
-        let playerDisplayController = parent as? VLCPlayerDisplayController
-
         if let parent = parent {
             parent.view.addSubview(darkOverlayView)
 
-            let overlayBottomAnchor = playerDisplayController?.realBottomAnchor ?? parent.view.bottomAnchor
             darkOverlayViewConstraints = [
                 darkOverlayView.topAnchor.constraint(equalTo: parent.view.topAnchor),
                 darkOverlayView.leadingAnchor.constraint(equalTo: parent.view.leadingAnchor),
                 darkOverlayView.trailingAnchor.constraint(equalTo: parent.view.trailingAnchor),
-                darkOverlayView.bottomAnchor.constraint(equalTo: overlayBottomAnchor)
+                darkOverlayView.bottomAnchor.constraint(equalTo: parent.view.bottomAnchor)
             ]
 
             if let heightConstraint = heightConstraint {
                 view.removeConstraint(heightConstraint)
             }
 
-            var miniPlayerView: AudioMiniPlayer?
-            if let playerDisplayController,
-               let miniPlaybackView = playerDisplayController.miniPlaybackView as? AudioMiniPlayer {
+            grabberView.isHidden = false
+            closeButton.isHidden = false
+            if let parent = parent as? VideoPlayerViewController {
+                topConstraint = nil
+                heightConstraint = view.heightAnchor.constraint(equalTo: parent.view.heightAnchor,
+                                                                constant: -(topConstraintConstant + parent.videoPlayerControls.frame.height + parent.mediaScrubProgressBar.frame.height))
+                bottomConstraint = view.bottomAnchor.constraint(equalTo: parent.view.bottomAnchor,
+                                                                constant: self.view.frame.height)
+            } else if let parent = parent as? AudioPlayerViewController {
+                heightConstraint = nil
                 grabberView.isHidden = true
                 closeButton.isHidden = true
-                playerDisplayController.view.bringSubviewToFront(miniPlaybackView)
-                topConstraint = view.topAnchor.constraint(equalTo: miniPlaybackView.bottomAnchor)
-                heightConstraint = nil
-                let bottomAnchor = playerDisplayController.realBottomAnchor
-                    ?? playerDisplayController.view.safeAreaLayoutGuide.bottomAnchor
-                bottomConstraint = view.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -contentInset)
-                miniPlayerView = miniPlaybackView
-            } else {
-                grabberView.isHidden = false
-                closeButton.isHidden = false
-                if let parent = parent as? VideoPlayerViewController {
-                    topConstraint = nil
-                    heightConstraint = view.heightAnchor.constraint(equalTo: parent.view.heightAnchor,
-                                                                    constant: -(topConstraintConstant + parent.videoPlayerControls.frame.height + parent.mediaScrubProgressBar.frame.height))
-                    bottomConstraint = view.bottomAnchor.constraint(equalTo: parent.view.bottomAnchor,
-                                                                    constant: self.view.frame.height)
-                } else if let parent = parent as? AudioPlayerViewController {
-                    heightConstraint = nil
-                    grabberView.isHidden = true
-                    closeButton.isHidden = true
-                    topConstraint = view.topAnchor.constraint(equalTo: parent.audioPlayerView.playqueueView.topAnchor)
-                    bottomConstraint = view.bottomAnchor.constraint(equalTo: parent.audioPlayerView.playqueueView.bottomAnchor)
-                    darkOverlayView.isHidden = true
-                } else {
-                    topConstraint = view.topAnchor.constraint(equalTo: parent.view.bottomAnchor)
-                    heightConstraint = nil
-                    bottomConstraint = view.bottomAnchor.constraint(equalTo: parent.view.bottomAnchor)
-                }
+                topConstraint = view.topAnchor.constraint(equalTo: parent.audioPlayerView.playqueueView.topAnchor)
+                bottomConstraint = view.bottomAnchor.constraint(equalTo: parent.audioPlayerView.playqueueView.bottomAnchor)
+                darkOverlayView.isHidden = true
             }
 
             parent.view.addSubview(view)
 
-            let safeArea = miniPlayerView?.safeAreaLayoutGuide ?? parent.view.safeAreaLayoutGuide
-            view.overrideUserInterfaceStyle = playerDisplayController != nil ? .unspecified : .dark
+            let safeArea = parent.view.safeAreaLayoutGuide
+            view.overrideUserInterfaceStyle = .dark
             configureAppearance()
 
             constraints = [
@@ -266,7 +253,7 @@ class QueueViewController: UIViewController {
         view.alpha = 0.0
     }
 
-    @objc func show() {
+    func show() {
         UIView.animate(withDuration: animationDuration, animations: {
             self.view.alpha = 1.0
             self.darkOverlayView.isHidden = false
@@ -275,12 +262,7 @@ class QueueViewController: UIViewController {
         }
     }
 
-    @objc func hide() {
-        if let parent = parent as? VLCPlayerDisplayController {
-            guard !parent.hintingPlayqueue else {
-                return
-            }
-        }
+    func hide() {
         UIView.animate(withDuration: animationDuration, animations: {
             self.view.alpha = 0.0
             self.darkOverlayView.isHidden = true
@@ -468,6 +450,80 @@ private extension QueueViewController {
 // MARK: - Private handlers
 
 private extension QueueViewController {
+    @objc private func queueMediaDidChange(_ notification: Notification) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.queueMediaDidChange(notification)
+            }
+            return
+        }
+        guard let changedMedia = (notification.userInfo?["media"] ?? notification.object) as? VLCMedia else {
+            return
+        }
+
+        let list = mediaList
+        guard list.index(of: changedMedia) != NSNotFound else {
+            return
+        }
+        if notification.name == VLCMedia.metaChangedNotification {
+            let canonicalList = playbackService.mediaList
+            clearMetadata(for: changedMedia, in: canonicalList)
+            if playbackService.isShuffleMode {
+                let shuffledList = playbackService.shuffledList
+                if shuffledList !== canonicalList {
+                    clearMetadata(for: changedMedia, in: shuffledList)
+                }
+            }
+        }
+        for indexPath in queueCollectionView.indexPathsForVisibleItems {
+            guard indexPath.item < list.count,
+                  let media = list.media(at: UInt(indexPath.item)),
+                  media.isEqual(changedMedia),
+                  let cell = queueCollectionView.cellForItem(at: indexPath) as? MediaCollectionViewCell else {
+                continue
+            }
+            configureQueueMetadata(cell, for: media, libraryMedia: medialibraryService.fetchMedia(with: media.url))
+        }
+    }
+
+    private func clearMetadata(for changedMedia: VLCMedia, in list: VLCMediaList?) {
+        guard let list = list, list.index(of: changedMedia) != NSNotFound else {
+            return
+        }
+        list.lock()
+        defer { list.unlock() }
+        for index in 0..<list.count {
+            if let media = list.media(at: UInt(index)), media.isEqual(changedMedia) {
+                media.metaData.clearCache()
+            }
+        }
+    }
+
+    private func configureQueueMetadata(_ cell: MediaCollectionViewCell,
+                                        for media: VLCMedia,
+                                        libraryMedia: VLCMLMedia?) {
+        let title = playbackService.queueTitle(for: media, libraryMedia: libraryMedia, libraryTitle: libraryMedia?.title())
+
+        var details: [String] = []
+        if let libraryMedia = libraryMedia, libraryMedia.subtype() == .albumTrack {
+            let artist = libraryMedia.albumTrackArtistName()
+            if !artist.isEmpty {
+                details.append(artist)
+            }
+            if let album = libraryMedia.album?.title, !album.isEmpty {
+                details.append(album)
+            }
+        }
+        let duration = playbackService.queueDuration(for: media, libraryMedia: libraryMedia)
+        if !duration.isEmpty {
+            details.append(duration)
+        }
+
+        cell.titleLabel.text = title
+        cell.sizeDescriptionLabel.text = details.joined(separator: " · ")
+        cell.accessibilityLabel = ([title] + details).filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
     @objc private func themeDidChange() {
 #if os(iOS)
         setNeedsStatusBarAppearanceUpdate()
@@ -531,7 +587,7 @@ extension QueueViewController: UICollectionViewDelegateFlowLayout {
 
 extension QueueViewController: UICollectionViewDelegate, MediaCollectionViewCellDelegate {
     private func selectedItem(in collectionView: UICollectionView, at indexPath: IndexPath) {
-        guard indexPath.row <= mediaList.count else {
+        guard indexPath.row < mediaList.count else {
             assertionFailure("QueueViewController: didSelectItemAt: IndexPath out of range.")
             return
         }
@@ -641,14 +697,12 @@ extension QueueViewController: UICollectionViewDataSource {
             return UICollectionViewCell()
         }
 
-        guard indexPath.row <= mediaList.count else {
+        guard indexPath.row < mediaList.count else {
             assertionFailure("QueueViewController: cellForItemAt: IndexPath out of range.")
             return UICollectionViewCell()
         }
 
         cell.delegate = self
-
-        var media: VLCMedia?
 
         cell.thumbnailWidth.constant = MediaCollectionViewCell.getDefaultConstant()
 
@@ -659,15 +713,16 @@ extension QueueViewController: UICollectionViewDataSource {
 
         cell.isEditing = false
         cell.dragIndicatorImageView.isHidden = collectionView.numberOfItems(inSection: 0) <= 1
-        media = mediaList.media(at: UInt(indexPath.row))
-
-        guard let safeURL = media?.url else {
+        guard let media = mediaList.media(at: UInt(indexPath.row)),
+              let safeURL = media.url else {
             assertionFailure("QueueViewController: cellForItemAt: Failed to fetch media url")
             return cell
         }
-        if let media = medialibraryService.fetchOrCreateMedia(with: safeURL) {
-            cell.media = media
+        let libraryMedia = medialibraryService.fetchOrCreateMedia(with: safeURL)
+        if let libraryMedia = libraryMedia {
+            cell.media = libraryMedia
         }
+        configureQueueMetadata(cell, for: media, libraryMedia: libraryMedia)
 
         let isCurrentlyPlaying = media == currentlyPlayingMedia
         cell.setNowPlaying(isCurrentlyPlaying)
@@ -783,8 +838,8 @@ extension QueueViewController {
         if isLastMedia {
             // cases of doNotReapeat and repeatCurrentItem using the next() method causes wrong updates in the collection view which breaks the UI.
             // playing the index - 1 is the solution for this case
-            self.mediaList.removeMedia(at: UInt(index.row))
             playbackService.playItem(at: UInt(index.row - 1))
+            playbackService.removeMediaFromMediaList(at: UInt(index.row))
         } else {
             // removes the media form the media list and updates the currentIndex, then plays the next
             playbackService.removeMediaFromMediaList(at: UInt(index.row))
