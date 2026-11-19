@@ -40,9 +40,11 @@ class AudioPlayerViewController: PlayerViewController {
         return .lightContent
     }
 
-    override var canBecomeFirstResponder: Bool {
-        return true
+#if os(iOS)
+    override var prefersStatusBarHidden: Bool {
+        return audioPlayerView.navigationBarLayout.placement == .besideCamera || super.prefersStatusBarHidden
     }
+#endif
 
     lazy var audioPlayerView: AudioPlayerView = {
         let audioPlayerView = AudioPlayerView(frame: .zero)
@@ -50,11 +52,17 @@ class AudioPlayerViewController: PlayerViewController {
         return audioPlayerView
     }()
 
-    private lazy var moreOptionsButton: UIButton = {
-        let moreOptionsButton = UIButton(type: .custom)
+    private lazy var moreOptionsButton: MenuButton = {
+        let moreOptionsButton = MenuButton(type: .custom)
         moreOptionsButton.setImage(UIImage(named: "iconMoreOptions"), for: .normal)
         moreOptionsButton.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        moreOptionsButton.addTarget(self, action: #selector(handleMoreOptionsButton), for: .touchUpInside)
+        moreOptionsButton.overrideUserInterfaceStyle = .dark
+        moreOptionsButton.showsMenuAsPrimaryAction = true
+        if #available(iOS 16.0, *) {
+            moreOptionsButton.preferredMenuElementOrder = .fixed
+        }
+        moreOptionsButton.accessibilityLabel = NSLocalizedString("MORE_OPTIONS_BUTTON", comment: "")
+        moreOptionsButton.accessibilityHint = NSLocalizedString("MORE_OPTIONS_HINT", comment: "")
         moreOptionsButton.accessibilityIdentifier = VLCAccessibilityIdentifier.moreOptions
         return moreOptionsButton
     }()
@@ -72,6 +80,7 @@ class AudioPlayerViewController: PlayerViewController {
 
         self.playerController.delegate = self
         mediaNavigationBar.addMoreOptionsButton(moreOptionsButton)
+        setupMoreOptionsMenu()
         audioPlayerView.setupNavigationBar(with: mediaNavigationBar)
         audioPlayerView.updateThumbnailImageView()
         refreshPlaybackSpeed()
@@ -91,6 +100,7 @@ class AudioPlayerViewController: PlayerViewController {
 
         self.playerController.delegate = self
         mediaNavigationBar.addMoreOptionsButton(moreOptionsButton)
+        setupMoreOptionsMenu()
         audioPlayerView.setupNavigationBar(with: mediaNavigationBar)
         audioPlayerView.updateThumbnailImageView()
         refreshPlaybackSpeed()
@@ -152,6 +162,22 @@ class AudioPlayerViewController: PlayerViewController {
         })
     }
 
+#if os(iOS)
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        let tabletopFold = tabletopFoldFrame
+        audioPlayerView.updateTabletopFold(tabletopFold)
+        audioPlayerView.updateBookFold(bookFoldFrame)
+        if audioPlayerView.navigationBarLayout.update(tabletopFold: tabletopFold,
+                                                      camera: topLeftCameraRegion,
+                                                      statusBar: topRightCameraRegion,
+                                                      statusBarCenterY: topBarLayoutGuide?.layoutFrame.midY) {
+            setNeedsStatusBarAppearanceUpdate()
+        }
+    }
+#endif
+
     // MARK: Public methods
 
     override func minimizePlayer() {
@@ -160,6 +186,10 @@ class AudioPlayerViewController: PlayerViewController {
 
     override var resetsPositionOnMinimize: Bool {
         return true
+    }
+
+    override var moreOptionsMenuButton: MenuButton? {
+        return moreOptionsButton
     }
     
     override func updatePlaybackSpeedIcon() {
@@ -176,13 +206,6 @@ class AudioPlayerViewController: PlayerViewController {
     @objc func setupQueueViewController(with qvc: QueueViewController) {
         queueViewController = qvc
         queueViewController?.delegate = nil
-    }
-
-    @objc func handleMoreOptionsButton() {
-        present(moreOptionsActionSheet, animated: false) {
-            [unowned self] in
-            self.moreOptionsActionSheet.interfaceDisabled = self.playerController.isInterfaceLocked
-        }
     }
 
     override func setupGestures() {
@@ -311,7 +334,6 @@ class AudioPlayerViewController: PlayerViewController {
         qvc.view.removeFromSuperview()
         qvc.removeFromParent()
         qvc.show()
-        qvc.topView.isHidden = true
         addChild(qvc)
         qvc.didMove(toParent: self)
         view.layoutIfNeeded()
@@ -448,7 +470,7 @@ extension AudioPlayerViewController {
         audioPlayerView.updatePlayButton(isPlaying: isPlaying)
         audioPlayerView.shouldEnableSeekButtons(playbackService.mediaList.count == 1)
 
-        let image: UIImage? = isPlaying ? UIImage(named: "minimize") : UIImage(named: "close")
+        let image: UIImage? = isPlaying ? UIImage(named: "minimize") : MediaNavigationBar.closeImage
         let accessibilityLabel: String = isPlaying ? NSLocalizedString("MINIMIZE_BUTTON", comment: "") : NSLocalizedString("STOP_BUTTON", comment: "")
         let accessibilityHint: String = isPlaying ? NSLocalizedString("MINIMIZE_HINT", comment: "") : NSLocalizedString("CLOSE_HINT", comment: "")
         mediaNavigationBar.updateCloseButton(with: image, accessibility: (accessibilityLabel, accessibilityHint))
@@ -471,8 +493,6 @@ extension AudioPlayerViewController {
         if currentState == .opening || currentState == .stopped {
             resetABRepeat()
         }
-
-        moreOptionsActionSheet.currentMediaHasChapters = currentMediaHasChapters
     }
 
     func displayMetadata(for playbackService: PlaybackService, metadata: VLCMetaData) {
@@ -566,40 +586,17 @@ extension AudioPlayerViewController {
     }
 }
 
-// MARK: - MediaMoreOptionsActionSheetDelegate
+// MARK: - More Options Menu
 
 extension AudioPlayerViewController {
-    override func mediaMoreOptionsActionSheetDidToggleInterfaceLock(state: Bool) {
-        super.mediaMoreOptionsActionSheetDidToggleInterfaceLock(state: state)
+    override func moreOptionsMenuDidToggleInterfaceLock(state: Bool) {
+        super.moreOptionsMenuDidToggleInterfaceLock(state: state)
 
         setPlayerInterfaceEnabled(!state)
     }
 
-    override func mediaMoreOptionsActionSheetDisplayAddBookmarksView(_ bookmarksView: AddBookmarksView) {
-        super.mediaMoreOptionsActionSheetDisplayAddBookmarksView(bookmarksView)
-
-        if let bookmarksView = addBookmarksView {
-            view.addSubview(bookmarksView)
-            NSLayoutConstraint.activate([
-                bookmarksView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                bookmarksView.leadingAnchor.constraint(equalTo: audioPlayerView.safeAreaLayoutGuide.leadingAnchor),
-                bookmarksView.trailingAnchor.constraint(equalTo: audioPlayerView.safeAreaLayoutGuide.trailingAnchor),
-                bookmarksView.topAnchor.constraint(equalTo: audioPlayerView.safeAreaLayoutGuide.topAnchor, constant: 16),
-                bookmarksView.bottomAnchor.constraint(equalTo: audioPlayerView.controlsStackView.topAnchor),
-            ])
-        }
-
-        audioPlayerView.shouldDisableControls(true)
-    }
-
-    override func mediaMoreOptionsActionSheetRemoveAddBookmarksView() {
-        super.mediaMoreOptionsActionSheetRemoveAddBookmarksView()
-
-        audioPlayerView.shouldDisableControls(false)
-    }
-
-    override func mediaMoreOptionsActionSheetPresentABRepeatView(with abView: ABRepeatView) {
-        super.mediaMoreOptionsActionSheetPresentABRepeatView(with: abView)
+    override func presentABRepeatView() {
+        super.presentABRepeatView()
 
         guard let abRepeatView = abRepeatView else {
             return

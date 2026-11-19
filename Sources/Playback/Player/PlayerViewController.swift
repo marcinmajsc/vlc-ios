@@ -11,6 +11,7 @@
 
 import UIKit
 import AVFoundation
+import GameController
 import MediaPlayer
 
 fileprivate enum PlayerPanType {
@@ -142,25 +143,41 @@ class PlayerViewController: UIViewController {
         return coneLoadingView
     }()
 
+    var moreOptionsMenuButton: MenuButton? {
+        return nil
+    }
+
+    override var canBecomeFirstResponder: Bool {
+        return GCKeyboard.coalesced != nil
+    }
+
+    var overlayCardLayoutGuide: UILayoutGuide {
+        return view.safeAreaLayoutGuide
+    }
+
     lazy var mediaNavigationBar: MediaNavigationBar = {
 #if os(iOS)
         var mediaNavigationBar = MediaNavigationBar(frame: .zero,
                                                     rendererDiscovererService: rendererDiscovererManager)
-        mediaNavigationBar.chromeCastButton.isHidden = self.playbackService.renderer == nil
 #else
         var mediaNavigationBar = MediaNavigationBar(frame: .zero)
 #endif
         mediaNavigationBar.delegate = self
-        mediaNavigationBar.presentingViewController = self
         return mediaNavigationBar
     }()
 
+    var usesInlineScrubProgressBar: Bool {
+        return false
+    }
+
     lazy var mediaScrubProgressBar: MediaScrubProgressBar = {
-        var mediaScrubProgressBar: MediaScrubProgressBar = MediaScrubProgressBar()
+        var mediaScrubProgressBar: MediaScrubProgressBar = MediaScrubProgressBar(isInline: usesInlineScrubProgressBar)
         return mediaScrubProgressBar
     }()
 
     var abRepeatView: ABRepeatView?
+
+    private(set) var currentMediaHasChapters = false
 
     lazy var aMark: ABRepeatMarkView = {
         let aMark = ABRepeatMarkView(icon: UIImage(named: "abRepeatMarkerFill"))
@@ -172,12 +189,6 @@ class PlayerViewController: UIViewController {
         let bMark = ABRepeatMarkView(icon: UIImage(named: "abRepeatMarkerFill"))
         bMark.translatesAutoresizingMaskIntoConstraints = false
         return bMark
-    }()
-
-    lazy var moreOptionsActionSheet: MediaMoreOptionsActionSheet = {
-        var moreOptionsActionSheet = MediaMoreOptionsActionSheet()
-        moreOptionsActionSheet.moreOptionsDelegate = self
-        return moreOptionsActionSheet
     }()
 
     lazy var optionsNavigationBar: OptionsNavigationBar = {
@@ -267,7 +278,7 @@ class PlayerViewController: UIViewController {
         let vc = BrightnessControlView()
         vc.updateIcon(level: brightnessControl.fetchAndGetDeviceValue())
         vc.translatesAutoresizingMaskIntoConstraints = false
-        vc.alpha = 0
+        vc.setVisible(false)
         return vc
     }()
 
@@ -275,18 +286,11 @@ class PlayerViewController: UIViewController {
         let vc = VolumeControlView(volumeView: self.volumeView)
         vc.updateIcon(level: volumeControl.fetchAndGetDeviceValue())
         vc.translatesAutoresizingMaskIntoConstraints = false
-        vc.alpha = 0
+        vc.setVisible(false)
         return vc
     }()
 
-    lazy var rendererButton: UIButton = {
-        let rendererButton = rendererDiscovererManager.setupRendererButton()
-        rendererButton.tintColor = .white
-
-        if playbackService.renderer != nil {
-            rendererButton.isSelected = true
-        }
-
+    private func setupRendererSelectionHandler() {
         rendererDiscovererManager.addSelectionHandler {
             rendererItem in
             if rendererItem != nil {
@@ -300,14 +304,10 @@ class PlayerViewController: UIViewController {
                 self.mediaNavigationBar.updateDeviceButton(with: UIImage(named: "renderer"), color: .white)
             }
         }
-
-        return rendererButton
-    }()
+    }
 
     let volumeView = MPVolumeView(frame: .zero)
 #endif
-
-    var addBookmarksView: AddBookmarksView? = nil
 
     private(set) var overlayCardView: UIView?
     private var overlayCardBackdropView: UIView?
@@ -320,6 +320,10 @@ class PlayerViewController: UIViewController {
     private(set) var isGestureActive: Bool = false
 
     private var currentPanType: PlayerPanType = .none
+
+#if os(iOS)
+    private var pendingVolumeRefresh: DispatchWorkItem?
+#endif
 
     private var projectionLocation: CGPoint = .zero
 
@@ -406,7 +410,7 @@ class PlayerViewController: UIViewController {
 
         super.init(nibName: nil, bundle: nil)
 
-        mediaNavigationBar.chromeCastButton = rendererButton
+        setupRendererSelectionHandler()
         mediaNavigationBar.addGestureRecognizer(minimizeGestureRecognizer)
     }
 #else
@@ -545,27 +549,128 @@ class PlayerViewController: UIViewController {
     }
 
 #if os(iOS)
+    func activeReservedRegions(ofKind kindSelectorName: String) -> [(frame: CGRect, margins: UIEdgeInsets)] {
+        guard #available(iOS 27.1, *),
+              let kindClass = NSClassFromString("UIViewReservedRegionKind") as AnyObject?,
+              kindClass.responds(to: NSSelectorFromString(kindSelectorName)),
+              let kind = kindClass.perform(NSSelectorFromString(kindSelectorName))?.takeUnretainedValue(),
+              view.responds(to: NSSelectorFromString("reservedRegionsOfKind:")),
+              let regions = view.perform(NSSelectorFromString("reservedRegionsOfKind:"), with: kind)?
+                .takeUnretainedValue() as? [NSObject] else {
+            return []
+        }
+
+        return regions
+            .filter { $0.value(forKey: "active") as? Bool ?? false }
+            .compactMap { region in
+                guard let frame = (region.value(forKey: "frame") as? NSValue)?.cgRectValue else {
+                    return nil
+                }
+                let margins = (region.value(forKey: "margins") as? NSValue)?.uiEdgeInsetsValue ?? .zero
+                return (frame, margins)
+            }
+    }
+
+    var tabletopFoldFrame: CGRect? {
+        let bounds = view.bounds
+        return activeReservedRegions(ofKind: "divisionRegionKind")
+            .map(\.frame)
+            .first { $0.width > $0.height && $0.minY > bounds.minY && $0.maxY < bounds.maxY }
+    }
+
+    var bookFoldFrame: CGRect? {
+        let bounds = view.bounds
+        return activeReservedRegions(ofKind: "divisionRegionKind")
+            .map(\.frame)
+            .first { $0.height > $0.width && $0.minX > bounds.minX && $0.maxX < bounds.maxX }
+    }
+
+    // The Dynamic Island sits mid-edge in landscape, so only regions confined to one half count as corner cameras.
+    var topLeftCameraRegion: (frame: CGRect, margins: UIEdgeInsets)? {
+        let bounds = view.bounds
+        return activeReservedRegions(ofKind: "occlusionRegionKind")
+            .first {
+                $0.frame.minY <= bounds.minY && $0.frame.inset(by: $0.margins).maxY < bounds.midY
+                    && $0.frame.maxX < bounds.midX
+            }
+    }
+
+    var topRightCameraRegion: (frame: CGRect, margins: UIEdgeInsets)? {
+        let bounds = view.bounds
+        return activeReservedRegions(ofKind: "occlusionRegionKind")
+            .first {
+                $0.frame.minY <= bounds.minY && $0.frame.inset(by: $0.margins).maxY < bounds.midY
+                    && $0.frame.minX > bounds.midX
+            }
+    }
+
+    lazy var topBarLayoutGuide: UILayoutGuide? = {
+        typealias BarRegionFactory = @convention(c) (AnyObject, Selector, UInt, CGFloat) -> Unmanaged<AnyObject>?
+        let factorySelector = NSSelectorFromString("layoutRegionForBarOnEdge:extent:")
+        guard #available(iOS 27.1, *),
+              let regionClass = NSClassFromString("UIViewLayoutRegion"),
+              let factoryMethod = class_getClassMethod(regionClass, factorySelector),
+              view.responds(to: NSSelectorFromString("layoutGuideForLayoutRegion:")) else {
+            return nil
+        }
+
+        let makeBarRegion = unsafeBitCast(method_getImplementation(factoryMethod), to: BarRegionFactory.self)
+        guard let region = makeBarRegion(regionClass as AnyObject, factorySelector, UIRectEdge.top.rawValue, 44)?
+            .takeUnretainedValue() else {
+            return nil
+        }
+
+        return view.perform(NSSelectorFromString("layoutGuideForLayoutRegion:"), with: region)?
+            .takeUnretainedValue() as? UILayoutGuide
+    }()
+
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
+        // Slider writes reach the system asynchronously; reconcile after the interaction settles.
+        if keyPath == "outputVolume", volumeControlView.isBeingTouched {
+            scheduleVolumeRefresh()
+            return
+        }
         // We're observing outputVolume to handle volume changes from physical volume buttons
         // To processd properly we have to check we're not interacting with UI controls or gesture
         if  keyPath == "outputVolume" &&
-                !volumeControlView.isBeingTouched && // Check we're not interacting with volume slider
                 !isGestureActive && // Check if the slider did not just changed value
                 currentPanType != .volume { // Check we're not doing pan gestures for volume
+            pendingVolumeRefresh?.cancel()
+            pendingVolumeRefresh = nil
             let appearAnimations = { [volumeControlView] in
-                volumeControlView.alpha = 1
+                volumeControlView.setVisible(true)
             }
             let disappearAnimations = { [volumeControlView] in
-                volumeControlView.alpha = 0
+                volumeControlView.setVisible(false)
             }
-            UIView.animate(withDuration:0.2, delay: 0,
-                           options: .beginFromCurrentState,
-                           animations:appearAnimations, completion:nil)
-            UIView.animate(withDuration: 0.2, delay: 1,
-                           options: [],
-                           animations:disappearAnimations, completion:nil)
+            // Only auto-hide a slider revealed by this volume change.
+            if !volumeControlView.isVisible {
+                UIView.animate(withDuration:0.2, delay: 0,
+                               options: [.beginFromCurrentState, .curveEaseOut],
+                               animations:appearAnimations, completion:nil)
+                UIView.animate(withDuration: 0.2, delay: 1,
+                               options: .curveEaseOut,
+                               animations:disappearAnimations, completion:nil)
+            }
             self.volumeControlView.updateIcon(level: AVAudioSession.sharedInstance().outputVolume)
         }
+    }
+
+    private func scheduleVolumeRefresh() {
+        pendingVolumeRefresh?.cancel()
+        let refresh = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.pendingVolumeRefresh = nil
+            // Wait for slider and player gestures to finish before reading system volume.
+            guard !self.volumeControlView.isBeingTouched, !self.isGestureActive,
+                  self.currentPanType != .volume else {
+                self.scheduleVolumeRefresh()
+                return
+            }
+            self.volumeControlView.updateIcon(level: AVAudioSession.sharedInstance().outputVolume)
+        }
+        pendingVolumeRefresh = refresh
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: refresh)
     }
 #endif
 
@@ -698,12 +803,6 @@ class PlayerViewController: UIViewController {
         }
     }
 
-    private func openOptionView(view: ActionSheetCellIdentifier) {
-        present(moreOptionsActionSheet, animated: true, completion: {
-            self.moreOptionsActionSheet.addView(view)
-        })
-    }
-
     private func resetVideoFilters() {
         playbackService.adjustFilter.reset()
         updateVideoFiltersIcon()
@@ -759,6 +858,17 @@ class PlayerViewController: UIViewController {
         sleepTimerCard.delegate = self
         showOverlayCard(sleepTimerCard)
         sleepTimerCard.focusForAccessibility()
+    }
+
+    func showBookmarksCard() {
+        guard !(overlayCardView is BookmarksView) else {
+            return
+        }
+
+        let bookmarksCard = BookmarksView()
+        bookmarksCard.delegate = self
+        showOverlayCard(bookmarksCard)
+        bookmarksCard.focusForAccessibility()
     }
 
     @objc var areGesturesEnabled: Bool {
@@ -826,7 +936,7 @@ class PlayerViewController: UIViewController {
         isOverlayCardLaidOutForLandscape = isLandscape
 
         NSLayoutConstraint.deactivate(overlayCardConstraints)
-        let guide = view.safeAreaLayoutGuide
+        let guide = overlayCardLayoutGuide
         let margin: CGFloat = 12
         if isLandscape {
             let landscapeWidth: CGFloat
@@ -988,7 +1098,6 @@ class PlayerViewController: UIViewController {
 
 #if os(iOS)
     private func setupRendererDiscovererManager() {
-        rendererDiscovererManager.presentingViewController = self
         rendererDiscovererManager.delegate = self
     }
 #endif
@@ -1009,6 +1118,19 @@ class PlayerViewController: UIViewController {
         notificationCenter.addObserver(self, selector: #selector(updatePlayerControls), name: .VLCDidRemoveMediaFromQueue, object: nil)
         notificationCenter.addObserver(self, selector: #selector(updateSleepTimerIcon), name: Notification.Name(VLCPlaybackServiceSleepTimerDidChange), object: nil)
         notificationCenter.addObserver(self, selector: #selector(hideEqualizerIcon), name: Notification.Name(VLCPlaybackServicePlaybackDidStop), object: nil)
+        notificationCenter.addObserver(self, selector: #selector(hardwareKeyboardDidConnect), name: .GCKeyboardDidConnect, object: nil)
+        notificationCenter.addObserver(self, selector: #selector(hardwareKeyboardDidDisconnect), name: .GCKeyboardDidDisconnect, object: nil)
+    }
+
+    @objc private func hardwareKeyboardDidConnect() {
+        guard viewIfLoaded?.window != nil, presentedViewController == nil else {
+            return
+        }
+        becomeFirstResponder()
+    }
+
+    @objc private func hardwareKeyboardDidDisconnect() {
+        resignFirstResponder()
     }
 
     private func setupSeekDurations() {
@@ -1175,14 +1297,14 @@ class PlayerViewController: UIViewController {
                 brightnessBackgroundGradientLayer.isHidden = false
                 brightnessControl.fetchDeviceValue()
                 animations = { [brightnessControlView, sideBackgroundGradientView] in
-                    brightnessControlView.alpha = 1
+                    brightnessControlView.setVisible(true)
                     sideBackgroundGradientView.alpha = 1
                 }
             case .volume:
                 volumeBackgroundGradientLayer.isHidden = false
                 volumeControl.fetchDeviceValue()
                 animations = { [volumeControlView, sideBackgroundGradientView] in
-                    volumeControlView.alpha = 1
+                    volumeControlView.setVisible(true)
                     sideBackgroundGradientView.alpha = 1
                 }
             default:
@@ -1191,7 +1313,7 @@ class PlayerViewController: UIViewController {
 #endif
             if let animations = animations {
                 UIView.animate(withDuration: 0.2, delay: 0,
-                               options: .beginFromCurrentState, animations: animations,
+                               options: [.beginFromCurrentState, .curveEaseOut], animations: animations,
                                completion: nil)
             }
             if playbackService.currentMediaIs360Video {
@@ -1275,25 +1397,25 @@ class PlayerViewController: UIViewController {
 
 #if os(iOS)
             // Check if both of the sliders are visible to hide them at the same time
-            if currentPanType == .brightness && volumeControlView.alpha == 1 ||
-                currentPanType == .volume && brightnessControlView.alpha == 1 {
+            if currentPanType == .brightness && volumeControlView.isVisible ||
+                currentPanType == .volume && brightnessControlView.isVisible {
                 animations = { [brightnessControlView,
                                 volumeControlView,
                                 sideBackgroundGradientView] in
-                    brightnessControlView.alpha = 0
-                    volumeControlView.alpha = 0
+                    brightnessControlView.setVisible(false)
+                    volumeControlView.setVisible(false)
                     sideBackgroundGradientView.alpha = 0
                 }
             } else if currentPanType == .brightness {
                 animations = { [brightnessControlView,
                                 sideBackgroundGradientView] in
-                    brightnessControlView.alpha = 0
+                    brightnessControlView.setVisible(false)
                     sideBackgroundGradientView.alpha = 0
                 }
             } else if currentPanType == .volume {
                 animations = { [volumeControlView,
                                 sideBackgroundGradientView] in
-                    volumeControlView.alpha = 0
+                    volumeControlView.setVisible(false)
                     sideBackgroundGradientView.alpha = 0
                 }
             }
@@ -1302,7 +1424,7 @@ class PlayerViewController: UIViewController {
 #if os(iOS)
             if let animations = animations {
                 UIView.animate(withDuration: 0.2, delay: 0.5,
-                               options: .beginFromCurrentState, animations: animations, completion: {
+                               options: [.beginFromCurrentState, .curveEaseOut], animations: animations, completion: {
                     [brightnessBackgroundGradientLayer,
                      volumeBackgroundGradientLayer] _ in
                     brightnessBackgroundGradientLayer.isHidden = true
@@ -1432,6 +1554,8 @@ extension PlayerViewController: VLCPlaybackServiceDelegate {
     }
 
     func mediaPlayerStateChanged(_ currentState: VLCMediaPlayerState, isPlaying: Bool, currentMediaHasTrackToChooseFrom: Bool, currentMediaHasChapters: Bool, for playbackService: PlaybackService) {
+        self.currentMediaHasChapters = currentMediaHasChapters
+
         switch currentState {
         case .stopped:
             coneLoadingView.stopAnimating()
@@ -1574,14 +1698,117 @@ extension PlayerViewController: VideoFiltersControlsViewDelegate {
     }
 }
 
-// MARK: - MediaMoreOptionsActionSheetDelegate
+// MARK: - BookmarksViewDelegate
 
-extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
-    func mediaMoreOptionsActionSheetDidToggleInterfaceLock(state: Bool) {
+extension PlayerViewController: BookmarksViewDelegate {
+    func bookmarksViewGetCurrentPlayingMedia() -> VLCMLMedia? {
+        return playbackService.currentlyPlayingLibraryMedia
+    }
+
+    func bookmarksViewDidSelectBookmark(value: Float) {
+        dismissOverlayCard()
+        mediaScrubProgressBar.updateSliderWithValue(value: value)
+
+        if !playbackService.isPlaying {
+            playbackService.playPause()
+        }
+    }
+
+    func bookmarksViewDisplayRenameAlert(_ bookmarksView: BookmarksView, index: Int) {
+        let message = bookmarksView.getBookmarkNameAt(row: index)
+        let alertController = UIAlertController(title: NSLocalizedString("BOOKMARK_RENAME_TITLE", comment: ""),
+                                                message: message,
+                                                preferredStyle: .alert)
+
+        alertController.addAction(UIAlertAction(title: NSLocalizedString("BUTTON_CANCEL", comment: ""), style: .cancel))
+
+        alertController.addTextField(configurationHandler: { field in
+            field.text = message
+            field.placeholder = NSLocalizedString("BOOKMARK_PLACEHOLDER", comment: "")
+            field.returnKeyType = .done
+        })
+
+        let mainAction = UIAlertAction(title: NSLocalizedString("BUTTON_RENAME", comment: ""), style: .default, handler: { _ in
+            guard let field = alertController.textFields else {
+                return
+            }
+
+            guard let newName = field[0].text else {
+                return
+            }
+
+            bookmarksView.renameBookmarkAt(name: newName, row: index)
+        })
+
+        alertController.addAction(mainAction)
+        present(alertController, animated: true, completion: nil)
+    }
+
+    func bookmarksViewDisplayDeleteAlert(_ bookmarksView: BookmarksView, index: Int) {
+        let alertController = UIAlertController(title: NSLocalizedString("BOOKMARK_DELETE_TITLE", comment: ""),
+                                                message: NSLocalizedString("BOOKMARK_DELETE_MESSAGE", comment: ""),
+                                                preferredStyle: .alert)
+
+        alertController.addAction(UIAlertAction(title: NSLocalizedString("BUTTON_CANCEL", comment: ""), style: .cancel))
+        alertController.addAction(UIAlertAction(title: NSLocalizedString("BUTTON_DELETE", comment: ""), style: .destructive) { _ in
+            bookmarksView.deleteBookmarkAt(row: index)
+        })
+
+        present(alertController, animated: true, completion: nil)
+    }
+
+    func bookmarksViewDidRequestDismissal() {
+        dismissOverlayCard()
+    }
+}
+
+// MARK: - More Options Menu
+
+extension PlayerViewController {
+    @objc func moreOptionsMenuDidToggleInterfaceLock(state: Bool) {
         minimizeGestureRecognizer.isEnabled = !state
     }
 
-    func mediaMoreOptionsActionSheetShowIcon(for option: OptionsNavigationBarIdentifier) {
+    @objc func moreOptionsMenuDidToggleShuffle() {
+        updateShuffleState()
+    }
+
+    @objc func moreOptionsMenuDidTapRepeat() {
+        updateRepeatMode()
+    }
+
+    @objc func presentABRepeatView() {
+        let abView = abRepeatView ?? ABRepeatView(frame: CGRect(x: 0, y: 0, width: 500, height: 100))
+        abView.delegate = self
+        abView.translatesAutoresizingMaskIntoConstraints = false
+        abRepeatView = abView
+
+        abView.aMarkView.isHidden = false
+        abView.bMarkView.isHidden = true
+        mediaScrubProgressBar.shouldHideScrubLabels = true
+    }
+}
+
+// MARK: - ABRepeatViewDelegate
+
+extension PlayerViewController: ABRepeatViewDelegate {
+    func abRepeatViewDidSelectAMark() {
+        mediaScrubProgressBar.setMark(aMark)
+        aMark.isEnabled = true
+    }
+
+    func abRepeatViewDidSelectBMark() {
+        mediaScrubProgressBar.setMark(bMark)
+        bMark.isEnabled = true
+        mediaScrubProgressBar.shouldHideScrubLabels = false
+        abRepeatView?.removeFromSuperview()
+
+        let from = min(aMark.getPosition(), bMark.getPosition())
+        let to = max(aMark.getPosition(), bMark.getPosition())
+        playbackService.setABLoopFromPosition(Double(from), toPosition: Double(to))
+    }
+
+    func abRepeatViewShowIcon(_ option: OptionsNavigationBarIdentifier) {
         switch option {
         case .playbackSpeed:
             showIcon(button: optionsNavigationBar.playbackSpeedButton)
@@ -1600,7 +1827,7 @@ extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
         }
     }
 
-    func mediaMoreOptionsActionSheetHideIcon(for option: OptionsNavigationBarIdentifier) {
+    func abRepeatViewHideIcon(_ option: OptionsNavigationBarIdentifier) {
         switch option {
         case .playbackSpeed:
             hideIcon(button: optionsNavigationBar.playbackSpeedButton)
@@ -1617,174 +1844,6 @@ extension PlayerViewController: MediaMoreOptionsActionSheetDelegate {
         default:
             assertionFailure("PlayerViewController: Invalid option.")
         }
-    }
-
-    func mediaMoreOptionsActionSheetPresentPlaybackSpeed() {
-        showPlaybackSpeedCard()
-    }
-
-    func mediaMoreOptionsActionSheetPresentSleepTimer() {
-        showSleepTimerCard()
-    }
-
-    func mediaMoreOptionsActionSheetPresentVideoFilters() {
-        showVideoFiltersCard()
-    }
-
-    func mediaMoreOptionsActionSheetPresentEqualizer() {
-        showEqualizerCard()
-    }
-
-    func mediaMoreOptionsActionSheetHideAlertIfNecessary() {
-        guard let alertController = alertController else {
-            return
-        }
-
-        alertController.dismiss(animated: true)
-        self.alertController = nil
-    }
-
-    func mediaMoreOptionsActionSheetUpdateProgressBar() {
-        if !playbackService.isPlaying {
-            playbackService.playPause()
-        }
-    }
-
-    func mediaMoreOptionsActionSheetGetCurrentMedia() -> VLCMLMedia? {
-        return playbackService.currentlyPlayingLibraryMedia
-    }
-
-    func mediaMoreOptionsActionSheetDidSelectBookmark(value: Float) {
-        mediaScrubProgressBar.updateSliderWithValue(value: value)
-
-        if !playbackService.isPlaying {
-            playbackService.playPause()
-        }
-    }
-
-    func mediaMoreOptionsActionSheetDisplayAlert(title: String, message: String, action: BookmarkActionIdentifier, index: Int, isEditing: Bool) {
-        let completion = {
-            let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
-
-            var actionTitle = NSLocalizedString("BUTTON_CANCEL", comment: "")
-            let cancelAction = UIAlertAction(title: actionTitle, style: .cancel) { _ in
-                if !isEditing {
-                    self.openOptionView(view: .bookmarks)
-                }
-            }
-
-            alertController.addAction(cancelAction)
-
-            if action == .delete {
-                actionTitle = NSLocalizedString("BUTTON_DELETE", comment: "")
-                let mainAction = UIAlertAction(title: actionTitle, style: .destructive, handler: { _ in
-                    self.moreOptionsActionSheet.deleteBookmarkAt(row: index)
-                    if !isEditing {
-                        self.openOptionView(view: .bookmarks)
-                    }
-                })
-
-                alertController.addAction(mainAction)
-            } else if action == .rename {
-                alertController.addTextField(configurationHandler: { field in
-                    field.text = message
-                    field.placeholder = NSLocalizedString("BOOKMARK_PLACEHOLDER", comment: "")
-                    field.returnKeyType = .done
-                })
-
-                actionTitle = NSLocalizedString("BUTTON_RENAME", comment: "")
-                let mainAction = UIAlertAction(title: actionTitle, style: .default, handler: { _ in
-                    guard let field = alertController.textFields else {
-                        return
-                    }
-
-                    guard let newName = field[0].text else {
-                        return
-                    }
-
-                    self.moreOptionsActionSheet.renameBookmarkAt(name: newName, row: index)
-
-                    if !isEditing {
-                        self.openOptionView(view: .bookmarks)
-                    }
-                })
-
-                alertController.addAction(mainAction)
-            }
-
-            self.setControlsHidden(true, animated: true)
-            self.present(alertController, animated: true, completion: nil)
-            self.alertController = alertController
-        }
-
-        if addBookmarksView == nil {
-            moreOptionsActionSheet.dismiss(animated: true, completion: completion)
-        } else {
-            completion()
-        }
-    }
-
-    func mediaMoreOptionsActionSheetDisplayAddBookmarksView(_ bookmarksView: AddBookmarksView) {
-        shouldDisableGestures(true)
-
-        mediaNavigationBar.isHidden = true
-
-        bookmarksView.translatesAutoresizingMaskIntoConstraints = false
-
-        addBookmarksView = bookmarksView
-    }
-
-    func mediaMoreOptionsActionSheetRemoveAddBookmarksView() {
-        shouldDisableGestures(false)
-
-        mediaNavigationBar.isHidden = false
-
-        if let bookmarksView = addBookmarksView {
-            bookmarksView.removeFromSuperview()
-        }
-
-        addBookmarksView = nil
-    }
-
-    func mediaMoreOptionsActionSheetDidToggleShuffle(_ mediaMoreOptionsActionSheet: MediaMoreOptionsActionSheet) {
-        updateShuffleState()
-
-        mediaMoreOptionsActionSheet.collectionView.reloadData()
-    }
-
-    func mediaMoreOptionsActionSheetDidTapRepeat(_ mediaMoreOptionsActionSheet: MediaMoreOptionsActionSheet) {
-        updateRepeatMode()
-
-        mediaMoreOptionsActionSheet.collectionView.reloadData()
-    }
-
-    func mediaMoreOptionsActionSheetPresentABRepeatView(with abView: ABRepeatView) {
-        abView.translatesAutoresizingMaskIntoConstraints = false
-        abRepeatView = abView
-
-        guard let abRepeatView = abRepeatView else {
-            return
-        }
-
-        abRepeatView.aMarkView.isHidden = false
-        abRepeatView.bMarkView.isHidden = true
-        mediaScrubProgressBar.shouldHideScrubLabels = true
-    }
-
-    func mediaMoreOptionsActionSheetDidSelectAMark() {
-        mediaScrubProgressBar.setMark(aMark)
-        aMark.isEnabled = true
-    }
-
-    func mediaMoreOptionsActionSheetDidSelectBMark() {
-        mediaScrubProgressBar.setMark(bMark)
-        bMark.isEnabled = true
-        mediaScrubProgressBar.shouldHideScrubLabels = false
-        abRepeatView?.removeFromSuperview()
-
-        let from = min(aMark.getPosition(), bMark.getPosition())
-        let to = max(aMark.getPosition(), bMark.getPosition())
-        playbackService.setABLoopFromPosition(Double(from), toPosition: Double(to))
     }
 }
 
@@ -1834,12 +1893,12 @@ extension PlayerViewController: OptionsNavigationBarDelegate {
         bMark.removeFromSuperview()
         bMark.isEnabled = false
 
-        guard let abRepeatView = abRepeatView,
+        guard abRepeatView != nil,
               shouldDisplayView else {
             return
         }
 
-        mediaMoreOptionsActionSheetPresentABRepeatView(with: abRepeatView)
+        presentABRepeatView()
     }
 }
 
@@ -1953,18 +2012,8 @@ extension PlayerViewController {
 
         // Close whatever is on top first (options sheet, track selector, ...)
         // instead of falling through and closing the player underneath it.
-        if let actionSheet = presentedViewController as? ActionSheet {
-            actionSheet.removeActionSheet()
-            return
-        }
-
         if let presented = presentedViewController {
             presented.dismiss(animated: true)
-            return
-        }
-
-        guard addBookmarksView == nil else {
-            mediaMoreOptionsActionSheetRemoveAddBookmarksView()
             return
         }
 

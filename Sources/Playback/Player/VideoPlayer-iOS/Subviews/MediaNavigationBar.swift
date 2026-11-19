@@ -5,6 +5,7 @@
  *
  * Authors: Robert Gordon <robwaynegordon # gmail.com>
  *          Diogo Simao Marques <dogo@videolabs.io>
+ *          Felix Paul Kühne <fkuehne # videolan.org>
  *
  *
  * Refer to the COPYING file of the official project for license.
@@ -21,16 +22,8 @@ protocol MediaNavigationBarDelegate {
     @objc optional func mediaNavigationBarDidTapPictureInPicture(_ mediaNavigationBar: MediaNavigationBar)
     @objc optional func mediaNavigationBarDidToggleQueueView(_ mediaNavigationBar: MediaNavigationBar)
     @objc optional func mediaNavigationBarDidToggleFavorite(_ mediaNavigationBar: MediaNavigationBar)
-    @objc optional func mediaNavigationBarDidToggleChromeCast(_ mediaNavigationBar: MediaNavigationBar)
     func mediaNavigationBarDidCloseLongPress(_ mediaNavigationBar: MediaNavigationBar)
     @objc optional func mediaNavigationBarDisplayCloseAlert(_ mediaNavigationBar: MediaNavigationBar)
-}
-
-// MARK: - RendererActionSheetContent
-
-private enum RendererActionSheetContent: Int, CaseIterable {
-    case airplay
-    case chromecast
 }
 
 // MARK: - MediaNavigationBar
@@ -41,6 +34,12 @@ private enum RendererActionSheetContent: Int, CaseIterable {
 
     weak var delegate: MediaNavigationBarDelegate?
 
+    // Extend the close target beyond the bar's bounds.
+    private static let closeButtonTouchOutset: CGFloat = 16
+
+    static let closeImage = UIImage(systemName: "xmark",
+                                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold))
+
     lazy var closePlaybackButton: UIButton = {
         var closeButton = UIButton(type: .system)
         let tapGesture: UITapGestureRecognizer = UITapGestureRecognizer(target: self,
@@ -48,7 +47,7 @@ private enum RendererActionSheetContent: Int, CaseIterable {
         let longPressGesture: UILongPressGestureRecognizer = UILongPressGestureRecognizer(target: self,
                                                                                           action: #selector(handleLongPressPlayPause(_:)))
         longPressGesture.shouldRequireFailure(of: tapGesture)
-        closeButton.setImage(UIImage(named: "close"), for: .normal)
+        closeButton.setImage(Self.closeImage, for: .normal)
         closeButton.tintColor = .white
         closeButton.addGestureRecognizer(longPressGesture)
         closeButton.addGestureRecognizer(tapGesture)
@@ -86,38 +85,12 @@ private enum RendererActionSheetContent: Int, CaseIterable {
         return queueButton
     }()
 
-    lazy var rotateButton: UIButton = {
-        var rotateButton = UIButton(type: .system)
-        rotateButton.addTarget(self, action: #selector(toggleOrientation), for: .touchDown)
-        rotateButton.setImage(UIImage(named: "rectangle.landscape.rotate"), for: .normal)
-        rotateButton.tintColor = .white
-        rotateButton.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        rotateButton.accessibilityLabel = NSLocalizedString("ROTATE_BUTTON",
-                                                            comment: "Accessibility label for rotate button on the player")
-        rotateButton.accessibilityHint = NSLocalizedString("ROTATE_BUTTON_HINT",
-                                                           comment: "Accessibility hint for rotate button on the player")
-        rotateButton.isHidden = true
-        return rotateButton
-    }()
-
 #if os(iOS)
-    lazy var chromeCastButton: UIButton = {
-        var chromeButton = UIButton(type: .system)
-        chromeButton.addTarget(self, action: #selector(toggleChromeCast), for: .touchDown)
-        chromeButton.setImage(UIImage(named: "renderer"), for: .normal)
-        chromeButton.tintColor = .white
-        chromeButton.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        return chromeButton
-    }()
-
     lazy var deviceButton: UIButton = {
-        var chromeButton = UIButton(type: .system)
-        chromeButton.addTarget(self, action: #selector(toggleDeviceActionSheet),
-                               for: .touchDown)
-        chromeButton.setImage(UIImage(named: "renderer"), for: .normal)
-        chromeButton.tintColor = .white
-        chromeButton.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        return chromeButton
+        let button = rendererDiscovererService.setupRendererButton()
+        button.tintColor = .white
+        button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        return button
     }()
 
     lazy var pictureInPictureButton: UIButton = {
@@ -129,20 +102,7 @@ private enum RendererActionSheetContent: Int, CaseIterable {
         button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         return button
     }()
-
-    private var closureQueue: (() -> Void)? = nil
-
-    private lazy var deviceActionSheet: ActionSheet = {
-        let actionSheet = ActionSheet()
-        actionSheet.delegate = self
-        actionSheet.dataSource = self
-        actionSheet.modalPresentationStyle = .custom
-        actionSheet.excludesWhiteTheme = true
-        return actionSheet
-    }()
 #endif
-
-    var presentingViewController: UIViewController?
 
     #if os(iOS)
     private var rendererDiscovererService: VLCRendererDiscovererManager
@@ -161,6 +121,15 @@ private enum RendererActionSheetContent: Int, CaseIterable {
         airplayVolumeView.showsVolumeSlider = false
         airplayVolumeView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         return airplayVolumeView
+    }()
+
+    private let outputControls = PlayerControlGroupView(arrangedSubviews: [], followsLayoutDirection: true)
+
+    private lazy var closeButtonBackground: VideoControlBackgroundView = {
+        let background = VideoControlBackgroundView()
+        background.isUserInteractionEnabled = false
+        background.translatesAutoresizingMaskIntoConstraints = false
+        return background
     }()
 
     // MARK: - Initializers
@@ -192,20 +161,33 @@ private enum RendererActionSheetContent: Int, CaseIterable {
     }
 
     func addMoreOptionsButton(_ button: UIButton) {
-        addArrangedSubview(button)
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalTo: heightAnchor)
-        ])
+        outputControls.addArrangedSubview(button)
     }
 
 #if os(iOS)
     func addPictureInPictureButton() {
-        addArrangedSubview(pictureInPictureButton)
-        NSLayoutConstraint.activate([
-            pictureInPictureButton.widthAnchor.constraint(equalTo: heightAnchor)
-        ])
+        outputControls.addArrangedSubview(pictureInPictureButton)
     }
 #endif
+
+    /// Call inside an animation block; keep this view and its ancestors at alpha 1.
+    func setControlsVisible(_ visible: Bool, isQueueShown: Bool = false) {
+        isUserInteractionEnabled = visible
+        accessibilityElementsHidden = !visible
+        let itemAlpha: CGFloat = isQueueShown ? PlayerControlGroupView.dimmedAlpha : 1
+        for view in arrangedSubviews where view !== outputControls {
+            view.alpha = visible ? itemAlpha : 0
+        }
+        outputControls.setVisible(visible)
+        closeButtonBackground.setVisible(visible)
+        favoriteButton.alpha = itemAlpha
+#if os(iOS)
+        airplayRoutePickerView.alpha = itemAlpha
+        deviceButton.alpha = itemAlpha
+        pictureInPictureButton.alpha = itemAlpha
+#endif
+        queueButton.tintColor = isQueueShown ? PresentationTheme.current.colors.orangeUI : .white
+    }
 
     func updateDeviceButton(with image: UIImage?, color: UIColor) {
 #if os(iOS)
@@ -215,50 +197,32 @@ private enum RendererActionSheetContent: Int, CaseIterable {
     }
 
     private func setupContraints() {
-#if os(iOS)
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 44),
             closePlaybackButton.widthAnchor.constraint(equalTo: heightAnchor),
-            favoriteButton.widthAnchor.constraint(equalTo: heightAnchor),
-            queueButton.widthAnchor.constraint(equalTo: heightAnchor),
-            deviceButton.widthAnchor.constraint(equalTo: heightAnchor)
+            closeButtonBackground.centerXAnchor.constraint(equalTo: closePlaybackButton.centerXAnchor),
+            closeButtonBackground.centerYAnchor.constraint(equalTo: closePlaybackButton.centerYAnchor),
+            closeButtonBackground.widthAnchor.constraint(equalToConstant: 44),
+            closeButtonBackground.heightAnchor.constraint(equalToConstant: 44),
         ])
-#else
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 44),
-            closePlaybackButton.widthAnchor.constraint(equalTo: heightAnchor),
-            favoriteButton.widthAnchor.constraint(equalTo: heightAnchor),
-            queueButton.widthAnchor.constraint(equalTo: heightAnchor),
-        ])
-#endif
     }
 
     private func setupViews() {
         distribution = .fill
-        semanticContentAttribute = .forceLeftToRight
         translatesAutoresizingMaskIntoConstraints = false
         addArrangedSubview(closePlaybackButton)
         addArrangedSubview(mediaTitleTextLabel)
-        setupRotateButtonIfNeeded()
-        addArrangedSubview(favoriteButton)
-        addArrangedSubview(queueButton)
+
 #if os(iOS)
-        addArrangedSubview(deviceButton)
+        let outputButtons: [UIView] = [favoriteButton, queueButton, airplayRoutePickerView, deviceButton]
 #else
-        addArrangedSubview(airplayVolumeView)
+        let outputButtons: [UIView] = [favoriteButton, queueButton, airplayVolumeView]
 #endif
-    }
-
-    private func setupRotateButtonIfNeeded() {
-        if #available(iOS 16.0, *), UIDevice.current.userInterfaceIdiom == .pad {
-            return
-        }
-
-        addArrangedSubview(rotateButton)
-
-        NSLayoutConstraint.activate([
-            rotateButton.widthAnchor.constraint(equalTo: heightAnchor)
-        ])
+        insertSubview(closeButtonBackground, belowSubview: closePlaybackButton)
+        setCustomSpacing(12, after: closePlaybackButton)
+        outputButtons.forEach(outputControls.addArrangedSubview)
+        outputControls.setContentHuggingPriority(.required, for: .horizontal)
+        addArrangedSubview(outputControls)
     }
 
     // MARK: Gesture recognizer
@@ -266,7 +230,7 @@ private enum RendererActionSheetContent: Int, CaseIterable {
     @objc private func handleLongPressPlayPause(_ sender: UILongPressGestureRecognizer) {
         if sender.state == .began {
             let accessibility: (String, String) = (NSLocalizedString("STOP_BUTTON", comment: ""), NSLocalizedString("CLOSE_HINT", comment: ""))
-            updateCloseButton(with: UIImage(named: "close"), accessibility: accessibility)
+            updateCloseButton(with: Self.closeImage, accessibility: accessibility)
             delegate?.mediaNavigationBarDisplayCloseAlert?(self)
         } else if sender.state == .ended {
             delegate?.mediaNavigationBarDidCloseLongPress(self)
@@ -274,15 +238,6 @@ private enum RendererActionSheetContent: Int, CaseIterable {
     }
 
     // MARK: - Button Actions
-
-#if os(iOS)
-    func toggleDeviceActionSheet() {
-        deviceActionSheet.delegate = self
-        deviceActionSheet.dataSource = self
-        presentingViewController?.present(deviceActionSheet,
-                                          animated: true)
-    }
-#endif
 
     func togglePictureInPicture() {
         delegate?.mediaNavigationBarDidTapPictureInPicture?(self)
@@ -320,9 +275,21 @@ private enum RendererActionSheetContent: Int, CaseIterable {
         vlc_toggleOrientation()
     }
 
-    func toggleChromeCast() {
-        assert(delegate != nil, "Delegate not set for MediaNavigationBar")
-        delegate?.mediaNavigationBarDidToggleChromeCast?(self)
+    private var closeButtonTouchArea: CGRect {
+        return closePlaybackButton.frame.insetBy(dx: -Self.closeButtonTouchOutset, dy: -Self.closeButtonTouchOutset)
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        return super.point(inside: point, with: event)
+            || (closePlaybackButton.isEnabled && closeButtonTouchArea.contains(point))
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let view = super.hitTest(point, with: event)
+        guard view === self, closePlaybackButton.isEnabled, closeButtonTouchArea.contains(point) else {
+            return view
+        }
+        return closePlaybackButton
     }
 
     func updateCloseButton(with icon: UIImage?, accessibility: (String, String)) {
@@ -342,85 +309,3 @@ private enum RendererActionSheetContent: Int, CaseIterable {
     }
 #endif
 }
-
-// MARK: - ActionSheetDelegate, ActionSheetDataSource
-
-#if os(iOS)
-extension MediaNavigationBar: ActionSheetDelegate, ActionSheetDataSource {
-    func itemAtIndexPath(_ indexPath: IndexPath) -> Any? {
-        if indexPath.row == 0 {
-            let selector = NSSelectorFromString("_displayAudioRoutePicker")
-            if airplayVolumeView.responds(to: selector) {
-                airplayVolumeView.perform(selector)
-                addArrangedSubview(airplayVolumeView)
-                for view: UIView in airplayVolumeView.subviews {
-                    if let button = view as? UIButton {
-                        button.sendActions(for: .touchUpInside)
-                        break
-                    }
-                }
-                airplayVolumeView.removeFromSuperview()
-            }
-        } else {
-            // Save closure for chromecast until the end of the actionSheet animation
-            closureQueue = { [weak self] in
-                self?.chromeCastButton.sendActions(for: .touchUpInside)
-            }
-        }
-        return nil
-    }
-
-    func headerViewTitle() -> String? {
-        return NSLocalizedString("HEADER_TITLE_RENDERER", comment: "")
-    }
-
-    func numberOfRows() -> Int {
-        RendererActionSheetContent.allCases.count
-    }
-
-    private func enableViews(_ enable: Bool, _ view: UIView) {
-        view.subviews.forEach() {
-            $0.alpha = enable ? 1 : 0.5
-        }
-        view.isUserInteractionEnabled = enable
-    }
-
-    func actionSheet(collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        guard let cell = collectionView.dequeueReusableCell(
-            withReuseIdentifier: ActionSheetCell.identifier,
-            for: indexPath) as? ActionSheetCell else {
-                assertionFailure("MediaNavigationBar: VLCActionSheetDataSource: Unable to dequeue reusable cell")
-                return UICollectionViewCell()
-            }
-
-        switch indexPath.row {
-        case RendererActionSheetContent.airplay.rawValue:
-            cell.name.text = NSLocalizedString("BUTTON_AIRPLAY", comment: "")
-            cell.name.accessibilityHint = NSLocalizedString("BUTTON_AIRPLAY_HINT", comment: "")
-            cell.icon.image = UIImage(named: "airplay-audio")
-        case RendererActionSheetContent.chromecast.rawValue:
-            cell.name.text = NSLocalizedString("BUTTON_RENDERER", comment: "")
-            cell.icon.image = UIImage(named: "renderer")
-            enableViews(!rendererDiscovererService.getAllRenderers().isEmpty,
-                        cell)
-        default:
-            break
-        }
-
-        cell.isMediaPlayerActionSheetCell = true
-
-        let colors: ColorPalette = PresentationTheme.currentExcludingWhite.colors
-        cell.backgroundColor = colors.background
-        cell.name.textColor = colors.cellTextColor
-        cell.name.backgroundColor = colors.background
-        cell.stackView.backgroundColor = colors.background
-        cell.icon.tintColor = .white
-        return cell
-    }
-
-    func actionSheetDidFinishClosingAnimation(_ actionSheet: ActionSheet) {
-        closureQueue?()
-        closureQueue = nil
-    }
-}
-#endif

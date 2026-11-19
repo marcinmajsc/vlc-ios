@@ -22,13 +22,20 @@ import UIKit
                                  enable: Bool)
     func setEditingStateChanged(for viewController: MediaCategoryViewController, editing: Bool)
     func updateNavigationBarButtons(for viewController: MediaCategoryViewController, isEditing: Bool)
-    func generateMenu(for viewController: MediaCategoryViewController) -> UIMenu
     func updateSelectAllButton(for viewController: MediaCategoryViewController)
 }
 
 class MediaCategoryViewController: UICollectionViewController, UISearchBarDelegate, IndicatorInfoProvider {
     // MARK: - Properties
-    var model: MediaLibraryBaseModel
+    var model: MediaLibraryBaseModel {
+        didSet {
+            (oldValue as? any MLBaseModel)?.observable.removeObserver(self)
+            (model as? any MLBaseModel)?.observable.addObserver(self)
+            searchDataSource = LibrarySearchDataSource(model: model)
+            editController = EditController(mediaLibraryService: mediaLibraryService, model: model, presentingView: collectionView, searchDataSource: searchDataSource)
+            editController.delegate = self
+        }
+    }
     private var secondModel: MediaLibraryBaseModel
     private var mediaLibraryService: MediaLibraryService
 
@@ -171,6 +178,8 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     private weak var artworkHeader: CollectionArtworkHeader?
     private var isArtworkBehindStatusBar: Bool = false
     private lazy var artworkHeaderLayout = CollectionArtworkHeaderLayout()
+    private var isArtworkPaneVisible = false
+    private weak var artworkPaneViewController: UIViewController?
 
     private var usesArtworkHeader: Bool {
         guard let model = model as? CollectionModel else {
@@ -203,6 +212,10 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     }()
 
     private var artworkHeaderTopOffset: CGFloat {
+        if isArtworkPaneVisible {
+            return 0
+        }
+
         return navigationController?.navigationBar.frame.maxY ?? searchBarSize
     }
 
@@ -212,12 +225,29 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         return userDefaults.bool(forKey: kVLCHasLaunchedBefore)
     }
 
-    private lazy var clearHistoryButton: UIBarButtonItem = {
+    private(set) lazy var clearHistoryButton: UIBarButtonItem = {
         return setupClearHistoryButton()
     }()
 
     private lazy var selectAllBarButton: UIBarButtonItem = {
         return setupSelectAllButton()
+    }()
+
+    private lazy var selectBarButton: UIBarButtonItem = {
+        let selectBarButton = UIBarButtonItem(image: UIImage(systemName: "checkmark.circle"),
+                                              style: .plain, target: self,
+                                              action: #selector(handleSelect))
+        selectBarButton.title = NSLocalizedString("BUTTON_SELECT", comment: "")
+        selectBarButton.accessibilityHint = NSLocalizedString("BUTTON_SELECT_HINT", comment: "")
+        selectBarButton.accessibilityIdentifier = VLCAccessibilityIdentifier.select
+        return selectBarButton
+    }()
+
+    private lazy var sortBarButton: UIBarButtonItem = {
+        let sortBarButton = UIBarButtonItem(image: nil, menu: nil)
+        sortBarButton.title = NSLocalizedString("VIEW_OPTIONS", comment: "")
+        sortBarButton.accessibilityIdentifier = VLCAccessibilityIdentifier.viewOptions
+        return sortBarButton
     }()
 
 #if os(iOS)
@@ -372,12 +402,13 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     }
 
     @objc private func handleDisableGrouping() {
+        guard !(model is FolderModel) else {
+            return
+        }
+
         let previousModel = model
         model = secondModel
         secondModel = previousModel
-        self.searchDataSource = LibrarySearchDataSource(model: model)
-        editController = EditController(mediaLibraryService: mediaLibraryService, model: model, presentingView: collectionView, searchDataSource: searchDataSource)
-        editController.delegate = self
         model.sort(by: secondModel.sortModel.currentSort, desc: secondModel.sortModel.desc)
         setupCollectionView()
         cachedCellSize = .zero
@@ -406,24 +437,28 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         standardAppearance?.backgroundColor = backgroundColor
         scrollEdgeAppearance?.backgroundColor = backgroundColor
 
-        if let artworkHeader = artworkHeader,
-           let navBar = navigationController?.navigationBar {
+        let hideNavigationItemTitle: Bool
+        if isArtworkPaneVisible {
+            hideNavigationItemTitle = false
+        } else if let artworkHeader = artworkHeader,
+                  let navBar = navigationController?.navigationBar {
             let padding = statusBarView.frame.maxY + navBar.frame.maxY
-            let hideNavigationItemTitle: Bool
             if collectionView.contentOffset.y >= artworkHeader.frame.maxY - padding {
                 hideNavigationItemTitle = false
             } else {
                 hideNavigationItemTitle = true
             }
+        } else {
+            return
+        }
 
-            navigationItem.titleView?.isHidden = hideNavigationItemTitle
+        navigationItem.titleView?.isHidden = hideNavigationItemTitle
 
-            if isArtworkBehindStatusBar != hideNavigationItemTitle {
-                isArtworkBehindStatusBar = hideNavigationItemTitle
+        if isArtworkBehindStatusBar != hideNavigationItemTitle {
+            isArtworkBehindStatusBar = hideNavigationItemTitle
 #if os(iOS)
-                setNeedsStatusBarAppearanceUpdate()
+            setNeedsStatusBarAppearanceUpdate()
 #endif
-            }
         }
     }
 
@@ -503,6 +538,10 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 
         delegate?.needsToUpdateNavigationbarIfNeeded(self)
         collectionView?.reloadData()
+        if #available(iOS 27.1, visionOS 27.1, *),
+           let artworkViewController = artworkPaneViewController as? CollectionArtworkViewController {
+            artworkViewController.reloadData()
+        }
         updateUIForContent()
 
         if !searchDataSource.isSearching {
@@ -533,10 +572,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             navItemTitle.text = collection.albumName()
         } else if let collection = model as? CollectionModel {
             navItemTitle.text = collection.mediaCollection.title()
-        }
-
-        if model is HistoryModel {
-            navItemTitle.text = NSLocalizedString("BUTTON_HISTORY", comment: "")
         }
 
         let colors = PresentationTheme.current.colors
@@ -586,7 +621,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
 #if os(iOS)
         let manager = VLCAppCoordinator.sharedInstance().rendererDiscovererManager
         manager.delegate = self
-        manager.presentingViewController = self
         if manager.discoverers.isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                 guard self?.viewIfLoaded?.window != nil, manager.discoverers.isEmpty else {
@@ -620,7 +654,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             self.refreshTabSearchResultsIfNeeded()
         }
 
-        if (model is MediaGroupViewModel && userDefaults.bool(forKey: KVLCFolderViewLayout)) ||
+        if ((model is MediaGroupViewModel || model is VideoModel) && userDefaults.bool(forKey: KVLCFolderViewLayout)) ||
             model is FolderModel {
             let isGridLayout: Bool = isFolderInGridLayout()
             handleLayoutChange(gridLayout: isGridLayout, isFolder: true)
@@ -1401,6 +1435,8 @@ private extension MediaCategoryViewController {
         var isVideoModel: Bool = false
         if model is MediaGroupViewModel || model is VideoModel {
             isVideoModel = true
+        } else if let folderModel = model as? FolderModel {
+            isVideoModel = !folderModel.isAudio
         }
 
         let key: String
@@ -1442,16 +1478,7 @@ extension MediaCategoryViewController {
     }
 
     private func rightBarButtonItems() -> [UIBarButtonItem] {
-        var rightBarButtonItems = [UIBarButtonItem]()
-
-        let menu = delegate?.generateMenu(for: self)
-        if #available(iOS 26.0, *) {
-            rightBarButtonItems.append(UIBarButtonItem(image: UIImage(systemName: "ellipsis"),
-                                                       menu: menu))
-        } else {
-            rightBarButtonItems.append(UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"),
-                                                       menu: menu))
-        }
+        var rightBarButtonItems: [UIBarButtonItem] = [sortBarButtonItem(), selectBarButton]
 #if os(iOS)
         if !rendererButton.isHidden {
             rightBarButtonItems.append(rendererBarButton)
@@ -1472,14 +1499,185 @@ extension MediaCategoryViewController {
             navigationItem.setHidesBackButton(isEditing, animated: true)
         }
 
-        if self is HistoryCategoryViewController {
-            navigationItem.rightBarButtonItem = clearHistoryButton
-        }
-
         if isEmptyCollectionView() {
             navigationItem.rightBarButtonItem = nil
             navigationItem.leftBarButtonItem = nil
         }
+    }
+
+    private var isGridLayout: Bool {
+        return model.cellType == MovieCollectionViewCell.self || model.cellType == MediaGridCollectionCell.self
+    }
+
+    private var sortBarButtonImage: UIImage? {
+        if model is HistoryModel {
+            return UIImage(systemName: "line.3.horizontal.decrease")
+        }
+
+        if let model = model as? CollectionModel, model.mediaCollection is VLCMLPlaylist {
+            return UIImage(systemName: "arrow.up.arrow.down")
+        }
+
+        return UIImage(systemName: isGridLayout ? "square.grid.2x2" : "list.bullet")
+    }
+
+    func sortBarButtonItem() -> UIBarButtonItem {
+        sortBarButton.image = sortBarButtonImage
+        if let historyModel = model as? HistoryModel {
+            sortBarButton.menu = generateHistoryFilterMenu(for: historyModel)
+        } else {
+            sortBarButton.menu = generateSortMenu()
+        }
+        return sortBarButton
+    }
+
+    private func generateHistoryFilterMenu(for historyModel: HistoryModel) -> UIMenu {
+        let selectedFilter = historyModel.filter
+        let filters: [(title: String, filter: HistoryModel.Filter)] = [
+            (NSLocalizedString("AUDIO", comment: ""), .audio),
+            (NSLocalizedString("VIDEO", comment: ""), .video),
+            (NSLocalizedString("MEDIA_TYPE_ANY", comment: ""), .any)
+        ]
+
+        let actions = filters.map { item in
+            UIAction(title: item.title, state: item.filter == selectedFilter ? .on : .off) { [weak historyModel] _ in
+                historyModel?.filter = item.filter
+            }
+        }
+
+        return UIMenu(title: NSLocalizedString("MEDIA_TYPE", comment: ""), options: [.displayInline, .singleSelection],
+                      children: actions)
+    }
+
+    private func handleFolders() {
+        let isFolder = !userDefaults.bool(forKey: KVLCFolderViewLayout)
+        userDefaults.set(isFolder, forKey: KVLCFolderViewLayout)
+
+        if isFolder {
+            handleLayoutChange(gridLayout: isFolderInGridLayout(), isFolder: true)
+            return
+        }
+
+        let restoredLayoutKey = userDefaults.bool(forKey: kVLCSettingsDisableGrouping)
+            ? kVLCVideoLibraryGridLayoutALL_VIDEOS : kVLCVideoLibraryGridLayoutVIDEO_GROUPS
+        handleLayoutChange(gridLayout: userDefaults.bool(forKey: restoredLayoutKey), isFolder: false)
+    }
+
+    private func generateFolderMenu() -> UIMenu {
+        let isFolderLayout = userDefaults.bool(forKey: KVLCFolderViewLayout)
+        let folderAction = UIAction(title: NSLocalizedString("FOLDERS", comment: ""),
+                                    image: UIImage(systemName: "folder"),
+                                    state: isFolderLayout ? .on : .off,
+                                    handler: { [weak self] _ in
+            self?.handleFolders()
+        })
+
+        folderAction.accessibilityLabel = NSLocalizedString("FOLDERS", comment: "")
+        folderAction.accessibilityHint = NSLocalizedString("BUTTON_FOLDER_HINT", comment: "")
+
+        return UIMenu(options: .displayInline, children: [folderAction])
+    }
+
+    private func generateAdditionalOptionsMenu() -> UIMenu? {
+        let additionalMenuItem: UIAction
+
+        if model is ArtistModel {
+            let isIncludeAllArtistActive = userDefaults.bool(forKey: kVLCAudioLibraryHideFeatArtists)
+            additionalMenuItem = UIAction(title: NSLocalizedString("HIDE_FEAT_ARTISTS", comment: ""),
+                                          image: UIImage(systemName: "person.3"),
+                                          state: isIncludeAllArtistActive ? .on : .off,
+                                          handler: { [weak self] _ in
+                self?.actionSheetSortSectionHeaderShouldHideFeatArtists(onSwitchIsOnChange: !isIncludeAllArtistActive)
+            })
+        } else if let model = model as? CollectionModel,
+                  let mediaCollection = model.mediaCollection as? VLCMLAlbum,
+                  !mediaCollection.isUnknownAlbum() {
+            let hideTrackNumbers = userDefaults.bool(forKey: kVLCAudioLibraryHideTrackNumbers)
+            additionalMenuItem = UIAction(title: NSLocalizedString("HIDE_TRACK_NUMBERS", comment: ""),
+                                          state: hideTrackNumbers ? .on : .off,
+                                          handler: { [weak self] _ in
+                self?.actionSheetSortSectionHeaderShouldHideTrackNumbers(onSwitchIsOnChange: !hideTrackNumbers)
+            })
+        } else {
+            return nil
+        }
+
+        return UIMenu(title: NSLocalizedString("ADDITIONAL_OPTIONS", comment: ""),
+                      options: .displayInline,
+                      children: [additionalMenuItem])
+    }
+
+    private func generateLayoutMenu() -> UIMenu {
+        let isFolder = model is FolderModel
+            || (model is MediaGroupViewModel && userDefaults.bool(forKey: KVLCFolderViewLayout))
+
+        let gridAction = UIAction(title: NSLocalizedString("GRID_LAYOUT", comment: ""),
+                                  image: UIImage(systemName: "square.grid.2x2"),
+                                  state: isGridLayout ? .on : .off,
+                                  handler: { [weak self] _ in
+            self?.handleLayoutChange(gridLayout: true, isFolder: isFolder)
+        })
+
+        let listAction = UIAction(title: NSLocalizedString("LIST_LAYOUT", comment: ""),
+                                  image: UIImage(systemName: "list.bullet"),
+                                  state: isGridLayout ? .off : .on,
+                                  handler: { [weak self] _ in
+            self?.handleLayoutChange(gridLayout: false, isFolder: isFolder)
+        })
+
+        return UIMenu(title: NSLocalizedString("DISPLAY_AS", comment: ""), options: .displayInline,
+                      children: [gridAction, listAction])
+    }
+
+    private func generateSortMenu() -> UIMenu {
+        let sortModel = model.sortModel
+        var sortActions: [UIMenuElement] = []
+
+        var currentSortIndex: Int = 0
+        for (index, criterion) in
+                sortModel.sortingCriteria.enumerated()
+        where criterion == sortModel.currentSort {
+            currentSortIndex = index
+            break
+        }
+
+        for (index, criterion) in sortModel.sortingCriteria.enumerated() {
+            let currentSort: Bool = index == currentSortIndex
+            let chevronImageName: String = sortModel.desc ? "chevron.down" : "chevron.up"
+            var actionImage: UIImage? = currentSort ? UIImage(systemName: chevronImageName) : nil
+
+            // There is no need to display the desc image since it has no impact
+            if criterion == VLCMLSortingCriteria.default {
+                actionImage = nil
+            }
+
+            let action = UIAction(title: String(describing: criterion),
+                                  image: actionImage,
+                                  state: currentSort ? .on : .off,
+                                  handler: { [weak self] _ in
+                self?.executeSortAction(with: criterion, desc: !sortModel.desc)
+            })
+            sortActions.append(action)
+        }
+
+        let sortMenu = UIMenu(title: NSLocalizedString("SORT_BY", comment: ""),
+                              options: [.displayInline, .singleSelection],
+                              children: sortActions)
+
+        if let model = model as? CollectionModel, model.mediaCollection is VLCMLPlaylist {
+            return sortMenu
+        }
+
+        var children: [UIMenuElement] = []
+        if self is MovieCategoryViewController {
+            children.append(generateFolderMenu())
+        }
+        children.append(contentsOf: [generateLayoutMenu(), sortMenu])
+        if let additionalOptionsMenu = generateAdditionalOptionsMenu() {
+            children.append(additionalOptionsMenu)
+        }
+
+        return UIMenu(children: children)
     }
 
     func handleRegroup() {
@@ -1520,8 +1718,7 @@ extension MediaCategoryViewController {
         let cancelAction: UIAlertAction = UIAlertAction(title: NSLocalizedString("BUTTON_CANCEL", comment: ""), style: .cancel)
 
         let clearAction: UIAlertAction = UIAlertAction(title: NSLocalizedString("BUTTON_CLEAR", comment: ""), style: .destructive) { _ in
-            guard let historyModel = self.model as? HistoryModel else { return }
-            self.mediaLibraryService.medialib.clearHistory(by: historyModel.mediaType)
+            (self.model as? HistoryModel)?.clear()
         }
 
         let alertController: UIAlertController = UIAlertController(title: NSLocalizedString("CLEAR_HISTORY_TITLE", comment: ""),
@@ -1531,6 +1728,10 @@ extension MediaCategoryViewController {
         alertController.addAction(clearAction)
 
         present(alertController, animated: true)
+    }
+
+    @objc private func handleSelect() {
+        delegate?.setEditingStateChanged(for: self, editing: true)
     }
 
     @objc func handleSelectAll() {
@@ -1547,7 +1748,7 @@ extension MediaCategoryViewController {
                                                                           action: #selector(handleEditingInsideCollection))]
         : rightBarButtonItems()
         navigationItem.leftBarButtonItems = leftBarButtonItem()
-        if navigationController?.viewControllers.last is ArtistViewController || navigationController?.viewControllers.last is CollectionCategoryViewController {
+        if navigationController?.viewControllers.last is ArtistViewController || navigationController?.topCollectionCategoryViewController != nil {
             delegate?.updateNavigationBarButtons(for: self, isEditing: isEditing)
         }
         navigationItem.setHidesBackButton(isEditing, animated: true)
@@ -2199,6 +2400,19 @@ extension MediaCategoryViewController {
         collectionViewController.delegate = delegate
         collectionViewController.navigationItem.rightBarButtonItems = collectionViewController.rightBarButtonItems()
 
+        if #available(iOS 27.1, visionOS 27.1, *),
+           collectionViewController.usesArtworkHeader,
+           let model = collectionViewController.model as? CollectionModel {
+            let artworkViewController = CollectionArtworkViewController(model: model)
+            if let arrangementViewController = VLCArrangementViewController(primaryViewController: collectionViewController,
+                                                                            secondaryViewController: artworkViewController) {
+                arrangementViewController.delegate = collectionViewController
+                collectionViewController.artworkPaneViewController = artworkViewController
+                navigationController?.pushViewController(arrangementViewController, animated: true)
+                return
+            }
+        }
+
         navigationController?.pushViewController(collectionViewController, animated: true)
     }
 
@@ -2277,7 +2491,7 @@ extension MediaCategoryViewController {
             return .init(width: collectionView.safeAreaLayoutGuide.layoutFrame.width, height: 40)
         }
 
-        guard showsArtworkHeader else {
+        guard showsArtworkHeader, !isArtworkPaneVisible else {
             return .init(width: 0, height: 0)
         }
 
@@ -2504,6 +2718,20 @@ extension MediaCategoryViewController: UICollectionViewDelegateFlowLayout {
     }
 }
 
+// MARK: - VLCArrangementViewControllerDelegate
+
+@available(iOS 27.1, visionOS 27.1, *)
+extension MediaCategoryViewController: VLCArrangementViewControllerDelegate {
+    func arrangementViewController(_ arrangementViewController: VLCArrangementViewController,
+                                   didChangeSecondaryVisibility secondaryVisible: Bool) {
+        isArtworkPaneVisible = secondaryVisible
+        collectionViewTopConstraint?.constant = -artworkHeaderTopOffset
+        cachedCellSize = .zero
+        collectionView?.collectionViewLayout.invalidateLayout()
+        updateArtworkHeader()
+    }
+}
+
 // MARK: - Layout and sort options
 
 extension MediaCategoryViewController {
@@ -2519,21 +2747,21 @@ extension MediaCategoryViewController {
         var isVideoModel = false
 
         if isFolder {
-            // Set UserDefaults for folder grid layout based on isAudio flag
-            if let folderModel = model as? FolderModel {
-                if folderModel.isAudio {
-                    UserDefaults.standard.set(gridLayout, forKey: "\(kVLCAudioLibraryGridLayout)FOLDER_AUDIO\(model.name)")
-                } else {
-                    UserDefaults.standard.set(gridLayout, forKey: "\(kVLCVideoLibraryGridLayout)FOLDER_VIDEO\(model.name)")
+            if !(model is FolderModel) {
+                if model is MediaGroupViewModel {
+                    secondModel = model
                 }
-            } else {
-                secondModel = model
                 model = FolderModel(medialibrary: self.mediaLibraryService, isAudio: false,
                                     folder: mediaLibraryService.baseFolder())
             }
         } else if model is FolderModel && secondModel is MediaGroupViewModel {
-            model = secondModel
-            secondModel = VideoModel(medialibrary: mediaLibraryService)
+            if userDefaults.bool(forKey: kVLCSettingsDisableGrouping) {
+                model = VideoModel(medialibrary: mediaLibraryService)
+            } else {
+                model = secondModel
+                secondModel = VideoModel(medialibrary: mediaLibraryService)
+            }
+            loadSort()
         }
 
         if let model = model as? CollectionModel {
@@ -2546,12 +2774,9 @@ extension MediaCategoryViewController {
         }
 
         prefix = isVideoModel ? kVLCVideoLibraryGridLayout : kVLCAudioLibraryGridLayout
-        if model is FolderModel || (model is MediaGroupViewModel && userDefaults.bool(forKey: KVLCFolderViewLayout)) {
-            if isVideoModel {
-                prefix = "\(kVLCAudioLibraryGridLayout)FOLDER_VIDEO"
-            } else {
-                prefix = "\(kVLCAudioLibraryGridLayout)FOLDER_AUDIO"
-            }
+        if let folderModel = model as? FolderModel {
+            prefix = folderModel.isAudio ? "\(kVLCAudioLibraryGridLayout)FOLDER_AUDIO"
+                                         : "\(kVLCVideoLibraryGridLayout)FOLDER_VIDEO"
         }
         suffix = collectionModelName + model.name
         userDefaults.set(gridLayout, forKey: "\(prefix)\(suffix)")
@@ -2621,6 +2846,10 @@ extension MediaCategoryViewController: EditControllerDelegate {
     }
 
     func editControllerGetArtworkHeaderSize(with width: CGFloat) -> CGSize {
+        if isArtworkPaneVisible {
+            return .zero
+        }
+
         return artworkHeaderLayout.getHeaderSize(with: width)
     }
 
@@ -2640,19 +2869,19 @@ extension MediaCategoryViewController: EditControllerDelegate {
             } else if let controller = navigationController?.viewControllers.last as? VideoViewController {
                 controller.resetTitleView()
                 return
-            } else if let controller = navigationController?.viewControllers.last as? CollectionCategoryViewController,
+            } else if let controller = navigationController?.topCollectionCategoryViewController,
                       let model = controller.model as? CollectionModel,
                       let collection = model.mediaCollection as? VLCMLAlbum {
                 newTitle = collection.albumName()
-            } else if let controller = navigationController?.viewControllers.last as? CollectionCategoryViewController,
+            } else if let controller = navigationController?.topCollectionCategoryViewController,
                       let model = controller.model as? CollectionModel,
                       let collection = model.mediaCollection as? VLCMLGenre {
                 newTitle = collection.title()
-            } else if let controller = navigationController?.viewControllers.last as? CollectionCategoryViewController,
+            } else if let controller = navigationController?.topCollectionCategoryViewController,
                       let model = controller.model as? CollectionModel,
                       let collection = model.mediaCollection as? VLCMLPlaylist {
                 newTitle = collection.title()
-            } else if let controller = navigationController?.viewControllers.last as? CollectionCategoryViewController,
+            } else if let controller = navigationController?.topCollectionCategoryViewController,
                       let model = controller.model as? CollectionModel,
                       let collection = model.mediaCollection as? VLCMLMediaGroup {
                 newTitle = collection.title()

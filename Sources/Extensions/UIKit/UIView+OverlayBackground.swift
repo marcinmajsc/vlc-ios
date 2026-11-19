@@ -12,20 +12,22 @@
 
 import UIKit
 
-extension UIView {
-    static func makeOverlayBackgroundView() -> UIView {
+extension UIVisualEffectView {
+    func applyOverlayBackgroundStyle() {
         if UIAccessibility.isReduceTransparencyEnabled {
-            let view = UIView()
-            view.backgroundColor = PresentationTheme.currentExcludingWhite.colors.background
-            return view
+            effect = nil
+            backgroundColor = PresentationTheme.currentExcludingWhite.colors.background
+            return
         }
 
+        backgroundColor = .clear
 #if !os(visionOS)
         if #available(iOS 26.0, *) {
-            return UIVisualEffectView(effect: UIGlassEffect())
+            effect = UIGlassEffect()
+            return
         }
 #endif
 
-        return UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+        effect = UIBlurEffect(style: .systemChromeMaterialDark)
     }
 }

@@ -2,8 +2,8 @@
  * VideoPlayerViewController+ControlsDelegate.swift
  * VLC for iOS
  *****************************************************************************
- * Copyright © 2020 VideoLAN. All rights reserved.
- * Copyright © 2020 Videolabs
+ * Copyright © 2020-2026 VideoLAN. All rights reserved.
+ * Copyright © 2020-2026 Videolabs
  *
  * Authors: Soomin Lee <bubu # mikan.io>
  *          Diogo Simao Marques <dogo@videolabs.io>
@@ -42,10 +42,6 @@ extension VideoPlayerViewController: VideoPlayerControlsDelegate {
     func videoPlayerControlsDelegateRepeat(_ videoPlayerControls: VideoPlayerControls) {
         playbackService.toggleRepeatMode()
         self.playModeUpdated()
-    }
-
-    func videoPlayerControlsDelegateDidTapDVD(_ videoPlayerControls: VideoPlayerControls) {
-        // Not DVD support yet.
     }
 
     func getInterfaceOrientationMask(orientation: UIInterfaceOrientation) -> UIInterfaceOrientationMask {
@@ -116,11 +112,8 @@ extension VideoPlayerViewController: VideoPlayerControlsDelegate {
         playbackService.switchAspectRatio(false)
     }
 
-    func videoPlayerControlsDelegateDidLongPressAspectRatio(_ videoPlayerControls: VideoPlayerControls) {
-        present(aspectRatioActionSheet, animated: false) {
-            let selectedIndexPath = IndexPath(row: self.playbackService.currentAspectRatio, section: 0)
-            self.aspectRatioActionSheet.collectionView.selectItem(at: selectedIndexPath, animated: false, scrollPosition: .centeredVertically)
-        }
+    func videoPlayerControlsDelegateDidTapRotate(_ videoPlayerControls: VideoPlayerControls) {
+        mediaNavigationBar.toggleOrientation()
     }
 
     func videoPlayerControlsDelegateShuffle(_ videoPlayerControls: VideoPlayerControls) {
@@ -130,14 +123,6 @@ extension VideoPlayerViewController: VideoPlayerControlsDelegate {
         } else {
             playbackService.isShuffleMode = true
             videoPlayerControls.shuffleButton.tintColor = PresentationTheme.current.colors.orangeUI
-        }
-    }
-
-    func videoPlayerControlsDelegateDidMoreActions(_ videoPlayerControls: VideoPlayerControls) {
-        present(moreOptionsActionSheet, animated: false) {
-            [unowned self] in
-            self.moreOptionsActionSheet.interfaceDisabled = self.playerController.isInterfaceLocked
-            self.moreOptionsActionSheet.hidePlayer()
         }
     }
 }

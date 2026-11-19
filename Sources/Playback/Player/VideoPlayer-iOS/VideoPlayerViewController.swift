@@ -36,6 +36,10 @@ class VideoPlayerViewController: PlayerViewController {
     /// to be able to restore playback speed to its previous state after long press ended.
     private var previousPlaybackSpeed: Float?
 
+#if os(iOS) && canImport(MediaIntents) // iOS 27 SDK
+    private var externalDisplayRegistration: AnyObject?
+#endif
+
     // MARK: - 360
 
     private var fov: CGFloat = 0
@@ -69,14 +73,26 @@ class VideoPlayerViewController: PlayerViewController {
 
     // MARK: - UI elements
 
-    override var canBecomeFirstResponder: Bool {
-        return true
-    }
-
     private var idleTimer: Timer?
+
+    private var isQueueCardShown = false
+
+    private static let queueCardSpacing: CGFloat = 12
+
+    private var queueCardConstraints: [NSLayoutConstraint] = []
+
+    private let queueCardTransportAreaGuide = UILayoutGuide()
+
+    var isCompactPortraitLayout: Bool {
+        return isBookLayout
+            || (traitCollection.horizontalSizeClass == .compact && traitCollection.verticalSizeClass == .regular)
+    }
 
 #if os(iOS)
     override var prefersStatusBarHidden: Bool {
+        if isViewLoaded && mediaNavigationBarLayout.placement == .besideCamera {
+            return true
+        }
         if UIDevice.current.userInterfaceIdiom == UIUserInterfaceIdiom.pad && !playerController.isControlsHidden {
             return false
         }
@@ -113,12 +129,8 @@ class VideoPlayerViewController: PlayerViewController {
     }()
 
     private(set) lazy var videoPlayerControls: VideoPlayerControls = {
-        let videoPlayerControls = Bundle.main.loadNibNamed("VideoPlayerControls",
-                                                           owner: nil,
-                                                           options: nil)?.first as! VideoPlayerControls
-        videoPlayerControls.translatesAutoresizingMaskIntoConstraints = false
+        let videoPlayerControls = VideoPlayerControls()
         videoPlayerControls.setupAccessibility()
-        videoPlayerControls.setupLongPressGestureRecognizer()
         videoPlayerControls.delegate = self
         let isIPad = UIDevice.current.userInterfaceIdiom == UIUserInterfaceIdiom.pad
         if isIPad {
@@ -130,15 +142,6 @@ class VideoPlayerViewController: PlayerViewController {
             videoPlayerControls.rotationLockButton.tintColor = .white
         }
         return videoPlayerControls
-    }()
-
-    private(set) lazy var aspectRatioActionSheet: MediaPlayerActionSheet = {
-        var aspectRatioActionSheet = MediaPlayerActionSheet()
-        aspectRatioActionSheet.dataSource = self
-        aspectRatioActionSheet.delegate = self
-        aspectRatioActionSheet.modalPresentationStyle = .custom
-        aspectRatioActionSheet.numberOfColums = 2
-        return aspectRatioActionSheet
     }()
 
     // Intent for the next external-file pick: true = audio, false = subtitle, nil = decide by extension.
@@ -166,13 +169,15 @@ class VideoPlayerViewController: PlayerViewController {
         let topBottomBackgroundGradientLayer = CAGradientLayer()
 
         topBottomBackgroundGradientLayer.frame = self.view.bounds
-        topBottomBackgroundGradientLayer.colors = [UIColor.black.cgColor,
+        topBottomBackgroundGradientLayer.colors = [UIColor.black.withAlphaComponent(0.5).cgColor,
                                                    UIColor.clear.cgColor,
                                                    UIColor.clear.cgColor,
-                                                   UIColor.black.cgColor]
-        topBottomBackgroundGradientLayer.locations = [0, 0.3, 0.7, 1]
+                                                   UIColor.black.withAlphaComponent(0.55).cgColor]
         return topBottomBackgroundGradientLayer
     }()
+
+    private static let topScrimHeight: CGFloat = 120
+    private static let bottomScrimHeight: CGFloat = 150
 
     private lazy var backgroundGradientView: UIView = {
         let backgroundGradientView = UIView()
@@ -270,32 +275,113 @@ class VideoPlayerViewController: PlayerViewController {
         videoPlayerControls.heightAnchor.constraint(equalToConstant: 44)
     }()
 
-    private lazy var videoPlayerControlsBottomConstraint: NSLayoutConstraint = {
-        videoPlayerControls.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor,
-                                                    constant: -5)
-    }()
-
     private let videoAreaLayoutGuide = UILayoutGuide()
 
     private lazy var videoAreaBottomConstraint: NSLayoutConstraint = {
         videoAreaLayoutGuide.bottomAnchor.constraint(equalTo: view.bottomAnchor)
     }()
 
+    private let interfaceAreaLayoutGuide = UILayoutGuide()
+
+    private lazy var interfaceAreaLeadingConstraint: NSLayoutConstraint = {
+        interfaceAreaLayoutGuide.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+    }()
+
+    private let safeInterfaceAreaLayoutGuide = UILayoutGuide()
+
+    private var isBookLayout = false
+
+    private let controlsAreaLayoutGuide = UILayoutGuide()
+
+    private lazy var controlsAreaTopConstraint: NSLayoutConstraint = {
+        controlsAreaLayoutGuide.topAnchor.constraint(equalTo: view.topAnchor)
+    }()
+
     private static let mediaNavigationBarTopPadding: CGFloat = 16
 
-    private lazy var mediaNavigationBarTopConstraint: NSLayoutConstraint = {
-        mediaNavigationBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor,
-                                                constant: VideoPlayerViewController.mediaNavigationBarTopPadding)
+    private lazy var mediaNavigationBarLayout = MediaNavigationBarLayout(
+        navigationBar: mediaNavigationBar,
+        container: view,
+        leftAnchor: controlsAreaLayoutGuide.leftAnchor,
+        rightAnchor: controlsAreaLayoutGuide.rightAnchor,
+        horizontalInset: 0,
+        topPadding: VideoPlayerViewController.mediaNavigationBarTopPadding)
+
+    let queueCardBottomLayoutGuide = UILayoutGuide()
+
+    private lazy var bottomRowRegularConstraints: [NSLayoutConstraint] = [
+        videoPlayerControls.rightAnchor.constraint(equalTo: controlsAreaLayoutGuide.rightAnchor),
+        videoPlayerControls.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+        queueCardBottomLayoutGuide.bottomAnchor.constraint(equalTo: videoPlayerControls.bottomAnchor),
+    ]
+
+    private lazy var videoPlayerControlsBesideCameraCenterYConstraint: NSLayoutConstraint = {
+        let constraint = videoPlayerControls.centerYAnchor.constraint(equalTo: view.topAnchor)
+        constraint.priority = .required - 1
+        return constraint
     }()
 
-    private lazy var mediaNavigationBarTabletopTopConstraint: NSLayoutConstraint = {
-        mediaNavigationBar.topAnchor.constraint(equalTo: view.topAnchor)
+    private lazy var videoPlayerControlsBesideCameraRightConstraint: NSLayoutConstraint = {
+        videoPlayerControls.rightAnchor.constraint(equalTo: view.leftAnchor)
     }()
 
-    private var regularSliderConstraints: [NSLayoutConstraint] = []
-    private var tabletopSliderConstraints: [NSLayoutConstraint] = []
+    private lazy var queueCardAboveCameraBottomConstraint: NSLayoutConstraint = {
+        queueCardBottomLayoutGuide.bottomAnchor.constraint(equalTo: view.topAnchor)
+    }()
 
-    private var isTabletopLayout = false
+    private lazy var bottomRowBesideCameraConstraints: [NSLayoutConstraint] = [
+        videoPlayerControlsBesideCameraRightConstraint,
+        videoPlayerControlsBesideCameraCenterYConstraint,
+        videoPlayerControls.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor),
+        queueCardAboveCameraBottomConstraint,
+    ]
+
+    private var isBottomRowBesideCamera = false
+
+    private lazy var transportControlsCenterXConstraint: NSLayoutConstraint = {
+        videoPlayerControls.transportControls.centerXAnchor.constraint(equalTo: interfaceAreaLayoutGuide.centerXAnchor)
+    }()
+
+    private lazy var transportControlsCenterYConstraint: NSLayoutConstraint = {
+        videoPlayerControls.transportControls.centerYAnchor.constraint(equalTo: controlsAreaLayoutGuide.centerYAnchor)
+    }()
+
+    private lazy var transportControlsAboveScrubBarConstraint: NSLayoutConstraint = {
+        // Limit height relative to the fixed bar; the scrub bar expands during scrubbing.
+        let constraint = videoPlayerControls.transportControls.bottomAnchor.constraint(
+            lessThanOrEqualTo: videoPlayerControls.topAnchor, constant: -68)
+        constraint.priority = .required - 1
+        return constraint
+    }()
+
+    private static let controlsMinimumMargin: CGFloat = 16
+
+    private static let scrubProgressBarSpacing: CGFloat = 12
+
+    private lazy var scrubProgressBarRightInRowConstraint: NSLayoutConstraint = {
+        mediaScrubProgressBar.rightAnchor.constraint(equalTo: videoPlayerControls.rightControls.leftAnchor,
+                                                     constant: -Self.scrubProgressBarSpacing)
+    }()
+
+    private lazy var scrubProgressBarLeftInRowConstraint: NSLayoutConstraint = {
+        mediaScrubProgressBar.leftAnchor.constraint(equalTo: videoPlayerControls.leftControls.rightAnchor,
+                                                    constant: Self.scrubProgressBarSpacing)
+    }()
+
+    private lazy var scrubProgressBarInRowConstraints: [NSLayoutConstraint] = [
+        scrubProgressBarLeftInRowConstraint,
+        scrubProgressBarRightInRowConstraint,
+        mediaScrubProgressBar.bottomAnchor.constraint(equalTo: videoPlayerControls.bottomAnchor),
+    ]
+
+    private lazy var scrubProgressBarAboveRowConstraints: [NSLayoutConstraint] = [
+        mediaScrubProgressBar.leftAnchor.constraint(equalTo: videoPlayerControls.leftAnchor),
+        mediaScrubProgressBar.rightAnchor.constraint(equalTo: videoPlayerControls.rightAnchor),
+        mediaScrubProgressBar.bottomAnchor.constraint(equalTo: videoPlayerControls.topAnchor,
+                                                      constant: -Self.scrubProgressBarSpacing),
+    ]
+
+    private var isScrubProgressBarAboveRow = false
 
     // MARK: - Init methods
 
@@ -336,6 +422,7 @@ class VideoPlayerViewController: PlayerViewController {
         mediaScrubProgressBar.updateInterfacePosition()
 
         setControlsHidden(false, animated: false)
+        videoPlayerControls.updateSkipButtonImages(backwardBy: seekBackwardBy, forwardBy: seekForwardBy)
 
         // Make sure interface is enabled on
         setPlayerInterfaceEnabled(true)
@@ -343,9 +430,7 @@ class VideoPlayerViewController: PlayerViewController {
         artworkImageView.setImage(nil, placeholderName: nil)
         // FIXME: Test userdefault
 #if os(iOS)
-        let rendererDiscoverer = rendererDiscovererManager
-        rendererDiscoverer.presentingViewController = self
-        rendererDiscoverer.delegate = self
+        rendererDiscovererManager.delegate = self
 #endif
 
         var color: UIColor = .white
@@ -359,7 +444,6 @@ class VideoPlayerViewController: PlayerViewController {
         }
 
         mediaNavigationBar.updateDeviceButton(with: image, color: color)
-        mediaNavigationBar.rotateButton.isHidden = false
 
         adaptVideoOutputToNotch()
 
@@ -385,7 +469,6 @@ class VideoPlayerViewController: PlayerViewController {
         // Media is loaded in the media player, checking the projection type and configuring accordingly.
         setupForMediaProjection()
 
-        moreOptionsActionSheet.updateThemes()
         gameControllerManager.startMonitoring()
     }
 
@@ -398,62 +481,99 @@ class VideoPlayerViewController: PlayerViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        topBottomBackgroundGradientLayer.frame = self.view.bounds
+        let interfaceAreaFrame = interfaceAreaLayoutGuide.layoutFrame
+        topBottomBackgroundGradientLayer.frame = interfaceAreaFrame
+        let height = view.bounds.height
+        if height > 0 {
+            let topScrimEnd = min(VideoPlayerViewController.topScrimHeight / height, 0.5)
+            let bottomScrimStart = max(1 - VideoPlayerViewController.bottomScrimHeight / height, 0.5)
+            topBottomBackgroundGradientLayer.locations = [0, topScrimEnd as NSNumber, bottomScrimStart as NSNumber, 1]
+        }
 #if os(iOS)
-        brightnessBackgroundGradientLayer.frame = self.view.bounds
-        volumeBackgroundGradientLayer.frame = self.view.bounds
+        brightnessBackgroundGradientLayer.frame = interfaceAreaFrame
+        volumeBackgroundGradientLayer.frame = interfaceAreaFrame
 
         // The fold has no change notification, so it is checked on each layout pass.
-        updateTabletopLayout()
+        updateReservedRegionLayout()
 #endif
     }
 
 #if os(iOS)
-    private var tabletopFoldFrame: CGRect? {
-        guard #available(iOS 27.1, *),
-              let kindClass = NSClassFromString("UIViewReservedRegionKind") as AnyObject?,
-              kindClass.responds(to: NSSelectorFromString("divisionRegionKind")),
-              let kind = kindClass.perform(NSSelectorFromString("divisionRegionKind"))?.takeUnretainedValue(),
-              view.responds(to: NSSelectorFromString("reservedRegionsOfKind:")),
-              let regions = view.perform(NSSelectorFromString("reservedRegionsOfKind:"), with: kind)?
-                .takeUnretainedValue() as? [NSObject] else {
-            return nil
-        }
-
+    private var bottomRightCameraRegion: (frame: CGRect, margins: UIEdgeInsets)? {
         let bounds = view.bounds
-        return regions
-            .filter { $0.value(forKey: "active") as? Bool ?? false }
-            .compactMap { ($0.value(forKey: "frame") as? NSValue)?.cgRectValue }
-            .first { $0.width > $0.height && $0.minY > bounds.minY && $0.maxY < bounds.maxY }
+        return activeReservedRegions(ofKind: "occlusionRegionKind")
+            .first {
+                $0.frame.maxY >= bounds.maxY && $0.frame.inset(by: $0.margins).minY > bounds.midY
+                    && $0.frame.minX > bounds.midX
+            }
     }
 
-    private func updateTabletopLayout() {
+    private func updateReservedRegionLayout() {
         let foldFrame = tabletopFoldFrame
+        let bookFold = bookFoldFrame
+        let isRightToLeft = view.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        let usesLeftHalf = bookFold == nil || isRightToLeft
+        let usesRightHalf = bookFold == nil || !isRightToLeft
+        let bottomCameraRegion = foldFrame == nil && usesRightHalf ? bottomRightCameraRegion : nil
         let videoAreaBottomConstant = foldFrame.map { $0.minY - view.bounds.maxY } ?? 0
-        let navigationBarTopConstant = foldFrame.map {
-            $0.maxY + VideoPlayerViewController.mediaNavigationBarTopPadding
+        let controlsAreaTopConstant = foldFrame?.maxY ?? 0
+        let interfaceAreaLeadingConstant = bookFold.map {
+            isRightToLeft ? view.bounds.maxX - $0.minX : $0.maxX
         } ?? 0
 
         if videoAreaBottomConstraint.constant != videoAreaBottomConstant {
             videoAreaBottomConstraint.constant = videoAreaBottomConstant
         }
 
-        if mediaNavigationBarTabletopTopConstraint.constant != navigationBarTopConstant {
-            mediaNavigationBarTabletopTopConstraint.constant = navigationBarTopConstant
+        if interfaceAreaLeadingConstraint.constant != interfaceAreaLeadingConstant {
+            interfaceAreaLeadingConstraint.constant = interfaceAreaLeadingConstant
         }
 
-        let isTabletop = foldFrame != nil
-        guard isTabletop != isTabletopLayout else {
-            return
+        if controlsAreaTopConstraint.constant != controlsAreaTopConstant {
+            controlsAreaTopConstraint.constant = controlsAreaTopConstant
         }
 
-        isTabletopLayout = isTabletop
-        if isTabletop {
-            NSLayoutConstraint.deactivate([mediaNavigationBarTopConstraint] + regularSliderConstraints)
-            NSLayoutConstraint.activate([mediaNavigationBarTabletopTopConstraint] + tabletopSliderConstraints)
-        } else {
-            NSLayoutConstraint.deactivate([mediaNavigationBarTabletopTopConstraint] + tabletopSliderConstraints)
-            NSLayoutConstraint.activate([mediaNavigationBarTopConstraint] + regularSliderConstraints)
+        if let bottomCameraRegion {
+            let cameraCenterY = bottomCameraRegion.frame.inset(by: bottomCameraRegion.margins).midY
+            if videoPlayerControlsBesideCameraCenterYConstraint.constant != cameraCenterY {
+                videoPlayerControlsBesideCameraCenterYConstraint.constant = cameraCenterY
+            }
+
+            if videoPlayerControlsBesideCameraRightConstraint.constant != bottomCameraRegion.frame.minX {
+                videoPlayerControlsBesideCameraRightConstraint.constant = bottomCameraRegion.frame.minX
+            }
+
+            if queueCardAboveCameraBottomConstraint.constant != bottomCameraRegion.frame.minY {
+                queueCardAboveCameraBottomConstraint.constant = bottomCameraRegion.frame.minY
+            }
+        }
+
+        let isBesideCamera = bottomCameraRegion != nil
+        if isBesideCamera != isBottomRowBesideCamera {
+            isBottomRowBesideCamera = isBesideCamera
+            if isBesideCamera {
+                NSLayoutConstraint.deactivate(bottomRowRegularConstraints)
+                NSLayoutConstraint.activate(bottomRowBesideCameraConstraints)
+            } else {
+                NSLayoutConstraint.deactivate(bottomRowBesideCameraConstraints)
+                NSLayoutConstraint.activate(bottomRowRegularConstraints)
+            }
+        }
+
+        let isBookFold = bookFold != nil
+        if isBookFold != isBookLayout {
+            isBookLayout = isBookFold
+            if isQueueCardShown && isCompactPortraitLayout != isScrubProgressBarAboveRow {
+                queueViewController?.dismissPlayqueue()
+            }
+            updateScrubProgressBarPlacement()
+        }
+
+        if mediaNavigationBarLayout.update(tabletopFold: foldFrame,
+                                           camera: usesLeftHalf ? topLeftCameraRegion : nil,
+                                           statusBar: usesRightHalf ? topRightCameraRegion : nil,
+                                           statusBarCenterY: topBarLayoutGuide?.layoutFrame.midY) {
+            setNeedsStatusBarAppearanceUpdate()
         }
     }
 #endif
@@ -475,8 +595,8 @@ class VideoPlayerViewController: PlayerViewController {
         }
 
 #if os(iOS)
-        volumeControlView.alpha = 0
-        brightnessControlView.alpha = 0
+        volumeControlView.setVisible(false)
+        brightnessControlView.setVisible(false)
 #endif
     }
 
@@ -495,9 +615,23 @@ class VideoPlayerViewController: PlayerViewController {
 #if os(iOS)
         setupRendererDiscoverer()
 #endif
+#if os(iOS) && canImport(MediaIntents) // iOS 27 SDK
+        setupExternalDisplayAccessory()
+#endif
     }
 
     // MARK: - Setup methods
+
+#if os(iOS) && canImport(MediaIntents) // iOS 27 SDK
+    private func setupExternalDisplayAccessory() {
+        guard #available(iOS 27.0, *) else {
+            return
+        }
+        let configuration = UISceneConfiguration(name: "VLCNonInteractiveWindowScene",
+                                                 sessionRole: .windowExternalDisplayNonInteractive)
+        externalDisplayRegistration = registerSceneAccessory(.externalNonInteractive(sceneConfiguration: configuration))
+    }
+#endif
 
     private func setupViews() {
         view.backgroundColor = .black
@@ -514,6 +648,10 @@ class VideoPlayerViewController: PlayerViewController {
         view.addSubview(switchControlUtility)
         view.addSubview(optionsNavigationBar)
         view.addSubview(videoPlayerControls)
+        videoPlayerControls.moreActionsButton.delegate = self
+        setupMoreOptionsMenu()
+        videoPlayerControls.aspectRatioButton.delegate = self
+        setupAspectRatioMenu()
         view.addSubview(mediaScrubProgressBar)
         view.addSubview(videoOutputView)
 #if os(iOS)
@@ -522,6 +660,8 @@ class VideoPlayerViewController: PlayerViewController {
 #endif
         view.addSubview(externalVideoOutputView)
         view.addSubview(coneLoadingView)
+        // Keep the external-display panel and loading cone from intercepting transport taps.
+        view.addSubview(videoPlayerControls.transportControls)
         view.addSubview(statusLabel)
         view.addSubview(longPressPlaybackSpeedView)
 
@@ -542,19 +682,30 @@ class VideoPlayerViewController: PlayerViewController {
             )
 
         } else {
+            let queueCardView = isQueueCardShown ? queueViewController?.view : nil
+            let scrubProgressBarAboveRow = isScrubProgressBarAboveRow ? mediaScrubProgressBar : nil
+            let scrubProgressBarInRow = isScrubProgressBarAboveRow ? nil : mediaScrubProgressBar
 #if os(iOS)
             view.applyAccessibilityControls(
-                videoPlayerControls,
-                mediaScrubProgressBar,
+                mediaNavigationBar,
+                queueCardView,
+                videoPlayerControls.transportControls,
+                scrubProgressBarAboveRow,
+                videoPlayerControls.leftControls,
+                scrubProgressBarInRow,
+                videoPlayerControls.rightControls,
                 volumeControlView,
-                brightnessControlView,
-                mediaNavigationBar
+                brightnessControlView
             )
 #else
             view.applyAccessibilityControls(
-                videoPlayerControls,
-                mediaScrubProgressBar,
-                mediaNavigationBar
+                mediaNavigationBar,
+                queueCardView,
+                videoPlayerControls.transportControls,
+                scrubProgressBarAboveRow,
+                videoPlayerControls.leftControls,
+                scrubProgressBarInRow,
+                videoPlayerControls.rightControls
             )
 #endif
 
@@ -613,15 +764,22 @@ class VideoPlayerViewController: PlayerViewController {
         view.addGestureRecognizer(downSwipeRecognizer)
         view.addGestureRecognizer(longPressGestureRecognizer)
         view.addGestureRecognizer(snapshotTapRecognizer)
+
+        for recognizer in [tapOnVideoRecognizer, doubleTapGestureRecognizer, longPressGestureRecognizer, panRecognizer] {
+            recognizer.delegate = self
+        }
     }
 
     private func setupConstraints() {
         setupVideoAreaLayoutGuide()
+        setupInterfaceAreaLayoutGuides()
+        setupControlsAreaLayoutGuide()
         setupVideoOutputConstraints()
         setupArtworkConstraints()
         setupSwitchControlUtilityConstraints()
         setupExternalVideoOutputConstraints()
         setupVideoPlayerControlsConstraints()
+        setupTransportControlsConstraints()
         setupMediaNavigationBarConstraints()
         setupScrubProgressBarConstraints()
 #if os(iOS)
@@ -635,14 +793,6 @@ class VideoPlayerViewController: PlayerViewController {
 
 #if os(iOS)
     private func setupRendererDiscoverer() {
-        rendererButton = rendererDiscovererManager.setupRendererButton()
-        rendererButton.tintColor = .white
-        if playbackService.renderer != nil {
-            rendererButton.isSelected = true
-        }
-
-        mediaNavigationBar.chromeCastButton = rendererButton
-
         rendererDiscovererManager.addSelectionHandler {
             rendererItem in
             if rendererItem != nil {
@@ -675,8 +825,8 @@ class VideoPlayerViewController: PlayerViewController {
     private func setupCommonSliderConstraints(for slider: UIView) {
         let heightConstraint = slider.heightAnchor.constraint(lessThanOrEqualToConstant: 170)
         let topConstraint = slider.topAnchor.constraint(greaterThanOrEqualTo: mediaNavigationBar.bottomAnchor, constant: 10)
-        let bottomConstraint = slider.bottomAnchor.constraint(lessThanOrEqualTo: mediaScrubProgressBar.topAnchor, constant: -16)
-        let yConstraint = slider.centerYAnchor.constraint(equalTo: videoAreaLayoutGuide.centerYAnchor)
+        let bottomConstraint = slider.bottomAnchor.constraint(lessThanOrEqualTo: videoPlayerControls.topAnchor, constant: -16)
+        let yConstraint = slider.centerYAnchor.constraint(equalTo: controlsAreaLayoutGuide.centerYAnchor)
         heightConstraint.priority = .required
         topConstraint.priority = .required
         bottomConstraint.priority = .required
@@ -685,14 +835,8 @@ class VideoPlayerViewController: PlayerViewController {
             heightConstraint,
             topConstraint,
             bottomConstraint,
-            slider.widthAnchor.constraint(equalToConstant: 50),
+            slider.widthAnchor.constraint(equalToConstant: SliderInfoView.width),
             yConstraint,
-        ])
-
-        regularSliderConstraints.append(topConstraint)
-        tabletopSliderConstraints.append(contentsOf: [
-            slider.topAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
-            slider.bottomAnchor.constraint(lessThanOrEqualTo: videoAreaLayoutGuide.bottomAnchor, constant: -16),
         ])
     }
 
@@ -701,21 +845,17 @@ class VideoPlayerViewController: PlayerViewController {
 #if os(iOS)
     private func setupBrightnessControlConstraints() {
         setupCommonSliderConstraints(for: brightnessControlView)
-        let belowOptionsConstraint = brightnessControlView.topAnchor.constraint(greaterThanOrEqualTo: optionsNavigationBar.bottomAnchor)
-        regularSliderConstraints.append(belowOptionsConstraint)
         NSLayoutConstraint.activate([
-            brightnessControlView.leadingAnchor.constraint(equalTo: mediaScrubProgressBar.leadingAnchor),
-            belowOptionsConstraint
+            brightnessControlView.leadingAnchor.constraint(equalTo: controlsAreaLayoutGuide.leadingAnchor),
+            brightnessControlView.topAnchor.constraint(greaterThanOrEqualTo: optionsNavigationBar.bottomAnchor)
         ])
     }
 
     private func setupVolumeControlConstraints() {
         setupCommonSliderConstraints(for: volumeControlView)
-        let belowOptionsConstraint = volumeControlView.topAnchor.constraint(greaterThanOrEqualTo: optionsNavigationBar.bottomAnchor)
-        regularSliderConstraints.append(belowOptionsConstraint)
         NSLayoutConstraint.activate([
-            volumeControlView.trailingAnchor.constraint(equalTo: mediaScrubProgressBar.trailingAnchor),
-            belowOptionsConstraint
+            volumeControlView.trailingAnchor.constraint(equalTo: controlsAreaLayoutGuide.trailingAnchor),
+            volumeControlView.topAnchor.constraint(greaterThanOrEqualTo: optionsNavigationBar.bottomAnchor)
         ])
     }
 #endif
@@ -727,6 +867,50 @@ class VideoPlayerViewController: PlayerViewController {
             videoAreaLayoutGuide.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             videoAreaLayoutGuide.topAnchor.constraint(equalTo: view.topAnchor),
             videoAreaBottomConstraint,
+        ])
+    }
+
+    private func setupInterfaceAreaLayoutGuides() {
+        view.addLayoutGuide(interfaceAreaLayoutGuide)
+        view.addLayoutGuide(safeInterfaceAreaLayoutGuide)
+        let safeArea = view.safeAreaLayoutGuide
+        let safeLeadingConstraint = safeInterfaceAreaLayoutGuide.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor)
+        safeLeadingConstraint.priority = .defaultHigh
+
+        NSLayoutConstraint.activate([
+            interfaceAreaLeadingConstraint,
+            interfaceAreaLayoutGuide.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            interfaceAreaLayoutGuide.topAnchor.constraint(equalTo: view.topAnchor),
+            interfaceAreaLayoutGuide.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            safeLeadingConstraint,
+            safeInterfaceAreaLayoutGuide.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor),
+            safeInterfaceAreaLayoutGuide.leadingAnchor.constraint(greaterThanOrEqualTo: interfaceAreaLayoutGuide.leadingAnchor),
+            safeInterfaceAreaLayoutGuide.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor),
+            safeInterfaceAreaLayoutGuide.topAnchor.constraint(equalTo: safeArea.topAnchor),
+            safeInterfaceAreaLayoutGuide.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor),
+        ])
+    }
+
+    private func setupControlsAreaLayoutGuide() {
+        view.addLayoutGuide(controlsAreaLayoutGuide)
+        let minimumMargin = Self.controlsMinimumMargin
+        let safeArea = view.safeAreaLayoutGuide
+        let leadingConstraint = controlsAreaLayoutGuide.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor)
+        let trailingConstraint = controlsAreaLayoutGuide.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor)
+        leadingConstraint.priority = .defaultHigh
+        trailingConstraint.priority = .defaultHigh
+
+        NSLayoutConstraint.activate([
+            leadingConstraint,
+            trailingConstraint,
+            controlsAreaLayoutGuide.leadingAnchor.constraint(greaterThanOrEqualTo: safeArea.leadingAnchor),
+            controlsAreaLayoutGuide.leadingAnchor.constraint(greaterThanOrEqualTo: interfaceAreaLayoutGuide.leadingAnchor,
+                                                             constant: minimumMargin),
+            controlsAreaLayoutGuide.trailingAnchor.constraint(lessThanOrEqualTo: safeArea.trailingAnchor),
+            controlsAreaLayoutGuide.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor,
+                                                              constant: -minimumMargin),
+            controlsAreaTopConstraint,
+            controlsAreaLayoutGuide.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
@@ -771,53 +955,70 @@ class VideoPlayerViewController: PlayerViewController {
 
     private func setupMediaNavigationBarConstraints() {
         let padding: CGFloat = VideoPlayerViewController.mediaNavigationBarTopPadding
+        mediaNavigationBarLayout.activate()
         NSLayoutConstraint.activate([
-            mediaNavigationBar.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            mediaNavigationBar.leadingAnchor.constraint(equalTo: videoPlayerControls.leadingAnchor, constant: -8),
-            mediaNavigationBar.trailingAnchor.constraint(equalTo: videoPlayerControls.trailingAnchor, constant: 8),
-            mediaNavigationBarTopConstraint,
             optionsNavigationBar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -padding),
             optionsNavigationBar.topAnchor.constraint(equalTo: mediaNavigationBar.bottomAnchor, constant: padding)
         ])
     }
 
     private func setupVideoPlayerControlsConstraints() {
-        let padding: CGFloat = 8
-        let minPadding: CGFloat = 5
-
+        view.addLayoutGuide(queueCardBottomLayoutGuide)
         NSLayoutConstraint.activate([
             videoPlayerControlsHeightConstraint,
-            videoPlayerControls.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor,
-                                                         constant: padding),
-            videoPlayerControls.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor,
-                                                          constant: -padding),
-            videoPlayerControls.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor,
-                                                       constant: -2 * minPadding),
-            videoPlayerControlsBottomConstraint
+            videoPlayerControls.leftAnchor.constraint(equalTo: controlsAreaLayoutGuide.leftAnchor),
+        ] + bottomRowRegularConstraints)
+    }
+
+    private func setupTransportControlsConstraints() {
+        // Keep transport buttons 8pt clear of the sliders.
+        let sliderSpace: CGFloat = Self.controlsMinimumMargin + SliderInfoView.width + 8
+        let maximumWidth = videoPlayerControls.transportControls.widthAnchor.constraint(
+            lessThanOrEqualTo: safeInterfaceAreaLayoutGuide.widthAnchor, constant: -2 * sliderSpace)
+        maximumWidth.priority = .required - 1
+
+        NSLayoutConstraint.activate([
+            transportControlsCenterXConstraint,
+            transportControlsCenterYConstraint,
+            transportControlsAboveScrubBarConstraint,
+            maximumWidth
         ])
     }
 
     private func setupScrubProgressBarConstraints() {
-        let margin: CGFloat = 12
+        NSLayoutConstraint.activate(scrubProgressBarInRowConstraints)
+        updateScrubProgressBarPlacement()
+    }
 
-        NSLayoutConstraint.activate([
-            mediaScrubProgressBar.leadingAnchor.constraint(equalTo: videoPlayerControls.leadingAnchor),
-            mediaScrubProgressBar.trailingAnchor.constraint(equalTo: videoPlayerControls.trailingAnchor),
-            mediaScrubProgressBar.bottomAnchor.constraint(equalTo: videoPlayerControls.topAnchor, constant: -margin)
-        ])
+    private func updateScrubProgressBarPlacement() {
+        let aboveRow = isCompactPortraitLayout
+        guard aboveRow != isScrubProgressBarAboveRow, !isQueueCardShown else {
+            return
+        }
+
+        isScrubProgressBarAboveRow = aboveRow
+        if aboveRow {
+            NSLayoutConstraint.deactivate(scrubProgressBarInRowConstraints)
+            NSLayoutConstraint.activate(scrubProgressBarAboveRowConstraints)
+        } else {
+            NSLayoutConstraint.deactivate(scrubProgressBarAboveRowConstraints)
+            NSLayoutConstraint.activate(scrubProgressBarInRowConstraints)
+        }
+        setupAccessibility()
     }
 
     private func setupStatusLabelConstraints() {
         NSLayoutConstraint.activate([
-            statusLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            statusLabel.centerYAnchor.constraint(equalTo: videoAreaLayoutGuide.centerYAnchor)
+            statusLabel.centerXAnchor.constraint(equalTo: interfaceAreaLayoutGuide.centerXAnchor),
+            statusLabel.bottomAnchor.constraint(equalTo: videoAreaLayoutGuide.centerYAnchor,
+                                                constant: -(VideoPlayerControls.playPauseCircleSize / 2 + 16))
         ])
     }
 
     private func setupConeLoadingViewConstraints() {
         NSLayoutConstraint.activate([
-            coneLoadingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            coneLoadingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            coneLoadingView.leadingAnchor.constraint(equalTo: interfaceAreaLayoutGuide.leadingAnchor),
+            coneLoadingView.trailingAnchor.constraint(equalTo: interfaceAreaLayoutGuide.trailingAnchor),
             coneLoadingView.topAnchor.constraint(equalTo: view.topAnchor),
             coneLoadingView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
@@ -825,7 +1026,7 @@ class VideoPlayerViewController: PlayerViewController {
 
     private func setupLongPressPlaybackSpeedConstraints() {
         NSLayoutConstraint.activate([
-            longPressPlaybackSpeedView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            longPressPlaybackSpeedView.centerXAnchor.constraint(equalTo: interfaceAreaLayoutGuide.centerXAnchor),
             longPressPlaybackSpeedView.centerYAnchor.constraint(equalTo: mediaNavigationBar.centerYAnchor)
         ])
     }
@@ -952,6 +1153,12 @@ class VideoPlayerViewController: PlayerViewController {
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        if isQueueCardShown && isCompactPortraitLayout != isScrubProgressBarAboveRow {
+            queueViewController?.dismissPlayqueue()
+        }
+
+        updateScrubProgressBarPlacement()
+
         if playbackService.isPlaying && playerController.isControlsHidden && overlayCardView == nil {
             setControlsHidden(false, animated: true)
             resetIdleTimer()
@@ -1077,25 +1284,24 @@ class VideoPlayerViewController: PlayerViewController {
             alert.dismiss(animated: true, completion: nil)
             alertController = nil
         }
-        let uiComponentOpacity: CGFloat = hidden ? 0 : 1
-
-        var qvcHidden = true
-        if let qvc = queueViewController {
-            qvcHidden = qvc.view.alpha == 0.0
+        if hidden {
+            videoPlayerControls.moreActionsButton.contextMenuInteraction?.dismissMenu()
+            videoPlayerControls.aspectRatioButton.contextMenuInteraction?.dismissMenu()
         }
+        let uiComponentOpacity: CGFloat = hidden ? 0 : 1
+        let isQueueCardShown = self.isQueueCardShown
+        let scrubProgressBarOpacity: CGFloat = hidden ? 0 : (isQueueCardShown ? PlayerControlGroupView.dimmedAlpha : 1)
 
         let animations = { [weak self, playerController] in
-            self?.mediaNavigationBar.alpha = uiComponentOpacity
-            self?.optionsNavigationBar.alpha = uiComponentOpacity
+            self?.mediaNavigationBar.setControlsVisible(!hidden, isQueueShown: isQueueCardShown)
+            self?.optionsNavigationBar.alpha = isQueueCardShown ? 0 : uiComponentOpacity
 #if os(iOS)
-            self?.volumeControlView.alpha = playerController.isVolumeGestureEnabled ? uiComponentOpacity : 0
-            self?.brightnessControlView.alpha = playerController.isBrightnessGestureEnabled ? uiComponentOpacity : 0
+            self?.volumeControlView.setVisible(!hidden && !isQueueCardShown && playerController.isVolumeGestureEnabled)
+            self?.brightnessControlView.setVisible(!hidden && !isQueueCardShown && playerController.isBrightnessGestureEnabled)
 #endif
-            if !hidden || qvcHidden {
-                self?.videoPlayerControls.alpha = uiComponentOpacity
-                self?.mediaScrubProgressBar.alpha = uiComponentOpacity
-            }
-            self?.backgroundGradientView.alpha = hidden && qvcHidden ? 0 : 1
+            self?.videoPlayerControls.setControlsVisible(!hidden, isQueueShown: isQueueCardShown)
+            self?.mediaScrubProgressBar.alpha = scrubProgressBarOpacity
+            self?.backgroundGradientView.alpha = uiComponentOpacity
 #if os(iOS)
             if hidden {
                 self?.sideBackgroundGradientView.alpha = 0
@@ -1103,9 +1309,9 @@ class VideoPlayerViewController: PlayerViewController {
 #endif
         }
 
-        let duration = animated ? 0.2 : 0
+        let duration = animated ? (hidden ? 0.3 : 0.2) : 0
         UIView.animate(withDuration: duration, delay: 0,
-                       options: .beginFromCurrentState, animations: animations,
+                       options: [.beginFromCurrentState, .curveEaseOut], animations: animations,
                        completion: { _ in
             self.switchControlUtility.alpha = hidden ? 1 : 0
             self.setupAccessibility()
@@ -1133,6 +1339,18 @@ class VideoPlayerViewController: PlayerViewController {
 
     override var areGesturesEnabled: Bool {
         return tapOnVideoRecognizer.isEnabled
+    }
+
+    override var usesInlineScrubProgressBar: Bool {
+        return true
+    }
+
+    override var moreOptionsMenuButton: MenuButton? {
+        return videoPlayerControls.moreActionsButton
+    }
+
+    override var overlayCardLayoutGuide: UILayoutGuide {
+        return safeInterfaceAreaLayoutGuide
     }
 
     override func dismissOverlayCard() {
@@ -1219,6 +1437,10 @@ class VideoPlayerViewController: PlayerViewController {
     }
 
     private func resetIdleTimer() {
+        guard !isQueueCardShown else {
+            return
+        }
+
         let intervalSetting = UserDefaults.standard
             .integer(forKey: kVLCSettingPlayerControlDuration)
 
@@ -1277,7 +1499,6 @@ class VideoPlayerViewController: PlayerViewController {
         videoPlayerControls.subtitleButton.isEnabled = enabled
         videoPlayerControls.shuffleButton.isEnabled = enabled
         videoPlayerControls.repeatButton.isEnabled = enabled
-        videoPlayerControls.dvdButton.isEnabled = enabled
         videoPlayerControls.rotationLockButton.isEnabled = enabled
         videoPlayerControls.backwardButton.isEnabled = enabled
         videoPlayerControls.previousMediaButton.isEnabled = enabled
@@ -1364,8 +1585,6 @@ extension VideoPlayerViewController {
         if let queueCollectionView = queueViewController?.queueCollectionView {
             queueCollectionView.reloadData()
         }
-
-        moreOptionsActionSheet.currentMediaHasChapters = currentMediaHasChapters
 
         if currentState == .opening {
             updateAudioInterface(with: playbackService.metadata)
@@ -1484,36 +1703,72 @@ extension VideoPlayerViewController {
     }
 
     func mediaNavigationBarDidToggleQueueView(_ mediaNavigationBar: MediaNavigationBar) {
-        if let qvc = queueViewController {
-            shouldDisableGestures(true)
-            qvc.removeFromParent()
-            qvc.view.removeFromSuperview()
-            qvc.show()
-            qvc.topView.isHidden = false
-            addChild(qvc)
-            qvc.didMove(toParent: self)
-            view.layoutIfNeeded()
-            videoPlayerControlsBottomConstraint.isActive = false
-            videoPlayerControls.bottomAnchor.constraint(equalTo: qvc.view.topAnchor,
-                                                        constant: -5).isActive = true
-            videoPlayerControls.subtitleButton.isEnabled = false
-            videoPlayerControls.rotationLockButton.isEnabled = false
-            videoPlayerControls.aspectRatioButton.isEnabled = false
-            videoPlayerControls.moreActionsButton.isEnabled = false
-            view.bringSubviewToFront(mediaScrubProgressBar)
-            view.bringSubviewToFront(videoPlayerControls)
-            setControlsHidden(true, animated: true)
-            qvc.bottomConstraint?.constant = 0
-            UIView.animate(withDuration: 0.3, animations: {
-                self.view.layoutIfNeeded()
-            })
-            qvc.delegate = self
+        guard let qvc = queueViewController else {
+            return
         }
-    }
 
-    func mediaNavigationBarDidToggleChromeCast(_ mediaNavigationBar: MediaNavigationBar) {
-        // TODO: Add current renderer functionality to chromeCast Button
-        // NSAssert(0, @"didToggleChromeCast not implemented");
+        guard !isQueueCardShown else {
+            qvc.dismissPlayqueue()
+            return
+        }
+
+        qvc.removeFromParent()
+        qvc.view.removeFromSuperview()
+        qvc.delegate = self
+        shouldDisableGestures(true)
+        idleTimer?.invalidate()
+        idleTimer = nil
+
+        isQueueCardShown = true
+        addChild(qvc)
+        qvc.didMove(toParent: self)
+        view.layoutIfNeeded()
+
+        if isCompactPortraitLayout {
+            transportControlsCenterYConstraint.isActive = false
+            queueCardConstraints = [
+                videoPlayerControls.transportControls.bottomAnchor.constraint(
+                    equalTo: videoPlayerControls.topAnchor, constant: transportControlsAboveScrubBarConstraint.constant),
+            ]
+        } else if view.effectiveUserInterfaceLayoutDirection == .rightToLeft {
+            let cardRightAnchor = qvc.view.rightAnchor
+            let transportClearOfCard = videoPlayerControls.transportControls.leftAnchor.constraint(
+                greaterThanOrEqualTo: cardRightAnchor, constant: Self.queueCardSpacing)
+            transportClearOfCard.priority = .required - 1
+            view.addLayoutGuide(queueCardTransportAreaGuide)
+            queueCardConstraints = [
+                queueCardTransportAreaGuide.leftAnchor.constraint(equalTo: cardRightAnchor),
+                queueCardTransportAreaGuide.rightAnchor.constraint(equalTo: videoPlayerControls.rightAnchor),
+                videoPlayerControls.transportControls.centerXAnchor.constraint(equalTo: queueCardTransportAreaGuide.centerXAnchor),
+                transportClearOfCard,
+                mediaScrubProgressBar.leftAnchor.constraint(equalTo: cardRightAnchor, constant: Self.queueCardSpacing),
+            ]
+            NSLayoutConstraint.deactivate([transportControlsCenterXConstraint, scrubProgressBarLeftInRowConstraint])
+        } else {
+            let cardLeftAnchor = qvc.view.leftAnchor
+            let transportClearOfCard = videoPlayerControls.transportControls.rightAnchor.constraint(
+                lessThanOrEqualTo: cardLeftAnchor, constant: -Self.queueCardSpacing)
+            transportClearOfCard.priority = .required - 1
+            view.addLayoutGuide(queueCardTransportAreaGuide)
+            queueCardConstraints = [
+                queueCardTransportAreaGuide.leftAnchor.constraint(equalTo: videoPlayerControls.leftAnchor),
+                queueCardTransportAreaGuide.rightAnchor.constraint(equalTo: cardLeftAnchor),
+                videoPlayerControls.transportControls.centerXAnchor.constraint(equalTo: queueCardTransportAreaGuide.centerXAnchor),
+                transportClearOfCard,
+                mediaScrubProgressBar.rightAnchor.constraint(equalTo: cardLeftAnchor, constant: -Self.queueCardSpacing),
+            ]
+            NSLayoutConstraint.deactivate([transportControlsCenterXConstraint, scrubProgressBarRightInRowConstraint])
+        }
+        NSLayoutConstraint.activate(queueCardConstraints)
+        view.bringSubviewToFront(videoPlayerControls.transportControls)
+
+        qvc.show()
+        UIView.animate(withDuration: 0.3) {
+            self.view.layoutIfNeeded()
+        }
+        setControlsHidden(false, animated: true)
+        setupAccessibility()
+        UIAccessibility.post(notification: .screenChanged, argument: qvc.queueCollectionView)
     }
 
     override func mediaNavigationBarDidCloseLongPress(_ mediaNavigationBar: MediaNavigationBar) {
@@ -1537,11 +1792,24 @@ extension VideoPlayerViewController: MediaScrubProgressBarDelegate {
     }
 }
 
-// MARK: - MediaMoreOptionsActionSheetDelegate
+// MARK: - MenuButtonDelegate
+
+extension VideoPlayerViewController: MenuButtonDelegate {
+    func menuButtonWillShowMenu(_ menuButton: MenuButton) {
+        idleTimer?.invalidate()
+        idleTimer = nil
+    }
+
+    func menuButtonDidHideMenu(_ menuButton: MenuButton) {
+        resetIdleTimer()
+    }
+}
+
+// MARK: - More Options Menu
 
 extension VideoPlayerViewController {
-    override func mediaMoreOptionsActionSheetDidToggleInterfaceLock(state: Bool) {
-        super.mediaMoreOptionsActionSheetDidToggleInterfaceLock(state: state)
+    override func moreOptionsMenuDidToggleInterfaceLock(state: Bool) {
+        super.moreOptionsMenuDidToggleInterfaceLock(state: state)
 
 #if os(iOS)
         let mask = getInterfaceOrientationMask(orientation: currentInterfaceOrientation)
@@ -1552,75 +1820,16 @@ extension VideoPlayerViewController {
         setPlayerInterfaceEnabled(!state)
     }
 
-    func mediaMoreOptionsActionSheetDidAppeared() {
-        guard overlayCardView == nil else {
-            return
-        }
-        handleTapOnVideo()
-    }
-
-    override func mediaMoreOptionsActionSheetShowIcon(for option: OptionsNavigationBarIdentifier) {
-        switch option {
-        case .videoFilters:
-            showIcon(button: optionsNavigationBar.videoFiltersButton)
-            break
-        default:
-            super.mediaMoreOptionsActionSheetShowIcon(for: option)
-        }
-    }
-
-    override func mediaMoreOptionsActionSheetHideIcon(for option: OptionsNavigationBarIdentifier) {
-        switch option {
-        case .videoFilters:
-            hideIcon(button: optionsNavigationBar.videoFiltersButton)
-            break
-        default:
-            super.mediaMoreOptionsActionSheetHideIcon(for: option)
-        }
-    }
-
-    override func mediaMoreOptionsActionSheetDisplayAddBookmarksView(_ bookmarksView: AddBookmarksView) {
-        super.mediaMoreOptionsActionSheetDisplayAddBookmarksView(bookmarksView)
-
-        if let bookmarksView = addBookmarksView {
-            view.addSubview(bookmarksView)
-            NSLayoutConstraint.activate([
-                bookmarksView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
-                bookmarksView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-                bookmarksView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
-                bookmarksView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-                bookmarksView.bottomAnchor.constraint(lessThanOrEqualTo: mediaScrubProgressBar.topAnchor),
-            ])
-        }
-
-        if let safeIdleTimer = idleTimer {
-            safeIdleTimer.invalidate()
-        }
-
-        videoPlayerControls.shouldDisableControls(true)
-        setControlsHidden(true, animated: true)
-    }
-
-    override func mediaMoreOptionsActionSheetRemoveAddBookmarksView() {
-        super.mediaMoreOptionsActionSheetRemoveAddBookmarksView()
-
-        idleTimer = nil
-        resetIdleTimer()
-        videoPlayerControls.shouldDisableControls(false)
-    }
-
-    override func mediaMoreOptionsActionSheetDidToggleShuffle(_ mediaMoreOptionsActionSheet: MediaMoreOptionsActionSheet) {
+    override func moreOptionsMenuDidToggleShuffle() {
         videoPlayerControlsDelegateShuffle(videoPlayerControls)
-        mediaMoreOptionsActionSheet.collectionView.reloadData()
     }
 
-    override func mediaMoreOptionsActionSheetDidTapRepeat(_ mediaMoreOptionsActionSheet: MediaMoreOptionsActionSheet) {
+    override func moreOptionsMenuDidTapRepeat() {
         videoPlayerControlsDelegateRepeat(videoPlayerControls)
-        mediaMoreOptionsActionSheet.collectionView.reloadData()
     }
 
-    override func mediaMoreOptionsActionSheetPresentABRepeatView(with abView: ABRepeatView) {
-        super.mediaMoreOptionsActionSheetPresentABRepeatView(with: abView)
+    override func presentABRepeatView() {
+        super.presentABRepeatView()
 
         guard let abRepeatView = abRepeatView else {
             return
@@ -1630,7 +1839,7 @@ extension VideoPlayerViewController {
         view.bringSubviewToFront(abRepeatView)
         abRepeatView.isUserInteractionEnabled = true
         NSLayoutConstraint.activate([
-            abRepeatView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            abRepeatView.centerXAnchor.constraint(equalTo: safeInterfaceAreaLayoutGuide.centerXAnchor),
             abRepeatView.bottomAnchor.constraint(equalTo: mediaScrubProgressBar.topAnchor, constant: -20.0),
         ])
     }
@@ -1655,14 +1864,46 @@ extension VideoPlayerViewController {
 
 extension VideoPlayerViewController: QueueViewControllerDelegate {
     func queueViewControllerDidDisappear(_ queueViewController: QueueViewController?) {
-        setControlsHidden(false, animated: true)
+        guard isQueueCardShown else {
+            return
+        }
+
+        isQueueCardShown = false
+        NSLayoutConstraint.deactivate(queueCardConstraints)
+        queueCardConstraints = []
+        queueCardTransportAreaGuide.owningView?.removeLayoutGuide(queueCardTransportAreaGuide)
+        NSLayoutConstraint.activate([transportControlsCenterXConstraint, transportControlsCenterYConstraint])
+        scrubProgressBarLeftInRowConstraint.isActive = !isScrubProgressBarAboveRow
+        scrubProgressBarRightInRowConstraint.isActive = !isScrubProgressBarAboveRow
+        updateScrubProgressBarPlacement()
         queueViewController?.hide()
         shouldDisableGestures(false)
-        videoPlayerControlsBottomConstraint.isActive = true
-        videoPlayerControls.subtitleButton.isEnabled = true
-        videoPlayerControls.rotationLockButton.isEnabled = true
-        videoPlayerControls.aspectRatioButton.isEnabled = true
-        videoPlayerControls.moreActionsButton.isEnabled = true
+        UIView.animate(withDuration: 0.3) {
+            self.view.layoutIfNeeded()
+        }
+        setControlsHidden(false, animated: true)
+        resetIdleTimer()
+        setupAccessibility()
+        UIAccessibility.post(notification: .screenChanged, argument: mediaNavigationBar.queueButton)
+    }
+}
+
+// MARK: - UIGestureRecognizerDelegate
+
+extension VideoPlayerViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if let queueView = queueViewController?.view, touch.view?.isDescendant(of: queueView) == true {
+            return false
+        }
+        guard let control = touch.view as? UIControl else { return true }
+#if os(iOS)
+        // Keep player swipes from competing with slider drags.
+        if control.isDescendant(of: brightnessControlView) || control.isDescendant(of: volumeControlView) {
+            return gestureRecognizer == tapOnVideoRecognizer
+        }
+#endif
+        // Prevent video taps and long presses on transport buttons.
+        return gestureRecognizer == panRecognizer || !control.isDescendant(of: videoPlayerControls.transportControls)
     }
 }
 
@@ -1852,63 +2093,27 @@ extension VideoPlayerViewController: UIDocumentPickerDelegate {
     }
 }
 
-// MARK: - ActionSheetDelegate
+// MARK: - Aspect Ratio Menu
 
-extension VideoPlayerViewController: ActionSheetDelegate {
-    func headerViewTitle() -> String? {
-        return NSLocalizedString("ASPECT_RATIO_TITLE", comment: "")
-    }
-
-    func itemAtIndexPath(_ indexPath: IndexPath) -> Any? {
-        return AspectRatio(rawValue: indexPath.row)
-    }
-
-    func actionSheet(collectionView: UICollectionView, didSelectItem item: Any, At indexPath: IndexPath) {
-        guard let aspectRatio = item as? AspectRatio else {
-            return
+extension VideoPlayerViewController {
+    private func setupAspectRatioMenu() {
+        let deferredActions = UIDeferredMenuElement.uncached { [weak self] completion in
+            completion(self?.makeAspectRatioActions() ?? [])
         }
-
-        playbackService.setCurrentAspectRatio(aspectRatio.rawValue)
-        showStatusMessage(String(format: NSLocalizedString("AR_CHANGED", comment: ""), aspectRatio.stringToDisplay))
-    }
-}
-
-// MARK: - ActionSheetDataSource
-
-extension VideoPlayerViewController: ActionSheetDataSource {
-    func numberOfRows() -> Int {
-        return AspectRatio.allCases.count
+        videoPlayerControls.aspectRatioButton.menu = UIMenu(title: NSLocalizedString("ASPECT_RATIO_TITLE", comment: ""),
+                                                            children: [deferredActions])
     }
 
-    func actionSheet(collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        guard let cell = collectionView.dequeueReusableCell(
-            withReuseIdentifier: ActionSheetCell.identifier,
-            for: indexPath) as? ActionSheetCell else {
-            assertionFailure("VideoPlayerViewController: AspectRatioActionSheet: Unable to dequeue reusable cell")
-            return UICollectionViewCell()
+    private func makeAspectRatioActions() -> [UIMenuElement] {
+        let currentAspectRatio = playbackService.currentAspectRatio
+        return AspectRatio.allCases.map { aspectRatio in
+            UIAction(title: aspectRatio.stringToDisplay,
+                     state: aspectRatio.rawValue == currentAspectRatio ? .on : .off) { _ in
+                self.playbackService.setCurrentAspectRatio(aspectRatio.rawValue)
+                self.showStatusMessage(String(format: NSLocalizedString("AR_CHANGED", comment: ""),
+                                              aspectRatio.stringToDisplay))
+            }
         }
-
-        let aspectRatio = AspectRatio(rawValue: indexPath.row)
-
-        guard let aspectRatio = aspectRatio else {
-            assertionFailure("VideoPlayerViewController: AspectRatioActionSheet: Unable to retrieve the selected aspect ratio")
-            return UICollectionViewCell()
-        }
-
-        let colors: ColorPalette = PresentationTheme.currentExcludingWhite.colors
-        let isSelected = indexPath.row == playbackService.currentAspectRatio
-        cell.configure(with: aspectRatio.stringToDisplay, colors: colors, isSelected: isSelected)
-        cell.delegate = self
-
-        return cell
-    }
-}
-
-// MARK: - ActionSheetCellDelegate
-
-extension VideoPlayerViewController: ActionSheetCellDelegate {
-    func actionSheetCellShouldUpdateColors() -> Bool {
-        return true
     }
 }
 
@@ -1947,8 +2152,8 @@ extension VideoPlayerViewController: GameControllerManagerDelegate {
         var animations : (() -> Void)?
         volumeBackgroundGradientLayer.isHidden = false
         volumeControl.fetchDeviceValue()
-        animations = { [brightnessControlView, sideBackgroundGradientView] in
-            brightnessControlView.alpha = 1
+        animations = { [volumeControlView, sideBackgroundGradientView] in
+            volumeControlView.setVisible(true)
             sideBackgroundGradientView.alpha = 1
         }
         
@@ -1963,7 +2168,7 @@ extension VideoPlayerViewController: GameControllerManagerDelegate {
         volumeControlView.updateIcon(level: volumeControl.value)
         
         animations = { [volumeControlView, sideBackgroundGradientView] in
-            volumeControlView.alpha = 0
+            volumeControlView.setVisible(false)
             sideBackgroundGradientView.alpha = 0
         }
         
@@ -2026,14 +2231,12 @@ extension VideoPlayerViewController: GameControllerManagerDelegate {
     }
     
     func gameControllerManagerDelegateDidTogglePlayerOptions(_ gameControllerManager: GameControllerManager) {
-        if self.presentedViewController == nil {
-            present(moreOptionsActionSheet, animated: false) {
-                [unowned self] in
-                self.moreOptionsActionSheet.interfaceDisabled = self.playerController.isInterfaceLocked
-                self.moreOptionsActionSheet.hidePlayer()
-            }
-        } else {
-            self.moreOptionsActionSheet.dismiss(animated: true, completion: nil)
+        let menuButton = videoPlayerControls.moreActionsButton
+        if menuButton.isShowingMenu {
+            menuButton.contextMenuInteraction?.dismissMenu()
+        } else if #available(iOS 17.4, visionOS 1.1, *), presentedViewController == nil {
+            setControlsHidden(false, animated: false)
+            menuButton.performPrimaryAction()
         }
     }
 }

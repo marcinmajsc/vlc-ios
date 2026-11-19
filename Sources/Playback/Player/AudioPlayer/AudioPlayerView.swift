@@ -48,8 +48,10 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     lazy var thumbnailImageView: VLCArtworkImageView = {
         let thumbnailImageView = VLCArtworkImageView()
-        thumbnailImageView.contentMode = .scaleAspectFit
+        thumbnailImageView.contentMode = .scaleAspectFill
         thumbnailImageView.layer.cornerRadius = 14.0
+        thumbnailImageView.layer.borderWidth = 0.5
+        thumbnailImageView.layer.borderColor = PresentationTheme.currentExcludingWhite.colors.overlayHairlineColor.cgColor
         // The artwork size is driven by layout constraints, never by the
         // bitmap's intrinsic size.
         thumbnailImageView.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -62,7 +64,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     private lazy var titleLabel: UILabel = {
         let titleLabel = UILabel()
         titleLabel.textAlignment = .center
-        titleLabel.font = .boldSystemFont(ofSize: 20.0)
+        titleLabel.font = .boldSystemFont(ofSize: 22.0)
         titleLabel.numberOfLines = 2
         titleLabel.accessibilityLabel = NSLocalizedString("TITLE", comment: "")
         return titleLabel
@@ -71,7 +73,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     private lazy var artistLabel: UILabel = {
         let artistLabel = UILabel()
         artistLabel.textAlignment = .center
-        artistLabel.font = .systemFont(ofSize: 18.0)
+        artistLabel.font = .systemFont(ofSize: 17.0)
         artistLabel.numberOfLines = 2
         artistLabel.accessibilityLabel = NSLocalizedString("ARTIST", comment: "")
         return artistLabel
@@ -93,10 +95,8 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var shuffleButton: UIButton = {
         let shuffleButton = UIButton(type: .system)
-        shuffleButton.setImage(controlImage(symbol: "shuffle", fallback: "iconShuffleLarge", pointSize: 16), for: .normal)
-        shuffleButton.contentMode = .scaleAspectFit
-        shuffleButton.imageView?.contentMode = .scaleAspectFit
-        shuffleButton.tintColor = .white
+        shuffleButton.applyOverlayToggleStyle(image: controlImage(symbol: "shuffle", fallback: "iconShuffleLarge", pointSize: 16),
+                                              isActive: false, cornerRadius: toggleButtonSize / 2)
         shuffleButton.addTarget(self, action: #selector(handleShuffleButton(_:)), for: .touchUpInside)
         shuffleButton.accessibilityLabel = NSLocalizedString("SHUFFLE", comment: "")
         shuffleButton.accessibilityHint = NSLocalizedString("SHUFFLE_HINT", comment: "")
@@ -144,11 +144,12 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     }()
 
     private lazy var playButton: UIButton = {
-        let playButton = UIButton(type: .system)
-        playButton.setImage(controlImage(symbol: "play.fill", fallback: "iconPlay", pointSize: 26), for: .normal)
-        playButton.contentMode = .scaleAspectFit
-        playButton.imageView?.contentMode = .scaleAspectFit
-        playButton.tintColor = .white
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = controlImage(symbol: "play.fill", fallback: "iconPlay", pointSize: 26)
+        configuration.baseForegroundColor = .white
+        configuration.cornerStyle = .capsule
+        configuration.background.customView = VideoControlBackgroundView()
+        let playButton = UIButton(configuration: configuration)
         playButton.addTarget(self, action: #selector(handlePlayButton(_:)), for: .touchUpInside)
         playButton.accessibilityLabel = NSLocalizedString("PLAY_PAUSE_BUTTON", comment: "")
         playButton.accessibilityHint = NSLocalizedString("PLAY_PAUSE_HINT", comment: "")
@@ -182,10 +183,8 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var repeatButton: UIButton = {
         let repeatButton = UIButton(type: .system)
-        repeatButton.setImage(controlImage(symbol: "repeat", fallback: "iconRepeatLarge", pointSize: 16), for: .normal)
-        repeatButton.contentMode = .scaleAspectFit
-        repeatButton.imageView?.contentMode = .scaleAspectFit
-        repeatButton.tintColor = .white
+        repeatButton.applyOverlayToggleStyle(image: controlImage(symbol: "repeat", fallback: "iconRepeatLarge", pointSize: 16),
+                                             isActive: false, cornerRadius: toggleButtonSize / 2)
         repeatButton.addTarget(self, action: #selector(handleRepeatButton(_:)), for: .touchUpInside)
         repeatButton.accessibilityLabel = NSLocalizedString("REPEAT_MODE", comment: "")
         repeatButton.accessibilityHint = NSLocalizedString("REPEAT_HINT", comment: "")
@@ -204,7 +203,24 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var secondaryControlStackViewHeightConstraint: NSLayoutConstraint = secondaryControlStackView.heightAnchor.constraint(equalToConstant: 30.0)
 
-    private lazy var controlsStackViewMinSpacing: CGFloat = 25.0
+    private lazy var controlsStackViewMinSpacing: CGFloat = 0.0
+    private let transportPreferredSpacing: CGFloat = 8.0
+
+    private let playButtonSize: CGFloat = 72.0
+    private let compactPlayButtonSize: CGFloat = 56.0
+    private let sideButtonSize: CGFloat = 56.0
+    private let compactSideButtonSize: CGFloat = 44.0
+    private let toggleButtonSize: CGFloat = 44.0
+    private let transportMaximumWidth: CGFloat = 380.0
+
+    private lazy var playButtonWidthConstraint: NSLayoutConstraint = playButton.widthAnchor.constraint(equalToConstant: playButtonSize)
+
+    private lazy var sideButtonWidthConstraints: [NSLayoutConstraint] = [backwardButton, previousButton, nextButton, forwardButton].map {
+        $0.widthAnchor.constraint(equalToConstant: sideButtonSize)
+    }
+
+    private var isShuffleEnabled = false
+    private var currentRepeatMode: VLCRepeatMode = .doNotRepeat
 
     private var isCompactScreen: Bool {
 #if os(iOS)
@@ -235,6 +251,16 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private let minimumThumbnailSize: CGFloat = 80.0
 
+    private let navigationBarPadding: CGFloat = 10.0
+
+    private(set) lazy var navigationBarLayout = MediaNavigationBarLayout(
+        navigationBar: navigationBarView,
+        container: self,
+        leftAnchor: safeAreaLayoutGuide.leftAnchor,
+        rightAnchor: safeAreaLayoutGuide.rightAnchor,
+        horizontalInset: navigationBarPadding,
+        topPadding: navigationBarPadding)
+
     private lazy var thumbnailViewCenterYConstraint: NSLayoutConstraint = {
         let constraint = thumbnailView.centerYAnchor.constraint(equalTo: safeAreaLayoutGuide.centerYAnchor)
         constraint.priority = .defaultHigh
@@ -243,15 +269,35 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private lazy var centeredLayoutGuide: UILayoutGuide = UILayoutGuide()
 
+    private let landscapeColumnSpacing: CGFloat = 8.0
+
+    private lazy var landscapeDividerLayoutGuide: UILayoutGuide = UILayoutGuide()
+
+    private lazy var landscapeDividerCenterXConstraint: NSLayoutConstraint = {
+        landscapeDividerLayoutGuide.centerXAnchor.constraint(equalTo: centerXAnchor)
+    }()
+
+    private lazy var landscapeDividerWidthConstraint: NSLayoutConstraint = {
+        landscapeDividerLayoutGuide.widthAnchor.constraint(equalToConstant: 2 * landscapeColumnSpacing)
+    }()
+
     private lazy var landscapeRightLayoutGuide: UILayoutGuide = UILayoutGuide()
 
     private lazy var landscapeRightContentLayoutGuide: UILayoutGuide = UILayoutGuide()
 
     private var sharedConstraints: [NSLayoutConstraint] = []
     private var portraitConstraints: [NSLayoutConstraint] = []
+    private var unfoldedPortraitConstraints: [NSLayoutConstraint] = []
+    private var tabletopConstraints: [NSLayoutConstraint] = []
     private var landscapeConstraints: [NSLayoutConstraint] = []
+    private var activeLayoutConstraints: [NSLayoutConstraint] = []
 
     private var isLandscapeLayout: Bool = false
+    private var isTabletopLayout = false
+
+    private lazy var tabletopThumbnailBottomConstraint: NSLayoutConstraint = {
+        thumbnailView.bottomAnchor.constraint(equalTo: topAnchor)
+    }()
 
     private var centeredLayoutGuideLeadingConstraint: NSLayoutConstraint?
     private var centeredLayoutGuideTrailingConstraint: NSLayoutConstraint?
@@ -268,7 +314,6 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     private var landscapeProgressionTrailingConstraint: NSLayoutConstraint?
     private var landscapeProgressionBottomConstraint: NSLayoutConstraint?
     private var landscapeThumbnailWidthConstraint: NSLayoutConstraint?
-    private var portraitRegularWidthControlsConstraints: [NSLayoutConstraint] = []
 
     weak var delegate: AudioPlayerViewDelegate?
 
@@ -280,6 +325,10 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         setupLabels()
         NotificationCenter.default.addObserver(self, selector: #selector(themeDidChange),
                                                name: .VLCThemeDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateToggleButtonStyles),
+                                               name: UIAccessibility.reduceTransparencyStatusDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateToggleButtonStyles),
+                                               name: UIAccessibility.darkerSystemColorsStatusDidChangeNotification, object: nil)
     }
 
     required init?(coder: NSCoder) {
@@ -300,7 +349,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         setupProgressionView()
 
         NSLayoutConstraint.activate(sharedConstraints)
-        NSLayoutConstraint.activate(portraitConstraints)
+        updateLayoutConstraints()
     }
 
     func setupNavigationBar(with view: MediaNavigationBar) {
@@ -351,7 +400,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     func setupLabels() {
         titleLabel.textColor = .white
         artistLabel.textColor = .white
-        albumLabel.textColor = .white
+        albumLabel.textColor = PresentationTheme.currentExcludingWhite.colors.overlaySecondaryTextColor
     }
 
     func setupProgressView(with view: MediaScrubProgressBar) {
@@ -417,6 +466,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         super.layoutSubviews()
         updateContentInsets()
         updateLabelHeights()
+        updateTransportButtonSizes()
     }
 
     private func updateContentInsets() {
@@ -452,13 +502,37 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         if let constraint = landscapeThumbnailWidthConstraint, constraint.priority != landscapeThumbnailPriority {
             constraint.priority = landscapeThumbnailPriority
         }
-
-        updatePortraitControlsWidthConstraints()
     }
 
-    private func updatePortraitControlsWidthConstraints() {
-        let isActive = !isLandscapeLayout && traitCollection.horizontalSizeClass == .regular
-        portraitRegularWidthControlsConstraints.forEach { $0.isActive = isActive }
+    private func updateTransportButtonSizes() {
+        let availableWidth = progressionView.bounds.width
+        guard availableWidth > 0 else {
+            return
+        }
+
+        let playSize: CGFloat
+        let sideSize: CGFloat
+        if availableWidth >= transportWidth(playSize: playButtonSize, sideSize: sideButtonSize) {
+            playSize = playButtonSize
+            sideSize = sideButtonSize
+        } else if availableWidth >= transportWidth(playSize: compactPlayButtonSize, sideSize: compactSideButtonSize) {
+            playSize = compactPlayButtonSize
+            sideSize = compactSideButtonSize
+        } else {
+            playSize = compactSideButtonSize
+            sideSize = compactSideButtonSize
+        }
+
+        guard playButtonWidthConstraint.constant != playSize else {
+            return
+        }
+
+        playButtonWidthConstraint.constant = playSize
+        sideButtonWidthConstraints.forEach { $0.constant = sideSize }
+    }
+
+    private func transportWidth(playSize: CGFloat, sideSize: CGFloat) -> CGFloat {
+        return playSize + 2 * sideSize + 2 * toggleButtonSize + 4 * transportPreferredSpacing
     }
 
     private func updateLabelHeights() {
@@ -505,7 +579,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         let icon = controlImage(symbol: isPlaying ? "pause.fill" : "play.fill",
                                 fallback: isPlaying ? "iconPause" : "iconPlay",
                                 pointSize: 26)
-        playButton.setImage(icon, for: .normal)
+        playButton.configuration?.image = icon
         updateArtworkScale(isPlaying: isPlaying)
     }
 
@@ -521,13 +595,13 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     }
 
     func updateShuffleRepeatState(shuffleEnabled: Bool, repeatMode: VLCRepeatMode) {
-        var color = PresentationTheme.current.colors.orangeUI
+        isShuffleEnabled = shuffleEnabled
+        currentRepeatMode = repeatMode
 
         let shuffleIcon = controlImage(symbol: "shuffle",
                                        fallback: shuffleEnabled ? "iconShuffleOnLarge" : "iconShuffleLarge",
                                        pointSize: 16)
-        shuffleButton.setImage(shuffleIcon, for: .normal)
-        shuffleButton.tintColor = shuffleEnabled ? color : .white
+        shuffleButton.applyOverlayToggleStyle(image: shuffleIcon, isActive: shuffleEnabled, cornerRadius: toggleButtonSize / 2)
         shuffleButton.accessibilityLabel = shuffleEnabled ? NSLocalizedString("SHUFFLE", comment: "") : NSLocalizedString("SHUFFLE_DISABLED", comment: "")
         shuffleButton.accessibilityHint = shuffleEnabled ? NSLocalizedString("SHUFFLE_HINT", comment: "") : NSLocalizedString("SHUFFLE_OFF_HINT", comment: "")
 
@@ -537,7 +611,6 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         switch repeatMode {
         case .doNotRepeat:
             icon = controlImage(symbol: "repeat", fallback: "iconRepeatLarge", pointSize: 16)
-            color = .white
             accessibilityLabel = NSLocalizedString("MENU_REPEAT_DISABLED", comment: "")
             accessibilityHint = NSLocalizedString("DO_NOT_REPEAT_HINT", comment: "")
         case .repeatCurrentItem:
@@ -553,15 +626,13 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
             return
         }
 
-        repeatButton.setImage(icon, for: .normal)
-        repeatButton.tintColor = color
+        repeatButton.applyOverlayToggleStyle(image: icon, isActive: repeatMode != .doNotRepeat, cornerRadius: toggleButtonSize / 2)
         repeatButton.accessibilityLabel = accessibilityLabel
         repeatButton.accessibilityHint = accessibilityHint
     }
 
     func setControlsEnabled(_ enabled: Bool) {
         shuffleButton.isEnabled = enabled
-        shuffleButton.alpha = enabled ? 1.0 : 0.5
 
         backwardButton.isEnabled = enabled
         backwardButton.alpha = enabled ? 1.0 : 0.5
@@ -570,7 +641,6 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         previousButton.alpha = enabled ? 1.0 : 0.5
 
         playButton.isEnabled = enabled
-        playButton.alpha = enabled ? 1.0 : 0.5
 
         nextButton.isEnabled = enabled
         nextButton.alpha = enabled ? 1.0 : 0.5
@@ -579,7 +649,6 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         forwardButton.alpha = enabled ? 1.0 : 0.5
 
         repeatButton.isEnabled = enabled
-        repeatButton.alpha = enabled ? 1.0 : 0.5
         
         playbackSpeedButton.isEnabled = enabled
         playbackSpeedButton.alpha = enabled ? 1.0 : 0.5
@@ -599,21 +668,53 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     func updateLayout(isLandscape: Bool) {
         isLandscapeLayout = isLandscape
-
-        if isLandscape {
-            NSLayoutConstraint.deactivate(portraitConstraints)
-            NSLayoutConstraint.activate(landscapeConstraints)
-            progressionViewHeightConstraint.constant = 30
-        } else {
-            NSLayoutConstraint.deactivate(landscapeConstraints)
-            NSLayoutConstraint.activate(portraitConstraints)
-            progressionViewHeightConstraint.constant = 70
-        }
-
-        updatePortraitControlsWidthConstraints()
+        progressionViewHeightConstraint.constant = isLandscape ? 30 : 70
+        updateLayoutConstraints()
 
         setNeedsLayout()
         layoutIfNeeded()
+    }
+
+    func updateTabletopFold(_ fold: CGRect?) {
+        if let fold, tabletopThumbnailBottomConstraint.constant != fold.minY {
+            tabletopThumbnailBottomConstraint.constant = fold.minY
+        }
+
+        let isTabletop = fold != nil
+        guard isTabletop != isTabletopLayout else {
+            return
+        }
+
+        isTabletopLayout = isTabletop
+        updateLayoutConstraints()
+    }
+
+    func updateBookFold(_ fold: CGRect?) {
+        let centerXOffset = fold.map { $0.midX - bounds.midX } ?? 0
+        let width = (fold?.width ?? 0) + 2 * landscapeColumnSpacing
+
+        if landscapeDividerCenterXConstraint.constant != centerXOffset {
+            landscapeDividerCenterXConstraint.constant = centerXOffset
+        }
+
+        if landscapeDividerWidthConstraint.constant != width {
+            landscapeDividerWidthConstraint.constant = width
+        }
+    }
+
+    private func updateLayoutConstraints() {
+        let constraints: [NSLayoutConstraint]
+        if isLandscapeLayout {
+            constraints = landscapeConstraints
+        } else if isTabletopLayout {
+            constraints = portraitConstraints + tabletopConstraints
+        } else {
+            constraints = portraitConstraints + unfoldedPortraitConstraints
+        }
+
+        NSLayoutConstraint.deactivate(activeLayoutConstraints)
+        activeLayoutConstraints = constraints
+        NSLayoutConstraint.activate(constraints)
     }
 
     func shouldDisableControls(_ disable: Bool) {
@@ -697,6 +798,10 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
+    @objc private func updateToggleButtonStyles() {
+        updateShuffleRepeatState(shuffleEnabled: isShuffleEnabled, repeatMode: currentRepeatMode)
+    }
+
     private func setupOverlayView() {
         overlayView.translatesAutoresizingMaskIntoConstraints = false
         overlayView.backgroundColor = .black.withAlphaComponent(0.4)
@@ -711,15 +816,10 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func setupNavigationBarView() {
-        let padding: CGFloat = 10.0
         navigationBarView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(navigationBarView)
-        NSLayoutConstraint.activate([
-            navigationBarView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: padding),
-            navigationBarView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: padding),
-            navigationBarView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -padding)
-        ])
+        navigationBarLayout.activate()
     }
 
     private func setupCenteredLayoutGuide() {
@@ -739,11 +839,14 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func setupLandscapeLayoutGuide() {
+        addLayoutGuide(landscapeDividerLayoutGuide)
         addLayoutGuide(landscapeRightLayoutGuide)
         addLayoutGuide(landscapeRightContentLayoutGuide)
 
         landscapeConstraints.append(contentsOf: [
-            landscapeRightLayoutGuide.leadingAnchor.constraint(equalTo: centeredLayoutGuide.centerXAnchor, constant: 8),
+            landscapeDividerCenterXConstraint,
+            landscapeDividerWidthConstraint,
+            landscapeRightLayoutGuide.leadingAnchor.constraint(equalTo: landscapeDividerLayoutGuide.trailingAnchor),
             landscapeRightLayoutGuide.trailingAnchor.constraint(equalTo: centeredLayoutGuide.trailingAnchor),
             landscapeRightLayoutGuide.topAnchor.constraint(equalTo: navigationBarView.bottomAnchor),
             landscapeRightLayoutGuide.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
@@ -757,13 +860,18 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
         sharedConstraints.append(thumbnailView.leadingAnchor.constraint(equalTo: centeredLayoutGuide.leadingAnchor))
 
-        portraitConstraints.append(contentsOf: [
-            thumbnailView.topAnchor.constraint(equalTo: navigationBarView.bottomAnchor, constant: 16),
-            thumbnailView.trailingAnchor.constraint(equalTo: centeredLayoutGuide.trailingAnchor),
+        portraitConstraints.append(thumbnailView.trailingAnchor.constraint(equalTo: centeredLayoutGuide.trailingAnchor))
+
+        unfoldedPortraitConstraints.append(thumbnailView.topAnchor.constraint(equalTo: navigationBarView.bottomAnchor,
+                                                                              constant: 16))
+
+        tabletopConstraints.append(contentsOf: [
+            thumbnailView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            tabletopThumbnailBottomConstraint,
         ])
 
         landscapeConstraints.append(contentsOf: [
-            thumbnailView.trailingAnchor.constraint(equalTo: centeredLayoutGuide.centerXAnchor, constant: -8),
+            thumbnailView.trailingAnchor.constraint(equalTo: landscapeDividerLayoutGuide.leadingAnchor),
             thumbnailView.topAnchor.constraint(greaterThanOrEqualTo: navigationBarView.bottomAnchor, constant: 10),
             thumbnailView.bottomAnchor.constraint(lessThanOrEqualTo: safeAreaLayoutGuide.bottomAnchor, constant: -10),
             thumbnailViewCenterYConstraint,
@@ -774,7 +882,7 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
     private func setupThumbnailSubviews() {
         let padding: CGFloat = 20.0
-        let labelSpacing: CGFloat = 8.0
+        let labelSpacing: CGFloat = 4.0
 
         thumbnailImageView.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -815,6 +923,8 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         let landscapeAlbumLeading = albumLabel.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor)
         let landscapeAlbumTrailing = albumLabel.trailingAnchor.constraint(equalTo: progressionView.trailingAnchor)
         let landscapeAlbumBottom = albumLabel.bottomAnchor.constraint(equalTo: controlsStackView.topAnchor, constant: -padding)
+        let landscapeContentCenterY = landscapeRightContentLayoutGuide.centerYAnchor.constraint(equalTo: thumbnailImageView.centerYAnchor)
+        landscapeContentCenterY.priority = .defaultHigh - 1
 
         sharedConstraints.append(contentsOf: [
             titleLabelHeightConstraint,
@@ -835,15 +945,25 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         portraitThumbnailTopConstraint = portraitThumbnailTop
         portraitAlbumBottomConstraint = portraitAlbumBottom
 
-        portraitConstraints.append(contentsOf: [
+        unfoldedPortraitConstraints.append(contentsOf: [
             portraitThumbnailTop,
+            titleLabel.topAnchor.constraint(equalTo: thumbnailImageView.bottomAnchor, constant: padding),
+            portraitAlbumBottom,
+        ])
+
+        tabletopConstraints.append(contentsOf: [
+            thumbnailImageView.centerYAnchor.constraint(equalTo: thumbnailView.centerYAnchor),
+            thumbnailImageView.topAnchor.constraint(greaterThanOrEqualTo: thumbnailView.topAnchor, constant: padding),
+            titleLabel.topAnchor.constraint(equalTo: navigationBarView.bottomAnchor, constant: padding),
+        ])
+
+        portraitConstraints.append(contentsOf: [
             thumbnailImageView.centerXAnchor.constraint(equalTo: thumbnailView.centerXAnchor),
             thumbnailImageViewLeading,
             thumbnailImageViewTrailing,
             thumbnailImageView.heightAnchor.constraint(equalTo: thumbnailImageView.widthAnchor),
             portraitWidthConstraint,
 
-            titleLabel.topAnchor.constraint(equalTo: thumbnailImageView.bottomAnchor, constant: padding),
             titleLabel.centerXAnchor.constraint(equalTo: thumbnailView.centerXAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor),
             titleLabel.trailingAnchor.constraint(equalTo: progressionView.trailingAnchor),
@@ -855,7 +975,6 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
             albumLabel.centerXAnchor.constraint(equalTo: thumbnailView.centerXAnchor),
             albumLabel.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor),
             albumLabel.trailingAnchor.constraint(equalTo: progressionView.trailingAnchor),
-            portraitAlbumBottom,
         ])
 
         landscapeConstraints.append(contentsOf: [
@@ -868,7 +987,8 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
 
             landscapeRightContentLayoutGuide.topAnchor.constraint(equalTo: titleLabel.topAnchor),
             landscapeRightContentLayoutGuide.bottomAnchor.constraint(equalTo: progressionView.bottomAnchor),
-            landscapeRightContentLayoutGuide.centerYAnchor.constraint(equalTo: thumbnailImageView.centerYAnchor),
+            landscapeRightContentLayoutGuide.topAnchor.constraint(greaterThanOrEqualTo: landscapeRightLayoutGuide.topAnchor, constant: 8),
+            landscapeContentCenterY,
             titleLabel.centerXAnchor.constraint(equalTo: landscapeRightLayoutGuide.centerXAnchor),
             artistLabel.centerXAnchor.constraint(equalTo: landscapeRightLayoutGuide.centerXAnchor),
             albumLabel.centerXAnchor.constraint(equalTo: landscapeRightLayoutGuide.centerXAnchor),
@@ -907,6 +1027,8 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         }
 
         controlsStackView.spacing = controlsStackViewMinSpacing
+        controlsStackView.alignment = .center
+        controlsStackView.semanticContentAttribute = .forceLeftToRight
 
         let controlsStackViewLeading = controlsStackView.leadingAnchor.constraint(equalTo: progressionView.leadingAnchor)
         controlsStackViewLeading.priority = .defaultHigh
@@ -914,12 +1036,23 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
         controlsStackViewTrailing.priority = .defaultHigh
 
         sharedConstraints.append(contentsOf: [
-            controlsStackView.heightAnchor.constraint(equalToConstant: 50.0),
+            controlsStackView.heightAnchor.constraint(equalTo: playButton.heightAnchor),
+            controlsStackView.widthAnchor.constraint(lessThanOrEqualToConstant: transportMaximumWidth),
+            controlsStackView.centerXAnchor.constraint(equalTo: progressionView.centerXAnchor),
             controlsStackViewLeading,
             controlsStackViewTrailing,
             secondaryControlStackView.topAnchor.constraint(equalTo: controlsStackView.bottomAnchor, constant: topPadding/4),
             secondaryControlStackViewHeightConstraint
         ])
+
+        let transportButtons = [shuffleButton, backwardButton, previousButton, playButton, nextButton, forwardButton, repeatButton]
+        let toggleButtonWidthConstraints = [shuffleButton, repeatButton].map {
+            $0.widthAnchor.constraint(equalToConstant: toggleButtonSize)
+        }
+        let transportWidthConstraints = toggleButtonWidthConstraints + sideButtonWidthConstraints + [playButtonWidthConstraint]
+        transportWidthConstraints.forEach { $0.priority = .required - 1 }
+        sharedConstraints.append(contentsOf: transportWidthConstraints)
+        sharedConstraints.append(contentsOf: transportButtons.map { $0.heightAnchor.constraint(equalTo: $0.widthAnchor) })
 
         let portraitSecondaryControlBottom = secondaryControlStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -16)
         portraitSecondaryControlBottom.priority = .defaultHigh
@@ -932,11 +1065,6 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
             secondaryControlStackView.centerXAnchor.constraint(equalTo: centerXAnchor),
             portraitSecondaryControlBottom,
         ])
-
-        portraitRegularWidthControlsConstraints = [
-            controlsStackView.centerXAnchor.constraint(equalTo: progressionView.centerXAnchor),
-            controlsStackView.widthAnchor.constraint(equalTo: centeredLayoutGuide.widthAnchor, multiplier: 0.5),
-        ]
 
         landscapeConstraints.append(contentsOf: [
             secondaryControlStackView.centerXAnchor.constraint(equalTo: landscapeRightLayoutGuide.centerXAnchor),
@@ -973,6 +1101,9 @@ class AudioPlayerView: UIView, UIGestureRecognizerDelegate {
             portraitProgressionLeading,
             portraitProgressionTrailing,
         ])
+
+        tabletopConstraints.append(progressionView.topAnchor.constraint(greaterThanOrEqualTo: albumLabel.bottomAnchor,
+                                                                        constant: 16))
 
         let landscapeProgressionTop = progressionView.topAnchor.constraint(equalTo: secondaryControlStackView.bottomAnchor)
         let landscapeProgressionLeading = progressionView.leadingAnchor.constraint(equalTo: landscapeRightLayoutGuide.leadingAnchor)
