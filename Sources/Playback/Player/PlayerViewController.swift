@@ -143,6 +143,16 @@ class PlayerViewController: UIViewController {
         return coneLoadingView
     }()
 
+    private var isLoading = false
+
+    var externalOutputInfoView: PlayerInfoView {
+        return externalOutputView
+    }
+
+    var showsExternalOutputIcon: Bool {
+        return !externalOutputInfoView.isHidden && externalOutputInfoView.showsIcon
+    }
+
     var moreOptionsMenuButton: MenuButton? {
         return nil
     }
@@ -201,6 +211,7 @@ class PlayerViewController: UIViewController {
         let externalOutputView = PlayerInfoView()
         externalOutputView.isHidden = true
         externalOutputView.translatesAutoresizingMaskIntoConstraints = false
+        externalOutputView.delegate = self
         return externalOutputView
     }()
 
@@ -289,22 +300,6 @@ class PlayerViewController: UIViewController {
         vc.setVisible(false)
         return vc
     }()
-
-    private func setupRendererSelectionHandler() {
-        rendererDiscovererManager.addSelectionHandler {
-            rendererItem in
-            if rendererItem != nil {
-                self.changeOutputView(to: self.externalOutputView.displayView)
-                let color: UIColor = PresentationTheme.current.colors.orangeUI
-                self.mediaNavigationBar.updateDeviceButton(with: UIImage(named: "rendererFull"), color: color)
-            } else if let currentRenderer = self.playbackService.renderer {
-                self.removedCurrentRendererItem(currentRenderer)
-            } else {
-                // There is no renderer item
-                self.mediaNavigationBar.updateDeviceButton(with: UIImage(named: "renderer"), color: .white)
-            }
-        }
-    }
 
     let volumeView = MPVolumeView(frame: .zero)
 #endif
@@ -410,7 +405,6 @@ class PlayerViewController: UIViewController {
 
         super.init(nibName: nil, bundle: nil)
 
-        setupRendererSelectionHandler()
         mediaNavigationBar.addGestureRecognizer(minimizeGestureRecognizer)
     }
 #else
@@ -1558,11 +1552,13 @@ extension PlayerViewController: VLCPlaybackServiceDelegate {
 
         switch currentState {
         case .stopped:
-            coneLoadingView.stopAnimating()
+            isLoading = false
+            updateLoadingIndicator()
             resetPlaybackSpeed()
 
         case .error:
-            coneLoadingView.stopAnimating()
+            isLoading = false
+            updateLoadingIndicator()
 
         default:
             break
@@ -1570,7 +1566,14 @@ extension PlayerViewController: VLCPlaybackServiceDelegate {
     }
 
     func mediaPlayerBufferingChanged(_ progress: Float, for playbackService: PlaybackService) {
-        if progress < 1.0 {
+        isLoading = progress < 1.0
+        updateLoadingIndicator()
+    }
+
+    func updateLoadingIndicator() {
+        let pulsesExternalOutputIcon = isLoading && showsExternalOutputIcon
+        externalOutputInfoView.setLoading(pulsesExternalOutputIcon)
+        if isLoading && !pulsesExternalOutputIcon {
             coneLoadingView.startAnimating()
         } else {
             coneLoadingView.stopAnimating()
@@ -1913,13 +1916,31 @@ extension PlayerViewController: DeviceMotionDelegate {
     }
 }
 
+// MARK: - PlayerInfoViewDelegate
+
+extension PlayerViewController: PlayerInfoViewDelegate {
+    func playerInfoViewDidUpdateIconVisibility(_ playerInfoView: PlayerInfoView) {
+        updateLoadingIndicator()
+    }
+}
+
 // MARK: - VLCRendererDiscovererManagerDelegate
 
 #if os(iOS)
 extension PlayerViewController: VLCRendererDiscovererManagerDelegate {
+    func selectedRendererItem(_ item: VLCRendererItem?) {
+        if item != nil {
+            changeOutputView(to: externalOutputInfoView.displayView)
+            mediaNavigationBar.updateDeviceButton(with: UIImage(named: "rendererFull"),
+                                                  color: PresentationTheme.current.colors.orangeUI)
+        } else {
+            changeOutputView(to: contentOutputView)
+            mediaNavigationBar.updateDeviceButton(with: UIImage(named: "renderer"), color: .white)
+        }
+    }
+
     func removedCurrentRendererItem(_ item: VLCRendererItem) {
-        changeOutputView(to: contentOutputView)
-        mediaNavigationBar.updateDeviceButton(with: UIImage(named: "renderer"), color: .white)
+        selectedRendererItem(nil)
     }
 }
 #endif

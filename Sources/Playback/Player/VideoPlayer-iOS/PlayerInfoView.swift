@@ -1,7 +1,7 @@
 /*****************************************************************************
  * PlayerInfoView.swift
  *
- * Copyright © 2021, 2023 VLC authors and VideoLAN
+ * Copyright © 2021-2026 VLC authors and VideoLAN
  *
  * Authors: Soomin Lee <bubu@mikan.io>
  *          Diogo Simao Marques <dogo@videolabs.io>
@@ -9,16 +9,28 @@
  * Refer to the COPYING file of the official project for license.
  *****************************************************************************/
 
+protocol PlayerInfoViewDelegate: AnyObject {
+    func playerInfoViewDidUpdateIconVisibility(_ playerInfoView: PlayerInfoView)
+}
+
 class PlayerInfoView: UIView {
     @objc var displayView: UIView? {
         return externalWindow?.rootViewController?.view
     }
     var externalWindow: UIWindow?
+    weak var delegate: PlayerInfoViewDelegate?
 
-    private lazy var contentImageView: UIImageView = {
-        let contentImageView = UIImageView(image: UIImage(named: "ExternallyPlaying"))
+    var showsIcon: Bool {
+        return !contentImageView.isHidden
+    }
+
+    private static let contentImageSize: CGFloat = 120
+
+    private lazy var contentImageHeightConstraint = contentImageView.heightAnchor.constraint(equalToConstant: Self.contentImageSize)
+
+    private lazy var contentImageView: PulsingConeView = {
+        let contentImageView = PulsingConeView(image: UIImage(named: "ExternallyPlaying"), size: Self.contentImageSize)
         contentImageView.translatesAutoresizingMaskIntoConstraints = false
-        contentImageView.contentMode = .scaleAspectFit
         contentImageView.tintColor = .white
         return contentImageView
     }()
@@ -63,6 +75,14 @@ class PlayerInfoView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        let isCompactHeight = traitCollection.verticalSizeClass == .compact
+        contentImageView.isHidden = isCompactHeight
+        contentImageHeightConstraint.constant = isCompactHeight ? 0 : Self.contentImageSize
+        delegate?.playerInfoViewDidUpdateIconVisibility(self)
+    }
+
     @objc func updateUI(rendererName: String?, title: String?) {
         if let rendererName = rendererName {
             titleLabel.text = NSLocalizedString("PLAYING_EXTERNALLY_ADDITION", comment:"")
@@ -70,6 +90,14 @@ class PlayerInfoView: UIView {
         } else {
             titleLabel.text = title
             descriptionLabel.text = NSLocalizedString("PLAYING_EXTERNALLY_DESC", comment:"")
+        }
+    }
+
+    func setLoading(_ loading: Bool) {
+        if loading {
+            contentImageView.startAnimating()
+        } else {
+            contentImageView.stopAnimating()
         }
     }
 
@@ -117,12 +145,13 @@ private extension PlayerInfoView {
 
         NSLayoutConstraint.activate([
             contentImageView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            contentImageView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -10),
-            contentImageView.heightAnchor.constraint(equalToConstant: 120),
-            contentImageView.widthAnchor.constraint(equalToConstant: 120),
+            contentImageView.topAnchor.constraint(equalTo: topAnchor),
+            contentImageHeightConstraint,
+            contentImageView.widthAnchor.constraint(equalToConstant: Self.contentImageSize),
 
             labelStackView.centerXAnchor.constraint(equalTo: centerXAnchor),
             labelStackView.topAnchor.constraint(equalTo: contentImageView.bottomAnchor),
+            labelStackView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 }

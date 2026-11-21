@@ -1,18 +1,21 @@
 /*****************************************************************************
  * VLCRendererDiscovererManager.swift
  *
- * Copyright © 2018 VLC authors and VideoLAN
- * Copyright © 2018 Videolabs
+ * Copyright © 2018-2026 VLC authors and VideoLAN
+ * Copyright © 2018-2026 Videolabs
  *
  * Authors: Soomin Lee <bubu@mikan.io>
  *
  * Refer to the COPYING file of the official project for license.
  *****************************************************************************/
 
+extension Notification.Name {
+    static let VLCRenderersDidChangeNotification = Notification.Name("VLCRenderersDidChangeNotification")
+}
+
 @objc protocol VLCRendererDiscovererManagerDelegate {
+    @objc optional func selectedRendererItem(_ item: VLCRendererItem?)
     @objc optional func removedCurrentRendererItem(_ item: VLCRendererItem)
-    @objc optional func addedRendererItem()
-    @objc optional func removedRendererItem()
 }
 
 class VLCRendererDiscovererManager: NSObject {
@@ -21,13 +24,13 @@ class VLCRendererDiscovererManager: NSObject {
 
     @objc weak var delegate: VLCRendererDiscovererManagerDelegate?
 
-    private var selectionHandler: ((_ rendererItem: VLCRendererItem?) -> Void)?
+    private let rendererButtons = NSHashTable<UIButton>.weakObjects()
 
-    @objc var rendererButtons: [UIButton] = [UIButton]()
+    private var rendererItems = [VLCRendererItem]()
 
     // Returns renderers of *all* discoverers
     @objc func getAllRenderers() -> [VLCRendererItem] {
-        return discoverers.flatMap { $0.renderers }
+        return rendererItems
     }
 
     fileprivate func isDuplicateDiscoverer(with description: VLCRendererDiscovererDescription) -> Bool {
@@ -39,24 +42,23 @@ class VLCRendererDiscovererManager: NSObject {
 
     @objc func start() {
         // Gather potential renderer discoverers
-        guard VLCRendererDiscoverer.list() != nil else {
-            print("VLCRendererDiscovererManager: Unable to retrieve list of VLCRendererDiscovererDescription")
+        guard let tmpDiscoverersDescription: [VLCRendererDiscovererDescription] = VLCRendererDiscoverer.list() else {
+            APLog("VLCRendererDiscovererManager: Unable to retrieve list of VLCRendererDiscovererDescription")
             return
         }
-        // FIXME: fix this hack
-        /*
+
         for discovererDescription in tmpDiscoverersDescription where !isDuplicateDiscoverer(with: discovererDescription) {
             guard let rendererDiscoverer = VLCRendererDiscoverer(name: discovererDescription.name) else {
-                print("VLCRendererDiscovererManager: Unable to instanciate renderer discoverer with name: \(discovererDescription.name)")
-                continue
-            }
-            guard rendererDiscoverer.start() else {
-                print("VLCRendererDiscovererManager: Unable to start renderer discoverer with name: \(rendererDiscoverer.name)")
+                APLog("VLCRendererDiscovererManager: Unable to instanciate renderer discoverer with name: \(discovererDescription.name)")
                 continue
             }
             rendererDiscoverer.delegate = self
+            guard rendererDiscoverer.start() else {
+                APLog("VLCRendererDiscovererManager: Unable to start renderer discoverer with name: \(rendererDiscoverer.name)")
+                continue
+            }
             discoverers.append(rendererDiscoverer)
-        }*/
+        }
     }
 
     @objc func stop() {
@@ -64,6 +66,7 @@ class VLCRendererDiscovererManager: NSObject {
             discoverer.stop()
         }
         discoverers.removeAll()
+        rendererItems.removeAll()
     }
 
     // MARK: Renderer menu
@@ -82,9 +85,6 @@ class VLCRendererDiscovererManager: NSObject {
             return UIAction(title: rendererItem.name,
                             image: UIImage(named: "renderer"),
                             state: isCurrentRenderer ? .on : .off) { [weak self] _ in
-                if isCurrentRenderer {
-                    self?.delegate?.removedCurrentRendererItem?(rendererItem)
-                }
                 self?.selectRenderer(rendererItem)
             }
         }
@@ -92,7 +92,7 @@ class VLCRendererDiscovererManager: NSObject {
 
     private func updateRendererButtons() {
         let showsMenu = getAllRenderers().count > 1
-        for button in rendererButtons {
+        for button in rendererButtons.allObjects {
             button.showsMenuAsPrimaryAction = showsMenu
             button.contextMenuInteraction?.updateVisibleMenu { $0.replacingChildren(rendererActions()) }
         }
@@ -109,7 +109,7 @@ class VLCRendererDiscovererManager: NSObject {
         //if we select the same renderer we want to disconnect
         let oldRenderer = PlaybackService.sharedInstance().renderer
         setRendererItem(rendererItem: rendererItem)
-        selectionHandler?(oldRenderer == rendererItem ? nil : rendererItem)
+        delegate?.selectedRendererItem?(oldRenderer == rendererItem ? nil : rendererItem)
     }
 
     fileprivate func setRendererItem(rendererItem: VLCRendererItem) {
@@ -123,13 +123,9 @@ class VLCRendererDiscovererManager: NSObject {
         }
 
         PlaybackService.sharedInstance().renderer = finalRendererItem
-        for button in rendererButtons {
+        for button in rendererButtons.allObjects {
             button.isSelected = isSelected
         }
-    }
-
-    @objc func addSelectionHandler(_ selectionHandler: ((_ rendererItem: VLCRendererItem?) -> Void)?) {
-        self.selectionHandler = selectionHandler
     }
 
     /// Add the given button to VLCRendererDiscovererManager.
@@ -147,7 +143,7 @@ class VLCRendererDiscovererManager: NSObject {
         button.addTarget(self, action: #selector(selectOnlyRenderer), for: .touchUpInside)
         button.accessibilityLabel = NSLocalizedString("BUTTON_RENDERER", comment: "")
         button.accessibilityHint = NSLocalizedString("BUTTON_RENDERER_HINT", comment: "")
-        rendererButtons.append(button)
+        rendererButtons.add(button)
         return button
     }
 }
@@ -156,35 +152,41 @@ class VLCRendererDiscovererManager: NSObject {
 
 extension VLCRendererDiscovererManager: VLCRendererDiscovererDelegate {
     func rendererDiscovererItemAdded(_ rendererDiscoverer: VLCRendererDiscoverer, item: VLCRendererItem) {
-        for button in rendererButtons {
-            UIView.animate(withDuration: 0.1) {
-                button.isHidden = false
+        DispatchQueue.main.async {
+            self.rendererItems.append(item)
+            for button in self.rendererButtons.allObjects {
+                UIView.animate(withDuration: 0.1) {
+                    button.isHidden = false
+                }
             }
+            self.updateRendererButtons()
+            NotificationCenter.default.post(name: .VLCRenderersDidChangeNotification, object: self)
         }
-        updateRendererButtons()
-        delegate?.addedRendererItem?()
     }
 
     func rendererDiscovererItemDeleted(_ rendererDiscoverer: VLCRendererDiscoverer, item: VLCRendererItem) {
-        let playbackController = PlaybackService.sharedInstance()
-        // Current renderer has been removed
-        if playbackController.renderer == item {
-            playbackController.renderer = nil
-            delegate?.removedCurrentRendererItem?(item)
-            // Reset buttons state
-            for button in rendererButtons {
-                button.isSelected = false
-            }
-        }
-        // No more renderers to show
-        if getAllRenderers().isEmpty {
-            for button in rendererButtons {
-                UIView.animate(withDuration: 0.1) {
-                    button.isHidden = true
+        DispatchQueue.main.async {
+            self.rendererItems.removeAll { $0 == item }
+            let playbackController = PlaybackService.sharedInstance()
+            // Current renderer has been removed
+            if playbackController.renderer == item {
+                playbackController.renderer = nil
+                self.delegate?.removedCurrentRendererItem?(item)
+                // Reset buttons state
+                for button in self.rendererButtons.allObjects {
+                    button.isSelected = false
                 }
             }
+            // No more renderers to show
+            if self.getAllRenderers().isEmpty {
+                for button in self.rendererButtons.allObjects {
+                    UIView.animate(withDuration: 0.1) {
+                        button.isHidden = true
+                    }
+                }
+            }
+            self.updateRendererButtons()
+            NotificationCenter.default.post(name: .VLCRenderersDidChangeNotification, object: self)
         }
-        updateRendererButtons()
-        delegate?.removedRendererItem?()
     }
 }

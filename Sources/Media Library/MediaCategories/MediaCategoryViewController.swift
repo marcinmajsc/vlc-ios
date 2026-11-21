@@ -601,6 +601,10 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         }
 
         addThemeChangeObserver()
+#if os(iOS)
+        NotificationCenter.default.addObserver(self, selector: #selector(renderersDidChange),
+                                               name: .VLCRenderersDidChangeNotification, object: nil)
+#endif
     }
 
     override func viewDidLayoutSubviews() {
@@ -619,17 +623,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
 #if os(iOS)
-        let manager = VLCAppCoordinator.sharedInstance().rendererDiscovererManager
-        manager.delegate = self
-        if manager.discoverers.isEmpty {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                guard self?.viewIfLoaded?.window != nil, manager.discoverers.isEmpty else {
-                    return
-                }
-                manager.start()
-            }
-        }
-
         NotificationCenter.default.addObserver(self, selector: #selector(handleEditToolBar), name: Notification.Name("sidebarVisibilityChanged"), object: nil)
 #endif
         PlaybackService.sharedInstance().setPlayerHidden(isEditing)
@@ -1755,25 +1748,12 @@ extension MediaCategoryViewController {
     }
 }
 
-// MARK: - VLCRendererDiscovererManagerDelegate
+// MARK: - Renderers
 
 #if os(iOS)
-extension MediaCategoryViewController: VLCRendererDiscovererManagerDelegate {
-    @objc func addedRendererItem() {
+extension MediaCategoryViewController {
+    @objc private func renderersDidChange() {
         updateBarButtonItems()
-
-        if let delegate = delegate as? MediaViewController {
-            delegate.updateButtonsFor(self)
-        }
-    }
-
-    @objc func removedRendererItem() {
-        updateBarButtonItems()
-
-        if let delegate = delegate as? MediaViewController,
-           VLCAppCoordinator.sharedInstance().rendererDiscovererManager.getAllRenderers().isEmpty {
-            delegate.updateButtonsFor(self)
-        }
     }
 }
 #endif

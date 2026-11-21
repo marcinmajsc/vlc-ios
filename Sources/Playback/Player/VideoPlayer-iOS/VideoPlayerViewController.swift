@@ -230,8 +230,13 @@ class VideoPlayerViewController: PlayerViewController {
         let externalVideoOutputView = PlayerInfoView()
         externalVideoOutputView.isHidden = true
         externalVideoOutputView.translatesAutoresizingMaskIntoConstraints = false
+        externalVideoOutputView.delegate = self
         return externalVideoOutputView
     }()
+
+    override var externalOutputInfoView: PlayerInfoView {
+        return externalVideoOutputView
+    }
 
     // MARK: - Gestures
 
@@ -612,9 +617,6 @@ class VideoPlayerViewController: PlayerViewController {
         setupViews()
         setupAccessibility()
         setupConstraints()
-#if os(iOS)
-        setupRendererDiscoverer()
-#endif
 #if os(iOS) && canImport(MediaIntents) // iOS 27 SDK
         setupExternalDisplayAccessory()
 #endif
@@ -791,24 +793,6 @@ class VideoPlayerViewController: PlayerViewController {
         setupLongPressPlaybackSpeedConstraints()
     }
 
-#if os(iOS)
-    private func setupRendererDiscoverer() {
-        rendererDiscovererManager.addSelectionHandler {
-            rendererItem in
-            if rendererItem != nil {
-                self.changeVideoOutput(to: self.externalVideoOutputView.displayView)
-                let color: UIColor = PresentationTheme.current.colors.orangeUI
-                self.mediaNavigationBar.updateDeviceButton(with: UIImage(named: "rendererFull"), color: color)
-            } else if let currentRenderer = self.playbackService.renderer {
-                self.removedCurrentRendererItem(currentRenderer)
-            } else {
-                // There is no renderer item
-                self.mediaNavigationBar.updateDeviceButton(with: UIImage(named: "renderer"), color: .white)
-            }
-        }
-    }
-#endif
-
     private func setupVideoControlsState() {
         let isShuffleEnabled = playerController.isShuffleEnabled
         let repeatMode = playerController.isRepeatEnabled
@@ -945,10 +929,14 @@ class VideoPlayerViewController: PlayerViewController {
     }
 
     private func setupExternalVideoOutputConstraints() {
+        let centerYConstraint = externalVideoOutputView.centerYAnchor.constraint(equalTo: videoAreaLayoutGuide.centerYAnchor)
+        centerYConstraint.priority = .defaultLow
+
         NSLayoutConstraint.activate([
-            externalVideoOutputView.heightAnchor.constraint(equalToConstant: 320),
             externalVideoOutputView.widthAnchor.constraint(equalToConstant: 320),
-            externalVideoOutputView.centerYAnchor.constraint(equalTo: videoAreaLayoutGuide.centerYAnchor),
+            centerYConstraint,
+            externalVideoOutputView.bottomAnchor.constraint(lessThanOrEqualTo: videoPlayerControls.transportControls.topAnchor,
+                                                            constant: -16),
             externalVideoOutputView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
         ])
     }
@@ -1278,6 +1266,7 @@ class VideoPlayerViewController: PlayerViewController {
 
     override func setControlsHidden(_ hidden: Bool, animated: Bool) {
         guard !UIAccessibility.isVoiceOverRunning || !hidden else { return }
+        guard !playbackService.isPlayingOnExternalScreen() || !hidden else { return }
 
         playerController.isControlsHidden = hidden
         if let alert = alertController, hidden {
@@ -1391,12 +1380,17 @@ class VideoPlayerViewController: PlayerViewController {
         videoOutputView.layoutIfNeeded()
     }
 
+    override func changeOutputView(to output: UIView?) {
+        changeVideoOutput(to: output == externalVideoOutputView.displayView ? output : videoOutputView)
+    }
+
     private func changeVideoOutput(to output: UIView?) {
         // If we don't have a renderer we're mirroring and don't want to show the dialog
         let displayExternally = output == nil ? true : output != videoOutputView
 
         externalVideoOutputView.shouldDisplay(displayExternally,
                                               movieView: videoOutputView)
+        updateLoadingIndicator()
 
         let displayView = externalVideoOutputView.displayView
 
@@ -1418,6 +1412,12 @@ class VideoPlayerViewController: PlayerViewController {
             // Adjust constraint for local display
             setupVideoOutputConstraints()
             adaptVideoOutputToNotch()
+        }
+
+        if displayExternally {
+            setControlsHidden(false, animated: true)
+        } else {
+            resetIdleTimer()
         }
     }
 
@@ -1625,6 +1625,7 @@ extension VideoPlayerViewController {
 #endif
         } else {
             self.externalVideoOutputView.isHidden = true
+            updateLoadingIndicator()
         }
 
         videoPlayerButtons()
