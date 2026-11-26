@@ -32,10 +32,10 @@ jobs:
           set -euo pipefail
           xcodebuild \
             -workspace "VLC.xcworkspace" \
-            -scheme "VLC-iOS" \
+            -scheme "VLC-iOS-no-watch" \
             -configuration "Debug" \
             -destination "generic/platform=iOS" \
-            -archivePath "$GITHUB_WORKSPACE/build/VLC-iOS-Debug.xcarchive" \
+            -archivePath "$GITHUB_WORKSPACE/build/VLC-iOS-no-watch-Debug.xcarchive" \
             clean archive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -44,7 +44,7 @@ jobs:
       - name: Create unsigned IPA from archive
         run: |
           set -euo pipefail
-          APP_PATH="$(find "$GITHUB_WORKSPACE/build/VLC-iOS-Debug.xcarchive/Products/Applications" -maxdepth 1 -type d -name "*.app" | head -n 1)"
+          APP_PATH="$(find "$GITHUB_WORKSPACE/build/VLC-iOS-no-watch-Debug.xcarchive/Products/Applications" -maxdepth 1 -type d -name "*.app" | head -n 1)"
           test -d "$APP_PATH"
           rm -rf "$GITHUB_WORKSPACE/build/Payload"
           mkdir -p "$GITHUB_WORKSPACE/build/Payload"
