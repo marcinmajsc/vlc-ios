@@ -89,6 +89,7 @@
 "BUTTON_LEARN_MORE" = "Learn More";
 "BUTTON_LOGOUT" = "Logout";
 "BUTTON_CONTINUE" = "Continue";
+"BUTTON_DEACTIVATE" = "Deactivate";
 "BUTTON_RESET" = "Reset";
 "BUTTON_RESCAN" = "Rescan";
 "BUTTON_SYNC" = "Sync";
@@ -114,7 +115,7 @@
 "HTTP_UPLOAD_NO_CONNECTIVITY" = "No active Wi-Fi connection";
 "OPEN_STREAM_OR_DOWNLOAD" = "Would you like to download or play this URL?";
 "ALWAYS_STREAM_URL" = "Always play URLs";
-"SHARED_VLC_IOS_LIBRARY" = "Shared VLC for iOS Library";
+"SHARED_VLC_IOS_LIBRARY" = "Shared VLC Library";
 "SMB_CIFS_FILE_SERVERS" = "File Servers (SMB)";
 "http://myserver.com/file.mkv" = "http://myserver.com/file.mkv";
 
@@ -138,7 +139,7 @@
 "ERROR_NUMBER" = "Error %i occured";
 "DOWNLOAD_FAILED" = "Download failed";
 "FILE_NOT_SUPPORTED" = "File format not supported";
-"FILE_NOT_SUPPORTED_LONG" = "The file format used by %@ is not supported by this version of VLC for iOS.";
+"FILE_NOT_SUPPORTED_LONG" = "The file format used by %@ is not supported by this version of VLC.";
 "SCHEME_NOT_SUPPORTED" = "Address scheme not supported";
 "SCHEME_NOT_SUPPORTED_LONG" = "The address scheme (%@) is not supported. Please use an address starting with HTTP, HTTPS or FTP.";
 "RENAME_MEDIA_TO" = "Enter new name for %@";
@@ -344,9 +345,9 @@
 "WEBINTF_URL_SENT" = "URL sent successfully.";
 "WEBINTF_URL_EMPTY" = "URL cannot be empty.";
 "WEBINTF_URL_INVALID" = "Not a valid URL.";
-"WEBINTF_AUTH_REQUIRED" = "Please enter the passcode you set in VLC iOS:";
+"WEBINTF_AUTH_REQUIRED" = "Please enter the passcode you set in VLC:";
 "WEBINTF_AUTH_WRONG_PASSCODE" = "Wrong passcode.<br>Remaining attempts: ";
-"WEBINTF_AUTH_BANNED" = "You entered too many wrong passcodes.<br>Please restart VLC iOS and try again.";
+"WEBINTF_AUTH_BANNED" = "You entered too many wrong passcodes.<br>Please restart VLC and try again.";
 
 "DURATION" = "Duration";
 "TITLE" = "Title";
@@ -520,6 +521,7 @@
 "BUTTON_CLEAR" = "Clear";
 "CLEAR_HISTORY_TITLE" = "Clear History";
 "CLEAR_HISTORY_MESSAGE" = "Confirm clearing history";
+"PLAYBACK_HISTORY_DISABLE_WARNING" = "Deactivating the playback history hides the history, the playback progress and the new and played markers. VLC keeps saving your activity for media in your library and restores it when the history is turned back on.";
 
 "ADD_TO_PLAYLIST" = "Add to Playlist";
 "ADD_TO_PLAYLIST_HINT" = "Open the add to playlist menu";
@@ -625,10 +627,8 @@
 
 "INTERFACE_LOCK_BUTTON" = "Lock interface";
 
-"BRIGHTNESS_HINT" = "Vertical brightness control";
-"BRIGHTNESS_SLIDER" = "Slide vertically to change the brightness level";
-"VOLUME_HINT" = "Vertical volume control";
-"VOLUME_SLIDER" = "Slide vertically to change the volume level";
+"BRIGHTNESS" = "Brightness";
+"VOLUME" = "Volume";
 
 "SELECT_A_MARK" = "Select the A mark";
 "SELECT_A_MARK_HINT" = "Select the A mark of the AB loop";
@@ -832,6 +832,7 @@
 "APPINTENT_ERROR_NO_MEDIA" = "No matching media was found in your library.";
 "APPINTENT_ERROR_PLAYLIST_UPDATE" = "The playlist could not be updated.";
 "APPINTENT_ERROR_PLAYBACK_START" = "Playback could not be started.";
+"APPINTENT_ERROR_NOTHING_TO_RESUME" = "There is nothing to resume.";
 "APPINTENT_AFFINITY_FAVORITE" = "Favorite";
 "APPINTENT_AFFINITY_NOT_FAVORITE" = "Not a Favorite";
 "APPINTENT_AFFINITY_UNSET" = "Unset";
@@ -847,6 +848,10 @@
 "APPINTENT_PLAY_RADIO_DESCRIPTION" = "Play a radio station in VLC.";
 "APPINTENT_PLAY_RADIO_PLAY_${station}" = "Play ${station}";
 "APPINTENT_PLAY_RADIO_PROMPT" = "Which radio station would you like to play?";
+
+// MARK: - Play/Pause App Intent Strings
+"APPINTENT_PLAY_PAUSE_TITLE" = "Play/Pause";
+"APPINTENT_PLAY_PAUSE_DESCRIPTION" = "Pause or resume playback in VLC.";
 
 // MARK: - AppShortcut Strings
 "APPSHORTCUT_PLAY_MEDIA_SHORT_TITLE" = "Play Media";
@@ -866,11 +871,12 @@
 "APPSHORTCUT_PLAY_RADIO_SHORT_TITLE" = "Play Radio";
 "APPSHORTCUT_PLAY_RADIO_PHRASE_PLAY_${applicationName}" = "Play radio in ${applicationName}";
 "APPSHORTCUT_PLAY_RADIO_PHRASE_LISTEN_${applicationName}" = "Listen to radio in ${applicationName}";
+"APPSHORTCUT_PLAY_PAUSE_SHORT_TITLE" = "Play/Pause";
+"APPSHORTCUT_PLAY_PAUSE_PHRASE_TOGGLE_${applicationName}" = "Play or pause ${applicationName}";
+"APPSHORTCUT_PLAY_PAUSE_PHRASE_RESUME_${applicationName}" = "Resume ${applicationName}";
 
 // MARK: - VerticalSliderControl Strings
 "VERTICAL_SLIDER_CONTROL_ACCESSIBILITY_LABEL" = "Vertical slider";
-"VERTICAL_SLIDER_CONTROL_INCREMENT_ACTION" = "Increment";
-"VERTICAL_SLIDER_CONTROL_DECREMENT_ACTION" = "Decrement";
 
 // MARK: - Download Completion Announcement
 "DOWNLOAD_COMPLETED_ANNOUNCEMENT" = "Downloading file \"%@\" completed";

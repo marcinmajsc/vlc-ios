@@ -1,10 +1,11 @@
 /*****************************************************************************
  * EditController.swift
  *
- * Copyright © 2018 VLC authors and VideoLAN
- * Copyright © 2018 Videolabs
+ * Copyright © 2018-2026 VLC authors and VideoLAN
+ * Copyright © 2018-2026 Videolabs
  *
  * Authors: Soomin Lee <bubu@mikan.io>
+ *          Felix Paul Kühne <fkuehne # videolan.org>
  *
  * Refer to the COPYING file of the official project for license.
  *****************************************************************************/
@@ -15,13 +16,14 @@ protocol EditControllerDelegate: AnyObject {
     func editControllerDidFinishEditing(editController: EditController?)
     func editControllerGetCurrentThumbnail() -> UIImage?
     func editControllerGetArtworkHeaderSize(with width: CGFloat) -> CGSize
+    func editControllerGetTitleSections() -> MediaTitleSections?
     func editControllerSetNavigationItemTitle(with title: String?)
     func editControllerUpdateIsAllSelected(with allSelected: Bool)
 }
 
 class EditController: UIViewController {
     // Cache selectedIndexPath separately to indexPathsForSelectedItems in order to have persistance
-    private var selectedCellIndexPaths = Set<IndexPath>()
+    private var selectedItems = [IndexPath: VLCMLObject]()
     private let model: MediaLibraryBaseModel
     private let presentingView: UICollectionView
     private let searchDataSource: LibrarySearchDataSource
@@ -35,6 +37,10 @@ class EditController: UIViewController {
         } else {
             return searchDataSource.isSearching ? searchDataSource.searchData : model.anyfiles
         }
+    }
+
+    private var titleSections: MediaTitleSections? {
+        return delegate?.editControllerGetTitleSections()
     }
 
     weak var delegate: EditControllerDelegate?
@@ -55,14 +61,50 @@ class EditController: UIViewController {
     }
 
     func resetSelections(resetUI: Bool) {
-        for indexPath in selectedCellIndexPaths {
+        for indexPath in selectedItems.keys {
             presentingView.deselectItem(at: indexPath, animated: true)
             if resetUI {
                 collectionView(presentingView, didDeselectItemAt: indexPath)
             }
         }
-        selectedCellIndexPaths.removeAll()
+        selectedItems.removeAll()
         isAllSelected = false
+    }
+
+    func updateSelections() {
+        guard !selectedItems.isEmpty else {
+            return
+        }
+
+        let layout = currentLayout()
+        var updatedItems = [IndexPath: VLCMLObject]()
+        for object in selectedItems.values {
+            if let entry = layout[ObjectIdentifier(type(of: object))]?[object.identifier()] {
+                updatedItems[entry.indexPath] = entry.object
+            }
+        }
+        selectedItems = updatedItems
+
+        for indexPath in presentingView.indexPathsForSelectedItems ?? [] where updatedItems[indexPath] == nil {
+            presentingView.deselectItem(at: indexPath, animated: false)
+        }
+        for indexPath in updatedItems.keys {
+            presentingView.selectItem(at: indexPath, animated: false, scrollPosition: [])
+        }
+
+        let allSelected = !updatedItems.isEmpty && updatedItems.count == currentDataSet.count
+        if allSelected != isAllSelected {
+            isAllSelected = allSelected
+            delegate?.editControllerUpdateIsAllSelected(with: allSelected)
+        }
+
+        if updatedItems.isEmpty {
+            delegate?.editControllerDidDeSelectMultipleItem()
+            delegate?.editControllerSetNavigationItemTitle(with: nil)
+        } else {
+            delegate?.editControllerDidSelectMultipleItem(editContrller: self)
+            delegate?.editControllerSetNavigationItemTitle(with: getTitle(for: updatedItems.count))
+        }
     }
 
     func shouldResetCells(_ reset: Bool) {
@@ -104,6 +146,29 @@ class EditController: UIViewController {
 // MARK: - Helpers
 
 private extension EditController {
+    private func getObject(at indexPath: IndexPath) -> VLCMLObject? {
+        if let titleSections {
+            return titleSections.media(at: indexPath)
+        }
+        return currentDataSet.objectAtIndex(index: indexPath.row)
+    }
+
+    private func currentLayout() -> [ObjectIdentifier: [VLCMLIdentifier: (indexPath: IndexPath, object: VLCMLObject)]] {
+        var layout = [ObjectIdentifier: [VLCMLIdentifier: (indexPath: IndexPath, object: VLCMLObject)]]()
+        if let titleSections {
+            for (section, entry) in titleSections.sections.enumerated() {
+                for (row, media) in entry.items.enumerated() {
+                    layout[ObjectIdentifier(type(of: media)), default: [:]][media.identifier()] = (IndexPath(row: row, section: section), media)
+                }
+            }
+        } else {
+            for (row, object) in currentDataSet.enumerated() {
+                layout[ObjectIdentifier(type(of: object)), default: [:]][object.identifier()] = (IndexPath(row: row, section: 0), object)
+            }
+        }
+        return layout
+    }
+
     private var canReorder: Bool {
         guard let collectionModel = model as? CollectionModel else {
             return false
@@ -153,13 +218,12 @@ private extension EditController {
 
 extension EditController: EditToolbarDelegate {
     private func getSelectedObjects(keepPlaylists: Bool = false) {
-        let sortedSelectedCells = selectedCellIndexPaths.sorted()
-        for index in sortedSelectedCells where index.row < currentDataSet.count {
-            if keepPlaylists, let playlist = currentDataSet[index.row] as? VLCMLPlaylist {
+        for object in selectedItems.sorted(by: { $0.key < $1.key }).map({ $0.value }) {
+            if keepPlaylists, let playlist = object as? VLCMLPlaylist {
                 editActions.objects.append(playlist)
-            } else if let folder = currentDataSet[index.row] as? VLCMLFolder {
+            } else if let folder = object as? VLCMLFolder {
                 editActions.objects += folder.allMedia()
-            } else if let mediaCollection = currentDataSet[index.row] as? MediaCollectionModel {
+            } else if let mediaCollection = object as? MediaCollectionModel {
                 guard let files = mediaCollection.files() else {
                     assertionFailure("EditController: Fail to retrieve tracks.")
                     DispatchQueue.main.async {
@@ -171,13 +235,13 @@ extension EditController: EditToolbarDelegate {
                 }
                 editActions.objects += files
             } else {
-                editActions.objects.append(currentDataSet[index.row])
+                editActions.objects.append(object)
             }
         }
     }
 
     func editToolbarDidAddToPlaylist(_ editToolbar: EditToolbar) {
-        guard !selectedCellIndexPaths.isEmpty else {
+        guard !selectedItems.isEmpty else {
             return
         }
         editActions.objects.removeAll()
@@ -194,13 +258,13 @@ extension EditController: EditToolbarDelegate {
     }
 
     func editToolbarDidAddToMediaGroup(_ editToolbar: EditToolbar) {
-        guard !selectedCellIndexPaths.isEmpty else {
+        guard !selectedItems.isEmpty else {
             return
         }
         editActions.objects.removeAll()
 
-        for index in selectedCellIndexPaths where index.row < currentDataSet.count {
-            editActions.objects.append(currentDataSet[index.row])
+        for object in selectedItems.values {
+            editActions.objects.append(object)
         }
 
         editActions.addToMediaGroup() {
@@ -215,7 +279,7 @@ extension EditController: EditToolbarDelegate {
     }
 
     func editToolbarDidRemoveFromMediaGroup(_ editToolbar: EditToolbar) {
-        guard !selectedCellIndexPaths.isEmpty else {
+        guard !selectedItems.isEmpty else {
             return
         }
 
@@ -234,20 +298,21 @@ extension EditController: EditToolbarDelegate {
     }
 
     func editToolbarDidDelete(_ editToolbar: EditToolbar) {
-        guard !selectedCellIndexPaths.isEmpty else {
+        guard !selectedItems.isEmpty else {
             return
         }
         
         editActions.objects.removeAll()
         
-        for indexPath in selectedCellIndexPaths.sorted(by: { $0 > $1 }) {
-            editActions.objects.append(currentDataSet[indexPath.row])
+        for object in selectedItems.sorted(by: { $0.key > $1.key }).map({ $0.value }) {
+            editActions.objects.append(object)
         }
+        let deletedObjects = editActions.objects
 
         editActions.delete({
             [weak self] state in
             if state == .success || state == .fail {
-                self?.searchDataSource.deleteInSearch(indexes: self?.selectedCellIndexPaths)
+                self?.searchDataSource.deleteInSearch(deletedObjects)
                 self?.resetSelections(resetUI: false)
                 self?.delegate?.editControllerSetNavigationItemTitle(with: nil)
                 self?.delegate?.editControllerDidDeSelectMultipleItem()
@@ -257,7 +322,7 @@ extension EditController: EditToolbarDelegate {
     }
 
     func editToolbarDidShare(_ editToolbar: EditToolbar) {
-        guard !selectedCellIndexPaths.isEmpty else {
+        guard !selectedItems.isEmpty else {
             return
         }
         editActions.objects.removeAll()
@@ -274,15 +339,15 @@ extension EditController: EditToolbarDelegate {
     }
 
     func editToolbarDidRename(_ editToolbar: EditToolbar) {
-        guard !selectedCellIndexPaths.isEmpty else {
+        guard !selectedItems.isEmpty else {
             return
         }
         
         editActions.objects.removeAll()
 
-        for indexPath in selectedCellIndexPaths.sorted(by: { $0 > $1 })
-        where !(currentDataSet[indexPath.row] is VLCMLFolder) {
-            editActions.objects.append(currentDataSet[indexPath.row])
+        for object in selectedItems.sorted(by: { $0.key > $1.key }).map({ $0.value })
+        where !(object is VLCMLFolder) {
+            editActions.objects.append(object)
         }
 
         editActions.rename({
@@ -297,7 +362,15 @@ extension EditController: EditToolbarDelegate {
     }
 
     func editToolbarEmptySelection(_ editToolbar: EditToolbar) -> Bool {
-        return selectedCellIndexPaths.isEmpty
+        return selectedItems.isEmpty
+    }
+
+    func editToolbarCanRename(_ editToolbar: EditToolbar) -> Bool {
+        guard model is FolderModel else {
+            return true
+        }
+
+        return !selectedItems.values.contains { $0 is VLCMLFolder }
     }
 }
 
@@ -305,10 +378,10 @@ extension EditController: EditToolbarDelegate {
 
 extension EditController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        selectedCellIndexPaths.insert(indexPath)
+        selectedItems[indexPath] = getObject(at: indexPath)
         collectionView.selectItem(at: indexPath, animated: false, scrollPosition: .centeredHorizontally)
 
-        if !selectedCellIndexPaths.isEmpty {
+        if !selectedItems.isEmpty {
             delegate?.editControllerDidSelectMultipleItem(editContrller: self)
         }
         // Isolate selectionViewOverlay changes inside EditController
@@ -322,21 +395,23 @@ extension EditController: UICollectionViewDelegate {
             cell.selectionViewOverlay?.isHidden = !showOverlay
         }
         
-        if currentDataSet.count == selectedCellIndexPaths.count {
+        if currentDataSet.count == selectedItems.count {
             isAllSelected = true
             delegate?.editControllerUpdateIsAllSelected(with: true)
         }
 
-        let title = getTitle(for: selectedCellIndexPaths.count)
+        let title = getTitle(for: selectedItems.count)
         delegate?.editControllerSetNavigationItemTitle(with: title)
     }
 
     func collectionView(_ collectionView: UICollectionView, didDeselectItemAt indexPath: IndexPath) {
-        selectedCellIndexPaths.remove(indexPath)
+        selectedItems[indexPath] = nil
         collectionView.deselectItem(at: indexPath, animated: false)
 
-        if selectedCellIndexPaths.isEmpty {
+        if selectedItems.isEmpty {
             delegate?.editControllerDidDeSelectMultipleItem()
+        } else {
+            delegate?.editControllerDidSelectMultipleItem(editContrller: self)
         }
         if let cell = collectionView.cellForItem(at: indexPath) as? BaseCollectionViewCell {
             cell.selectionViewOverlay?.isHidden = true
@@ -344,10 +419,10 @@ extension EditController: UICollectionViewDelegate {
 
         let title: String?
 
-        if selectedCellIndexPaths.isEmpty {
+        if selectedItems.isEmpty {
             title = nil
         } else {
-            title = getTitle(for: selectedCellIndexPaths.count)
+            title = getTitle(for: selectedItems.count)
         }
 
         if isAllSelected {
@@ -359,6 +434,10 @@ extension EditController: UICollectionViewDelegate {
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, referenceSizeForHeaderInSection section: Int) -> CGSize {
+        if titleSections != nil {
+            return .init(width: collectionView.safeAreaLayoutGuide.layoutFrame.width, height: 40)
+        }
+
         guard let model = model as? CollectionModel else {
             return .init(width: 0, height: 0)
         }
@@ -375,14 +454,29 @@ extension EditController: UICollectionViewDelegate {
 // MARK: - UICollectdiionViewDataSource
 
 extension EditController: UICollectionViewDataSource {
+    func numberOfSections(in collectionView: UICollectionView) -> Int {
+        return titleSections?.sections.count ?? 1
+    }
+
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        if let titleSections {
+            return titleSections.sections[section].items.count
+        }
         return currentDataSet.count
+    }
+
+    func indexTitles(for collectionView: UICollectionView) -> [String]? {
+        return titleSections?.titles
+    }
+
+    func collectionView(_ collectionView: UICollectionView, indexPathForIndexTitle title: String, at index: Int) -> IndexPath {
+        return IndexPath(item: 0, section: index)
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         if let cell = collectionView.dequeueReusableCell(withReuseIdentifier: model.cellType.defaultReuseIdentifier,
                                                          for: indexPath) as? BaseCollectionViewCell {
-            cell.isSelected = selectedCellIndexPaths.contains(indexPath)
+            cell.isSelected = selectedItems[indexPath] != nil
             cell.isAccessibilityElement = true
             cell.checkImageView?.isHidden = false
 
@@ -407,7 +501,7 @@ extension EditController: UICollectionViewDataSource {
             if cell.isSelected {
                 cell.selectionViewOverlay?.isHidden = !showOverlay
             }
-            cell.media = currentDataSet[indexPath.row]
+            cell.media = getObject(at: indexPath)
             return cell
         } else {
             assertionFailure("We couldn't dequeue a reusable cell, the cell might not be registered or is not a MediaEditCell")
@@ -426,6 +520,12 @@ extension EditController: UICollectionViewDataSource {
             header.updateImage(with: delegate?.editControllerGetCurrentThumbnail(),
                                placeholderName: collectionModel.mediaCollection.placeholderName())
             header.shouldDisablePlayButtons(true)
+            return header
+        }
+
+        if let titleSections,
+           let header = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: TrackSectionHeader.headerID, for: indexPath) as? TrackSectionHeader {
+            header.update(sectionTitle: titleSections.sections[indexPath.section].key)
             return header
         }
 
@@ -493,8 +593,8 @@ extension EditController: UICollectionViewDropDelegate {
         let destinationIndexPath = coordinator.destinationIndexPath ?? IndexPath(row: itemCount - 1, section: section)
 
         var movingRows = [sourceIndexPath.row]
-        if selectedCellIndexPaths.contains(sourceIndexPath) {
-            movingRows = selectedCellIndexPaths.map({ $0.row }).filter({ $0 < itemCount }).sorted()
+        if selectedItems[sourceIndexPath] != nil {
+            movingRows = selectedItems.keys.map({ $0.row }).filter({ $0 < itemCount }).sorted()
         }
 
         let newOrder = order(moving: movingRows, draggedFrom: sourceIndexPath.row, to: destinationIndexPath.row)
@@ -511,8 +611,8 @@ extension EditController: UICollectionViewDropDelegate {
             }
         })
 
-        selectedCellIndexPaths = Set(selectedCellIndexPaths.filter({ $0.row < itemCount }).map({
-            IndexPath(row: newRows[$0.row], section: $0.section)
+        selectedItems = Dictionary(uniqueKeysWithValues: selectedItems.filter({ $0.key.row < itemCount }).map({
+            (IndexPath(row: newRows[$0.key.row], section: $0.key.section), $0.value)
         }))
 
         coordinator.drop(item.dragItem, toItemAt: IndexPath(row: newRows[sourceIndexPath.row], section: section))

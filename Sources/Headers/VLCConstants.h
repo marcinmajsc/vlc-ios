@@ -101,6 +101,8 @@
 #define kVLCSettingPlayVideoPreviewsDefaultValue @YES
 #define kVLCSettingShowArtworks @"ShowArtworks"
 #define kVLCSettingShowArtworksDefaultValue @YES
+#define kVLCSettingPlaybackHistory @"PlaybackHistory"
+#define kVLCSettingPlaybackHistoryDefaultValue @YES
 #define kVLCSettingsDisableGrouping @"MLDisableGrouping"
 #define kVLCkVLCSettingsDisableGroupingDefaultValue @NO
 #define kVLCSettingCastingAudioPassthrough @"sout-chromecast-audio-passthrough"
@@ -171,6 +173,7 @@
 #define kSupportedProtocolSchemes @"(rtsp|mms|mmsh|udp|rtp|rtmp|sftp|ftp|smb)$"
 
 #define kVLCDarwinNotificationNowPlayingInfoUpdate @"org.videolan.ios-app.nowPlayingInfoUpdate"
+#define kVLCDarwinNotificationShareExtensionDidImport @"org.videolan.ios-app.shareExtensionDidImport"
 
 #if TARGET_IPHONE_SIMULATOR
 #define WifiInterfaceName @"en1"

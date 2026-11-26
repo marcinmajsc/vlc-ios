@@ -92,7 +92,6 @@ static CGFloat const kVLCBrowseSectionSpacing = 16.0;
 @interface VLCServerListViewController () <UICollectionViewDataSource, UICollectionViewDelegateFlowLayout,
                                            VLCLocalServerDiscoveryControllerDelegate,
                                            VLCNetworkLoginViewControllerDelegate,
-                                           VLCBrowseSectionHeaderDelegate,
                                            VLCBrowseSharingCellDelegate,
                                            VLCArtworkTileDelegate>
 @end
@@ -626,9 +625,7 @@ static CGFloat const kVLCBrowseSectionSpacing = 16.0;
     VLCBrowseSectionHeader *header = [collectionView dequeueReusableSupplementaryViewOfKind:kind
                                                                        withReuseIdentifier:VLCBrowseSectionHeader.reuseIdentifier
                                                                               forIndexPath:indexPath];
-    header.delegate = self;
-    [header configureWithTitle:[self titleForSection:(VLCBrowseSection)indexPath.section]
-                showsAddButton:indexPath.section == VLCBrowseSectionNetwork];
+    [header configureWithTitle:[self titleForSection:(VLCBrowseSection)indexPath.section]];
     return header;
 }
 
@@ -833,7 +830,9 @@ referenceSizeForHeaderInSection:(NSInteger)section
     id<VLCNetworkServerBrowser> browser = nil;
 
     if ([favorite.protocolIdentifier isEqualToString:VLCNetworkServerProtocolIdentifierUPnP]) {
-        browser = [VLCNetworkServerBrowserVLCMedia UPnPNetworkServerBrowserWithURL:favorite.url options:@{}];
+        VLCMedia *media = [VLCMedia mediaWithURL:favorite.url];
+        media.metaData.title = favorite.userVisibleName;
+        browser = [[VLCNetworkServerBrowserVLCMedia alloc] initWithMedia:media options:@{}];
     } else if (login) {
         browser = [VLCNetworkServerBrowserFactory browserForLogin:login];
     } else {
@@ -1051,11 +1050,6 @@ referenceSizeForHeaderInSection:(NSInteger)section
         [[VLCNetworkServerBrowserViewController alloc] initWithServerBrowser:browser
                                                         medialibraryService:_medialibraryService];
     [self pushViewController:controller];
-}
-
-- (void)sectionHeaderDidTriggerAction:(VLCBrowseSectionHeader *)header
-{
-    [self connectToServer];
 }
 
 - (void)connectToServer

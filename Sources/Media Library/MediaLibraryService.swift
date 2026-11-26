@@ -19,6 +19,10 @@ import CoreSpotlight
 import WatchKit
 #endif
 
+#if os(iOS)
+import WidgetKit
+#endif
+
 import VLCMediaLibraryKit
 import UIKit
 
@@ -155,6 +159,8 @@ extension NSNotification {
     @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
                                      historyChangedOfType type: VLCMLHistoryType)
 
+    @objc optional func medialibraryDidTogglePlaybackHistory(_ medialibrary: MediaLibraryService)
+
     // Entry points
     @objc optional func medialibrary(_ medialibrary: MediaLibraryService,
                                      didAddEntryPoint entryPoint: String)
@@ -227,7 +233,7 @@ class MediaLibraryService: NSObject {
     /// from everything else queued on it, network browsing in particular
     private var lastPlayedMediaList: VLCMedia?
     private var lastPlayedMediaListOpenInMiniPlayer = true
-    private var lastPlayedMediaListFallback: (() -> Void)?
+    private var lastPlayedMediaListCompletion: ((Bool) -> Void)?
     private var didRequestLastPlayedMediaListRestore = false
     private var didRestoreLastPlayedMediaListOnDemand = false
 
@@ -260,6 +266,7 @@ class MediaLibraryService: NSObject {
 
     @objc var isExcludingFromBackup: Bool = false
     @objc var isHidingLibrary: Bool = false
+    @objc private(set) var isPlaybackHistoryEnabled = UserDefaults.standard.bool(forKey: kVLCSettingPlaybackHistory)
 
 #if !os(tvOS) && !os(watchOS)
     var currentlyPlayingCollection: CurrentlyPlayingCollectionModel?
@@ -273,6 +280,8 @@ class MediaLibraryService: NSObject {
         if libraryType == .mediaLibrary {
             NotificationCenter.default.addObserver(self, selector: #selector(reload),
                                                    name: .VLCNewFileAddedNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(handleUserDefaultsDidChange),
+                                                   name: UserDefaults.didChangeNotification, object: nil)
 
             #if !os(watchOS)
             NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForegroundNotification),
@@ -281,6 +290,12 @@ class MediaLibraryService: NSObject {
 
             #if os(iOS)
             MediaLibraryCorruptionReportPresenter.shared.presentIfNeeded()
+
+            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    InboxManager.drainSharedInbox()
+                }
+            }, kVLCDarwinNotificationShareExtensionDidImport as CFString, nil, .deliverImmediately)
             #endif
         }
 
@@ -605,8 +620,9 @@ private extension MediaLibraryService {
     @objc func reindexAllMediaForSpotlight() {
         #if !os(watchOS)
         CSSearchableIndex.default().deleteAllSearchableItems { _ in
-            self.media(ofType: .video).forEach { $0.updateCoreSpotlightEntry() }
-            self.media(ofType: .audio).forEach { $0.updateCoreSpotlightEntry() }
+            let includesHistory = self.isPlaybackHistoryEnabled
+            self.media(ofType: .video).forEach { $0.updateCoreSpotlightEntry(includingPlaybackHistory: includesHistory) }
+            self.media(ofType: .audio).forEach { $0.updateCoreSpotlightEntry(includingPlaybackHistory: includesHistory) }
         }
         #endif
     }
@@ -669,6 +685,9 @@ private extension MediaLibraryService {
     }
 
     @objc func lastPlayedMedia() -> VLCMLMedia? {
+        guard isPlaybackHistoryEnabled else {
+            return nil
+        }
         return medialib.history(of: .global, 1, 0)?.first
     }
 
@@ -719,7 +738,7 @@ private extension MediaLibraryService {
 
         var mlMedia: VLCMLMedia? = medialib.media(withMrl: mrl)
 
-        if mlMedia == nil {
+        if mlMedia == nil, isPlaybackHistoryEnabled {
             // Add media unknown to the medialibrary.
             mlMedia = addUnknownMedia(with: mrl)
         }
@@ -791,18 +810,20 @@ extension MediaLibraryService {
         DispatchQueue.global(qos: .utility).async {
             // an on-demand restore may have taken over while this was queued, and its play queue
             // and mini player choice must not be downgraded to the automatic ones
-            guard !self.didRestoreLastPlayedMediaListOnDemand else { return }
+            guard !self.didRestoreLastPlayedMediaListOnDemand,
+                  self.lastPlayedMediaList == nil else { return }
 
             self.restoreLastPlayedMediaList(onDemand: false,
                                             openInMiniPlayer: true,
-                                            fallback: nil)
+                                            completion: nil)
         }
     }
 
-    /// `fallback` runs on the main queue once it is certain that nothing was restored, parsing included
+    /// `completion` runs on the main queue once the outcome is certain, parsing included, and tells
+    /// whether the player is set up
     func restoreLastPlayedMediaList(onDemand: Bool,
                                     openInMiniPlayer: Bool,
-                                    fallback: (() -> Void)?) {
+                                    completion: ((Bool) -> Void)?) {
         didRequestLastPlayedMediaListRestore = true
         if onDemand {
             didRestoreLastPlayedMediaListOnDemand = true
@@ -811,7 +832,7 @@ extension MediaLibraryService {
         guard onDemand || UserDefaults.standard.bool(forKey: kVLCRestoreLastPlayedMedia),
               let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         else {
-            runLastPlayedMediaListFallback(fallback)
+            runLastPlayedMediaListCompletion(completion, restored: false)
             return
         }
 
@@ -821,19 +842,21 @@ extension MediaLibraryService {
         guard FileManager.default.fileExists(atPath: m3uFileURL.path),
               let media = VLCMedia(url: m3uFileURL)
         else {
-            runLastPlayedMediaListFallback(fallback)
+            runLastPlayedMediaListCompletion(completion, restored: false)
             return
         }
 
         lastPlayedMediaList = media
         lastPlayedMediaListOpenInMiniPlayer = openInMiniPlayer
-        lastPlayedMediaListFallback = fallback
+        lastPlayedMediaListCompletion = completion
         VLCMediaParser.shared().queue(media)
     }
 
-    fileprivate func runLastPlayedMediaListFallback(_ fallback: (() -> Void)?) {
-        guard let fallback = fallback else { return }
-        DispatchQueue.main.async(execute: fallback)
+    fileprivate func runLastPlayedMediaListCompletion(_ completion: ((Bool) -> Void)?, restored: Bool) {
+        guard let completion = completion else { return }
+        DispatchQueue.main.async {
+            completion(restored)
+        }
     }
 }
 
@@ -862,6 +885,32 @@ extension MediaLibraryService {
                 self.reload()
             }
         }
+    }
+
+    @objc private func handleUserDefaultsDidChange() {
+        let isEnabled = UserDefaults.standard.bool(forKey: kVLCSettingPlaybackHistory)
+        guard isEnabled != isPlaybackHistoryEnabled else {
+            return
+        }
+
+        isPlaybackHistoryEnabled = isEnabled
+        observable.notifyObservers {
+            $0.medialibraryDidTogglePlaybackHistory?(self)
+        }
+
+#if !os(tvOS) && !os(watchOS)
+        if !isEnabled {
+            NSUserActivity.deleteAllSavedUserActivities {}
+        }
+        reindexAllMediaForSpotlight()
+#endif
+
+#if os(iOS)
+        if !isEnabled, let groupIdentifier = Bundle.main.object(forInfoDictionaryKey: "MLKitGroupIdentifier") as? String {
+            UserDefaults(suiteName: groupIdentifier)?.removeObject(forKey: "media")
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+#endif
     }
 }
 
@@ -976,7 +1025,7 @@ extension MediaLibraryService: VLCMediaFileDiscovererDelegate {
 extension MediaLibraryService: VLCMediaLibraryDelegate {
     func medialibrary(_ medialibrary: VLCMediaLibrary, didAddMedia media: [VLCMLMedia]) {
 #if !os(tvOS) && !os(watchOS)
-        media.forEach { $0.updateCoreSpotlightEntry() }
+        media.forEach { $0.updateCoreSpotlightEntry(includingPlaybackHistory: isPlaybackHistoryEnabled) }
 #endif
         let videos = media.filter {( $0.type() == .video )}
         let tracks = media.filter {( $0.type() == .audio )}
@@ -997,7 +1046,7 @@ extension MediaLibraryService: VLCMediaLibraryDelegate {
             media.append(safeMedia)
         }
 #if !os(tvOS) && !os(watchOS)
-        media.forEach { $0.updateCoreSpotlightEntry() }
+        media.forEach { $0.updateCoreSpotlightEntry(includingPlaybackHistory: isPlaybackHistoryEnabled) }
 #endif
         let showEpisodes = media.filter {( $0.subtype() == .showEpisode )}
         let albumTrack = media.filter {( $0.subtype() == .albumTrack )}
@@ -1371,13 +1420,13 @@ extension MediaLibraryService: VLCMediaParserDelegate {
 
         lastPlayedMediaList = nil
         let openInMiniPlayer = lastPlayedMediaListOpenInMiniPlayer
-        let fallback = lastPlayedMediaListFallback
-        lastPlayedMediaListFallback = nil
+        let completion = lastPlayedMediaListCompletion
+        lastPlayedMediaListCompletion = nil
 
         guard status == .done,
               let mediaList = media.subitems
         else {
-            runLastPlayedMediaListFallback(fallback)
+            runLastPlayedMediaListCompletion(completion, restored: false)
             return
         }
 
@@ -1385,7 +1434,7 @@ extension MediaLibraryService: VLCMediaParserDelegate {
         let mediaCount = mediaList.count
 
         guard mediaCount > 0 else {
-            runLastPlayedMediaListFallback(fallback)
+            runLastPlayedMediaListCompletion(completion, restored: false)
             return
         }
 
@@ -1410,18 +1459,19 @@ extension MediaLibraryService: VLCMediaParserDelegate {
               let restoredLibraryMedia = fetchMedia(with: restoredMedia.url),
               !restoredLibraryMedia.isExternalMedia()
         else {
-            runLastPlayedMediaListFallback(fallback)
+            runLastPlayedMediaListCompletion(completion, restored: false)
             return
         }
 
         DispatchQueue.main.async {
             let playbackService = PlaybackService.sharedInstance()
-            guard !playbackService.playerIsSetup else { return }
-
-            playbackService.configurePlaybackWithMedia(at: lastPlayedMediaIndex,
-                                                       fromCollection: mediaList,
-                                                       openInMiniPlayer: openInMiniPlayer)
-            defaults.set(-1, forKey: kVLCLastPlayedMediaIdentifier)
+            if !playbackService.playerIsSetup {
+                playbackService.configurePlaybackWithMedia(at: lastPlayedMediaIndex,
+                                                           fromCollection: mediaList,
+                                                           openInMiniPlayer: openInMiniPlayer)
+                defaults.set(-1, forKey: kVLCLastPlayedMediaIdentifier)
+            }
+            completion?(playbackService.playerIsSetup)
         }
     }
 }

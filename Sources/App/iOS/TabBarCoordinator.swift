@@ -101,7 +101,7 @@ class TabBarCoordinator: NSObject {
             self?.setupEditToolbar()
         }
         updateTheme()
-        tabBarController.title = "VLC  iOS"
+        tabBarController.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
 #if os(iOS)
         if #available(iOS 18.0, *) {
             tabBarController.mode = .tabSidebar
@@ -335,7 +335,8 @@ class TabBarCoordinator: NSObject {
 
         let openInMiniPlayer = album != nil
         mediaLibraryService.restoreLastPlayedMediaList(onDemand: true,
-                                                      openInMiniPlayer: openInMiniPlayer) {
+                                                      openInMiniPlayer: openInMiniPlayer) { restored in
+            guard !restored else { return }
             PlaybackService.sharedInstance().play(lastMedia, openInMiniPlayer: openInMiniPlayer)
         }
     }
@@ -380,6 +381,11 @@ class TabBarCoordinator: NSObject {
 // MARK: - Last played quick action
 
 extension TabBarCoordinator: MediaLibraryObserver {
+    func medialibraryDidTogglePlaybackHistory(_ medialibrary: MediaLibraryService) {
+        let rootViewController = PlaylistViewController(mediaLibraryService: mediaLibraryService)
+        playlistsNavigationController.setViewControllers([rootViewController], animated: false)
+    }
+
     func medialibrary(_ medialibrary: MediaLibraryService, historyChangedOfType type: VLCMLHistoryType) {
         let subtitle = lastPlayedShortcutSubtitle()
         DispatchQueue.main.async {

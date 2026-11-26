@@ -2,7 +2,7 @@
  * SliderInfoView.swift
  * VLC for iOS
  *****************************************************************************
- * Copyright © 2021 VideoLAN. All rights reserved.
+ * Copyright © 2021-2026 VideoLAN. All rights reserved.
  * Copyright © 2021 Videolabs
  *
  * Authors: Malek BARKAOUI <malek.professional # gmail.com>
@@ -159,12 +159,7 @@ class BrightnessControlView: SliderInfoView {
         levelSlider.addTarget(self, action: #selector(self.onLuminosityChange), for: .valueChanged)
 
         levelSlider.isAccessibilityElement = true
-        levelSlider.accessibilityLabel = NSLocalizedString("BRIGHTNESS_SLIDER", comment: "")
-        levelSlider.accessibilityHint = NSLocalizedString("BRIGHTNESS_HINT", comment: "")
-
-        // Avoid the temptation to put `adjustable` here; the system will add
-        // accessibility controls that do not work.
-        levelSlider.accessibilityTraits = []
+        levelSlider.accessibilityLabel = NSLocalizedString("BRIGHTNESS", comment: "")
     }
 
     required init?(coder: NSCoder) {
@@ -214,12 +209,7 @@ class VolumeControlView: SliderInfoView {
         self.iconNames = ["noSound", "lowSound", "mediumSound", "highSound"]
 
         levelSlider.isAccessibilityElement = true
-        levelSlider.accessibilityLabel = NSLocalizedString("VOLUME_SLIDER", comment: "")
-        levelSlider.accessibilityHint = NSLocalizedString("VOLUME_HINT", comment: "")
-
-        // Avoid the temptation to put `adjustable` here; the system will add
-        // accessibility controls that do not work.
-        levelSlider.accessibilityTraits = []
+        levelSlider.accessibilityLabel = NSLocalizedString("VOLUME", comment: "")
     }
 
     required init?(coder: NSCoder) {

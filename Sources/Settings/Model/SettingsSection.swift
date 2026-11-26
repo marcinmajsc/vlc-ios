@@ -741,6 +741,11 @@ enum MediaLibraryOptions {
                 preferenceKey: kVLCSettingShowArtworks)
     }
 
+    static var playbackHistory: SettingsItem {
+        .toggle(title: "SETTINGS_PLAYBACK_HISTORY",
+                preferenceKey: kVLCSettingPlaybackHistory)
+    }
+
     static var includeMediaLibInDeviceBackup: SettingsItem {
         .toggle(title: "SETTINGS_BACKUP_MEDIA_LIBRARY",
                 preferenceKey: kVLCSettingBackupMediaLibrary)
@@ -758,7 +763,8 @@ enum MediaLibraryOptions {
                        disableGrouping,
                        showVideoThumbnails,
                        playVideoPreviews,
-                       showAudioArtworks]
+                       showAudioArtworks,
+                       playbackHistory]
 
         if isBackingUp {
             options.append(includeMediaLibInDeviceBackupWhenBackingUp)
@@ -892,11 +898,15 @@ enum WatchOS {
     }
 
     static func section() -> SettingsSection? {
-        .init(title: "SETTINGS_WATCHOS_TITLE", items: [
+        #if NO_WATCH
+        return nil
+        #else
+        return .init(title: "SETTINGS_WATCHOS_TITLE", items: [
             mediaLibrarySync,
             mediaLibraryAutoSync,
             transfers
         ])
+        #endif
     }
 }
 

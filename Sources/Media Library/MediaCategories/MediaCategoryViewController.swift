@@ -57,39 +57,15 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         }
     }
 
-    private func getSectionInfo(for title: String) -> (key: String, type: SectionType) {
+    private let cachedTitleSections = MediaTitleSections()
+    private var titleSectionsNeedUpdate = true
 
-        guard let first: Character = title
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: .diacriticInsensitive, locale: .current)
-            .uppercased()
-            .first
-        else {
-            return ("#", .special)
+    private var titleSections: MediaTitleSections {
+        if titleSectionsNeedUpdate {
+            cachedTitleSections.update(with: currentDataSet, descending: model.sortModel.desc)
+            titleSectionsNeedUpdate = false
         }
-
-        guard first.isLetter && !first.isEmoji else {
-            return ("#", .special)
-        }
-
-        guard first.isLatin else {
-            return ("\(first)", .nonlatin)
-
-        }
-
-        return ("\(first)", .latin)
-    }
-
-    private var currentDataSetGroupedByTitle: [(key: String, items: [VLCMLMedia])] {
-        let items: [VLCMLMedia] = currentDataSet as? [VLCMLMedia] ?? []
-        let groupedItems: [String: [VLCMLMedia]] = Dictionary(grouping: items) { getSectionInfo(for: $0.title).key }
-        return groupedItems
-            .map { ($0.key, $0.value.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }) }
-            .sorted { lhs, rhs in
-                return model.sortModel.desc
-                    ? lhs.key > rhs.key
-                    : lhs.key < rhs.key
-            }
+        return cachedTitleSections
     }
 
     var isSectionable: Bool = false
@@ -129,12 +105,15 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             let tabSearchDataSource = LibraryTabSearchDataSource(scope: tabSearchScope,
                                                                  mediaLibraryService: mediaLibraryService)
             tabSearchDataSource.delegate = self
+            tabSearchDataSource.cellDelegate = self
+            tabSearchDataSource.contextMenuDelegate = self
             self.tabSearchDataSource = tabSearchDataSource
         }
     }
 
     private var tabSearchDataSource: LibraryTabSearchDataSource?
     private var isShowingTabSearchResults: Bool = false
+    private var tabSearchEditActions: EditActions?
     private var isTabSearchRefreshScheduled: Bool = false
     private let tabSearchRefreshDelay: TimeInterval = 0.5
 
@@ -300,12 +279,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     private var scrolledCellIndex: IndexPath = IndexPath()
     private(set) var isAllSelected: Bool = false
 
-    private enum FABAction {
-        case shuffleAudio
-        case playAllVideo
-    }
-
-    private var fabAction: FABAction? {
+    private var fabAction: FloatingActionButtonController.Action? {
         if parent is AudioViewController {
             return .shuffleAudio
         } else if parent is VideoViewController {
@@ -313,39 +287,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         }
         return nil
     }
-
-    private static let fabButtonSize: CGFloat = 44
-
-    private lazy var fabButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.addTarget(self, action: #selector(fabButtonPressed), for: .touchUpInside)
-        button.translatesAutoresizingMaskIntoConstraints = false
-#if !os(visionOS)
-        if #available(iOS 26.0, *) {
-            var config: UIButton.Configuration = .prominentGlass()
-            config.baseBackgroundColor = PresentationTheme.current.colors.orangeUI
-            config.baseForegroundColor = .white
-            config.cornerStyle = .capsule
-            button.configuration = config
-            return button
-        }
-#endif
-        button.backgroundColor = PresentationTheme.current.colors.orangeUI
-        button.tintColor = PresentationTheme.current.colors.background
-        button.layer.cornerRadius = MediaCategoryViewController.fabButtonSize / 2
-        button.layer.masksToBounds = false
-        button.layer.shadowColor = UIColor.black.cgColor
-        button.layer.shadowOffset = CGSize(width: 0.0, height: 2.0)
-        button.layer.shadowRadius = 4.0
-        button.layer.shadowOpacity = 0.3
-        button.layer.shadowPath = UIBezierPath(ovalIn: CGRect(x: 0, y: 0,
-                                                              width: MediaCategoryViewController.fabButtonSize,
-                                                              height: MediaCategoryViewController.fabButtonSize)).cgPath
-        return button
-    }()
-
-    private var fabBottomConstraint: NSLayoutConstraint?
-    private var fabAnchorsToContainerBottom: Bool?
 
     private var lastPlaylist: LastPlayedPlaylistModel? {
         guard let encodedData = userDefaults.data(forKey: kVLCLastPlayedPlaylist),
@@ -536,6 +477,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             }
         }
 
+        titleSectionsNeedUpdate = true
         delegate?.needsToUpdateNavigationbarIfNeeded(self)
         collectionView?.reloadData()
         if #available(iOS 27.1, visionOS 27.1, *),
@@ -553,6 +495,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         }
 
         activeEditToolbar().updateEditToolbar(for: model)
+        editController.updateSelections()
     }
 
     func isEmptyCollectionView() -> Bool {
@@ -632,6 +575,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         setupCollectionView() //Fixes crash that is caused due to layout change
         setNavbarAppearance()
         addInitializationCommonObservers()
+        floatingActionButtonController?.register(self)
 
         if let folderModel = model as? FolderModel {
             folderModel.setupData()
@@ -643,7 +587,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             ? self.miniPlayerIsShown() : self.miniPlayerIsHidden()
             self.loadSort()
             self.reloadData()
-            self.configureFABButton()
             self.refreshTabSearchResultsIfNeeded()
         }
 
@@ -655,6 +598,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     }
 
     override func viewDidAppear(_ animated: Bool) {
+        floatingActionButtonController?.register(self)
         showGuideOnLaunch()
         updateCollectionViewForArtworkHeader()
 #if os(iOS)
@@ -668,7 +612,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
 
-        fabButton.removeFromSuperview()
+        floatingActionButtonController?.unregister(self)
 
         removeInitializationCommonObservers()
 
@@ -759,11 +703,14 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
     }
 
     func loadSort() {
-        let sortingCriteria: VLCMLSortingCriteria
+        var sortingCriteria: VLCMLSortingCriteria
         if let sortingCriteriaDefault = UserDefaults.standard.value(forKey: "\(kVLCSortDefault)\(model.name)") as? UInt {
             sortingCriteria = VLCMLSortingCriteria(rawValue: sortingCriteriaDefault) ?? model.sortModel.currentSort
         } else {
             sortingCriteria = model.sortModel.currentSort
+        }
+        if !mediaLibraryService.isPlaybackHistoryEnabled && sortingCriteria.revealsPlaybackHistory {
+            sortingCriteria = .default
         }
         let desc = UserDefaults.standard.bool(forKey: "\(kVLCSortDescendingDefault)\(model.name)")
         self.model.sort(by: sortingCriteria, desc: desc)
@@ -789,9 +736,6 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
             marqueeLabel.textColor = colors.navigationbarTextColor
         }
 
-        if #unavailable(iOS 26.0) {
-            fabButton.tintColor = colors.background
-        }
         editToolBar.backgroundColor = colors.tabBarColor
 
         artworkHeader?.updateTheme()
@@ -881,7 +825,7 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         collectionView?.collectionViewLayout.invalidateLayout()
 
         coordinator.animate(alongsideTransition: { [weak self] _ in
-            self?.updateFABButtonBottomConstraint()
+            self?.floatingActionButtonController?.updateBottomConstraint()
         }, completion: { [weak self] _ in
             guard let self = self, self.isEditing else {
                 return
@@ -905,11 +849,13 @@ class MediaCategoryViewController: UICollectionViewController, UISearchBarDelega
         }
         // This ensures that the search bar is always visible like a sticky while searching
         if searchDataSource.isSearching {
-            searchBar.endEditing(true)
-            delegate?.enableCategorySwitching(for: self, enable: true)
-            // End search if scrolled and the textfield is empty
-            if let searchBarText = searchBar.text, searchBarText.isEmpty {
-                searchBarCancelButtonClicked(searchBar)
+            if scrollView.isDragging {
+                searchBar.endEditing(true)
+                delegate?.enableCategorySwitching(for: self, enable: true)
+                // End search if scrolled and the textfield is empty
+                if let searchBarText = searchBar.text, searchBarText.isEmpty {
+                    searchBarCancelButtonClicked(searchBar)
+                }
             }
             return
         }
@@ -1336,7 +1282,11 @@ extension MediaCategoryViewController {
 private extension MediaCategoryViewController {
 
     private func getObject(at indexPath: IndexPath) -> VLCMLObject? {
-        return isSectioned ? currentDataSetGroupedByTitle.objectAtIndex(index: indexPath.section)?.items.objectAtIndex(index: indexPath.row) : currentDataSet.objectAtIndex(index: indexPath.row)
+        if isShowingTabSearchResults {
+            return tabSearchDataSource?.item(at: indexPath)
+        }
+
+        return isSectioned ? titleSections.media(at: indexPath) : currentDataSet.objectAtIndex(index: indexPath.row)
     }
 
     private func getFlattenedIndexPath(for item: VLCMLObject) -> IndexPath? {
@@ -1370,6 +1320,9 @@ private extension MediaCategoryViewController {
 
     private func updateUIForContent() {
         if searchDataSource.isSearching {
+            if !isShowingTabSearchResults {
+                updateNoSearchResultsLabel()
+            }
             return
         }
 
@@ -1381,6 +1334,15 @@ private extension MediaCategoryViewController {
         collectionView?.backgroundView = isEmpty ? emptyView : nil
         updateEmptyViewLayoutMargins()
         updateBarButtonItems()
+    }
+
+    private func updateNoSearchResultsLabel() {
+        if !searchDataSource.searchString.isEmpty && searchDataSource.searchData.isEmpty {
+            noSearchResultsLabel.textColor = PresentationTheme.current.colors.cellDetailTextColor
+            collectionView?.backgroundView = noSearchResultsLabel
+        } else if collectionView?.backgroundView === noSearchResultsLabel {
+            collectionView?.backgroundView = nil
+        }
     }
 
     private func updateEmptyViewLayoutMargins() {
@@ -1409,11 +1371,12 @@ private extension MediaCategoryViewController {
         if KeychainCoordinator.passcodeService.hasSecret {
             return
         }
+        let isPlaybackHistoryEnabled = mediaLibraryService.isPlaybackHistoryEnabled
         userActivity = NSUserActivity(activityType: kVLCUserActivityPlaying)
         userActivity?.title = media.title
-        userActivity?.contentAttributeSet = media.coreSpotlightAttributeSet()
+        userActivity?.contentAttributeSet = media.coreSpotlightAttributeSet(includingPlaybackHistory: isPlaybackHistoryEnabled)
         userActivity?.userInfo = ["playingmedia" : media.identifier()]
-        userActivity?.isEligibleForSearch = true
+        userActivity?.isEligibleForSearch = isPlaybackHistoryEnabled
         userActivity?.isEligibleForHandoff = true
         userActivity?.becomeCurrent()
     }
@@ -1493,8 +1456,8 @@ extension MediaCategoryViewController {
         }
 
         if isEmptyCollectionView() {
-            navigationItem.rightBarButtonItem = nil
-            navigationItem.leftBarButtonItem = nil
+            navigationItem.rightBarButtonItems = nil
+            navigationItem.leftBarButtonItems = nil
         }
     }
 
@@ -1625,16 +1588,20 @@ extension MediaCategoryViewController {
     private func generateSortMenu() -> UIMenu {
         let sortModel = model.sortModel
         var sortActions: [UIMenuElement] = []
+        let isPlaybackHistoryEnabled = mediaLibraryService.isPlaybackHistoryEnabled
+        let sortingCriteria = sortModel.sortingCriteria.filter {
+            isPlaybackHistoryEnabled || !$0.revealsPlaybackHistory
+        }
 
         var currentSortIndex: Int = 0
         for (index, criterion) in
-                sortModel.sortingCriteria.enumerated()
+                sortingCriteria.enumerated()
         where criterion == sortModel.currentSort {
             currentSortIndex = index
             break
         }
 
-        for (index, criterion) in sortModel.sortingCriteria.enumerated() {
+        for (index, criterion) in sortingCriteria.enumerated() {
             let currentSort: Bool = index == currentSortIndex
             let chevronImageName: String = sortModel.desc ? "chevron.down" : "chevron.up"
             var actionImage: UIImage? = currentSort ? UIImage(systemName: chevronImageName) : nil
@@ -1766,7 +1733,9 @@ extension MediaCategoryViewController: UISearchControllerDelegate, UISearchResul
     }
 
     func didPresentSearchController(_ searchController: UISearchController) {
-        searchController.searchBar.becomeFirstResponder()
+        DispatchQueue.main.async {
+            searchController.searchBar.becomeFirstResponder()
+        }
 
         if #unavailable(iOS 26.0) {
             if let textField = searchController.searchBar.value(forKey: "searchField") as? UITextField,
@@ -1871,6 +1840,8 @@ extension MediaCategoryViewController: LibraryTabSearchDataSourceDelegate {
 
         if shouldShow != isShowingTabSearchResults {
             isShowingTabSearchResults = shouldShow
+            resetScrollView()
+            scrolledCellIndex = IndexPath()
             collectionView?.dataSource = shouldShow ? tabSearchDataSource : self
             collectionView?.delegate = shouldShow ? tabSearchDataSource : self
             cachedCellSize = .zero
@@ -1942,9 +1913,48 @@ extension MediaCategoryViewController: LibraryTabSearchDataSourceDelegate {
     }
 
     func libraryTabSearchDataSourceWillBeginDragging(_ dataSource: LibraryTabSearchDataSource) {
+        resetScrollView()
         searchBar.endEditing(true)
         searchController.searchBar.endEditing(true)
         delegate?.enableCategorySwitching(for: self, enable: true)
+    }
+
+    private func tabSearchModel(for item: VLCMLObject?) -> MediaLibraryBaseModel {
+        switch item {
+        case is VLCMLMediaGroup:
+            return MediaGroupViewModel(medialibrary: mediaLibraryService)
+        case let media as VLCMLMedia:
+            return media.type() == .audio ? TrackModel(medialibrary: mediaLibraryService)
+                                          : VideoModel(medialibrary: mediaLibraryService)
+        case is VLCMLArtist:
+            return ArtistModel(medialibrary: mediaLibraryService)
+        case is VLCMLAlbum:
+            return AlbumModel(medialibrary: mediaLibraryService)
+        case is VLCMLGenre:
+            return GenreModel(medialibrary: mediaLibraryService)
+        default:
+            return model
+        }
+    }
+
+    private func makeTabSearchEditActions(for model: MediaLibraryBaseModel) -> EditActions {
+        let editActions = EditActions(model: model, mediaLibraryService: mediaLibraryService)
+        tabSearchEditActions = editActions
+        return editActions
+    }
+
+    private func reloadContentAfterEdit() {
+        if isShowingTabSearchResults {
+            refreshTabSearchResultsIfNeeded()
+        } else {
+            reloadData()
+        }
+    }
+
+    private func removeFromTabSearchResults(_ deletedItems: [VLCMLObject]) {
+        tabSearchDataSource?.remove(deletedItems)
+        updateTabSearchResultsVisibility()
+        collectionView?.reloadData()
     }
 }
 
@@ -2006,7 +2016,8 @@ private extension MediaCategoryViewController {
 
         // handle catching current played playlist or media by queue options from different platlists
         guard let modelContent = modelContent,
-              type == .appendToQueue || type == .playNextInQueue else {
+              type == .appendToQueue || type == .playNextInQueue,
+              !isShowingTabSearchResults else {
             return
         }
 
@@ -2020,11 +2031,21 @@ private extension MediaCategoryViewController {
     }
 
     private func generateUIMenuForContent(at indexPath: IndexPath) -> UIMenu {
-        let index = indexPath.row
         let modelContent = getObject(at: indexPath)
-        collectionSelectedIndex = indexPath
+        let isTabSearchItem = isShowingTabSearchResults
+        let actionModel: MediaLibraryBaseModel
+        let editActions: EditActions
+        if isTabSearchItem {
+            actionModel = tabSearchModel(for: modelContent)
+            editActions = makeTabSearchEditActions(for: actionModel)
+        } else {
+            actionModel = model
+            editActions = editController.editActions
+            collectionSelectedIndex = indexPath
+        }
+
         // Remove addToMediaGroup from quick actions since it is applicable only to multiple media
-        var actionList = EditButtonsFactory.buttonList(for: model).filter({
+        var actionList = EditButtonsFactory.buttonList(for: actionModel).filter({
             return $0 != .addToMediaGroup
         })
 
@@ -2048,7 +2069,7 @@ private extension MediaCategoryViewController {
             markableMedia = nil
         }
 
-        if let markableMedia = markableMedia {
+        if mediaLibraryService.isPlaybackHistoryEnabled, let markableMedia = markableMedia {
             actionList.append(markableMedia.isNew ? .markAsSeen : .markAsUnseen)
         }
 
@@ -2060,29 +2081,29 @@ private extension MediaCategoryViewController {
                 return $0.action({
                     [weak self] _ in
                     if let modelContent = modelContent {
-                        self?.editController.editActions.objects = self?.objects(from: modelContent) ?? []
-                        self?.editController.editActions.addToPlaylist()
+                        editActions.objects = self?.objects(from: modelContent) ?? []
+                        editActions.addToPlaylist()
                     }
                 })
             case .addToMediaGroup:
                 return $0.action() { _ in }
             case .removeFromMediaGroup:
                 return $0.action({
-                    [weak self] _ in
+                    _ in
                     if let modelContent = modelContent {
-                        self?.editController.editActions.objects = [modelContent]
-                        self?.editController.editActions.removeFromMediaGroup()
+                        editActions.objects = [modelContent]
+                        editActions.removeFromMediaGroup()
                     }
                 })
             case .rename:
                 return $0.action({
                     [weak self] _ in
                     if let modelContent = modelContent {
-                        self?.editController.editActions.objects = [modelContent]
-                        self?.editController.editActions.rename() {
+                        editActions.objects = [modelContent]
+                        editActions.rename() {
                             [weak self] state in
                             if state == .success {
-                                self?.reloadData()
+                                self?.reloadContentAfterEdit()
                             }
                         }
                     }
@@ -2091,11 +2112,18 @@ private extension MediaCategoryViewController {
                 return $0.action({
                     [weak self] _ in
                     if let modelContent = modelContent {
-                        self?.editController.editActions.objects = [modelContent]
-                        self?.editController.editActions.delete() {
+                        let deletedItems = isTabSearchItem
+                            ? self?.tabSearchDataSource?.itemsDeleted(with: modelContent)
+                            : nil
+                        editActions.objects = [modelContent]
+                        editActions.delete() {
                             [weak self] state in
                             if state == .success {
-                                self?.searchDataSource.deleteInSearch(index: index)
+                                if let deletedItems = deletedItems {
+                                    self?.removeFromTabSearchResults(deletedItems)
+                                } else {
+                                    self?.searchDataSource.deleteInSearch([modelContent])
+                                }
                             }
                         }
                     }
@@ -2104,9 +2132,9 @@ private extension MediaCategoryViewController {
                 return $0.action({
                     [weak self] _ in
                     if let modelContent = modelContent {
-                        self?.editController.editActions.objects = self?.objects(from: modelContent, keepPlaylists: true) ?? []
+                        editActions.objects = self?.objects(from: modelContent, keepPlaylists: true) ?? []
                         if let cell = self?.collectionView.cellForItem(at: indexPath) {
-                            self?.editController.editActions.share(origin: cell)
+                            editActions.share(origin: cell)
                         }
                     }
                 })
@@ -2134,11 +2162,11 @@ private extension MediaCategoryViewController {
                 return $0.action({
                     [weak self] _ in
                     if let markableMedia = markableMedia {
-                        self?.editController.editActions.objects = [markableMedia]
-                        self?.editController.editActions.markAsSeen() {
+                        editActions.objects = [markableMedia]
+                        editActions.markAsSeen() {
                             [weak self] state in
                             if state == .success {
-                                self?.reloadData()
+                                self?.reloadContentAfterEdit()
                             }
                         }
                     }
@@ -2147,11 +2175,11 @@ private extension MediaCategoryViewController {
                 return $0.action({
                     [weak self] _ in
                     if let markableMedia = markableMedia {
-                        self?.editController.editActions.objects = [markableMedia]
-                        self?.editController.editActions.markAsUnseen() {
+                        editActions.objects = [markableMedia]
+                        editActions.markAsUnseen() {
                             [weak self] state in
                             if state == .success {
-                                self?.reloadData()
+                                self?.reloadContentAfterEdit()
                             }
                         }
                     }
@@ -2312,6 +2340,11 @@ extension MediaCategoryViewController {
     }
 
     private func selectedItem(at indexPath: IndexPath) {
+        if isShowingTabSearchResults {
+            tabSearchDataSource?.selectItem(at: indexPath)
+            return
+        }
+
         let modelContent = getObject(at: indexPath)
         var indexPath = indexPath
         if isSectioned,
@@ -2491,11 +2524,11 @@ extension MediaCategoryViewController {
 
 extension MediaCategoryViewController {
     override func numberOfSections(in collectionView: UICollectionView) -> Int {
-        return isSectioned ? currentDataSetGroupedByTitle.count : 1
+        return isSectioned ? titleSections.sections.count : 1
     }
 
     override func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return isSectioned ? currentDataSetGroupedByTitle[section].items.count : currentDataSet.count
+        return isSectioned ? titleSections.sections[section].items.count : currentDataSet.count
     }
 
     override func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
@@ -2592,7 +2625,8 @@ extension MediaCategoryViewController {
 
     // Helper function to check if a playlist is the last played playlist
     func isLastPlayedPlaylist(_ playlist: VLCMLPlaylist?) -> Bool {
-        guard let playlist = playlist, let lastPlaylist = lastPlaylist else {
+        guard mediaLibraryService.isPlaybackHistoryEnabled,
+              let playlist = playlist, let lastPlaylist = lastPlaylist else {
             return false
         }
 
@@ -2643,8 +2677,7 @@ extension MediaCategoryViewController {
             return setupArtworkHeaderReusableView(headerView: header, collection: collectionModel.mediaCollection)
         } else if isSectioned,
                   let headerView = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: TrackSectionHeader.headerID, for: indexPath) as? TrackSectionHeader {
-            let media = currentDataSetGroupedByTitle[indexPath.section].items[indexPath.row]
-            headerView.update(sectionTitle: getSectionInfo(for: media.title).key)
+            headerView.update(sectionTitle: titleSections.sections[indexPath.section].key)
             return headerView
         }
 
@@ -2833,6 +2866,10 @@ extension MediaCategoryViewController: EditControllerDelegate {
         return artworkHeaderLayout.getHeaderSize(with: width)
     }
 
+    func editControllerGetTitleSections() -> MediaTitleSections? {
+        return isSectioned ? titleSections : nil
+    }
+
     func editControllerSetNavigationItemTitle(with title: String?) {
         var newTitle = title
 
@@ -2932,6 +2969,16 @@ private extension MediaCategoryViewController {
 
 extension MediaCategoryViewController: MediaLibraryBaseModelObserver {
     func mediaLibraryBaseModelReloadView() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                self.mediaLibraryBaseModelReloadView()
+            }
+            return
+        }
+
+        if searchDataSource.isSearching {
+            searchDataSource.shouldReloadFor(searchString: searchDataSource.searchString)
+        }
         reloadData()
         DispatchQueue.main.async { [weak self] in
             self?.scheduleTabSearchRefresh()
@@ -3078,13 +3125,25 @@ extension MediaCategoryViewController: MediaCollectionViewCellEnqueueDelegate {
             return
         }
 
+        if isShowingTabSearchResults {
+            let deletedItems = tabSearchDataSource?.itemsDeleted(with: modelContent) ?? [modelContent]
+            let editActions = makeTabSearchEditActions(for: tabSearchModel(for: modelContent))
+            editActions.objects = [modelContent]
+            editActions.delete() { [weak self] state in
+                if state == .success {
+                    self?.removeFromTabSearchResults(deletedItems)
+                }
+            }
+            return
+        }
+
         editController.editActions.objects = [modelContent]
         editController.editActions.delete() { [weak self] state in
             if state == .success {
-                guard let flattenedIndexPath = self?.getFlattenedIndexPath(for: modelContent) else {
+                guard self?.getFlattenedIndexPath(for: modelContent) != nil else {
                     return
                 }
-                self?.searchDataSource.deleteInSearch(index: flattenedIndexPath.row)
+                self?.searchDataSource.deleteInSearch([modelContent])
 
                 // If the media deleted is in the media list, the play queue should also be updated
                 let playbackService = PlaybackService.sharedInstance()
@@ -3153,102 +3212,21 @@ extension MediaCategoryViewController: MediaCollectionViewCellEnqueueDelegate {
 
 // MARK: - Floating Action Button
 
-extension MediaCategoryViewController {
-    private func configureFABButton() {
-        guard let action = fabAction else { return }
-        addFABButton(for: action)
+extension MediaCategoryViewController: FloatingActionButtonClient {
+    var floatingAction: FloatingActionButtonController.Action? {
+        let isMiniPlayerVisible = VLCAppCoordinator.sharedInstance().tabBarController.isMiniPlayerVisible
+        guard !model.anyfiles.isEmpty, !isMiniPlayerVisible, !isEditing, !searchDataSource.isSearching else {
+            return nil
+        }
+        return fabAction
     }
 
-    private func addFABButton(for action: FABAction) {
-        guard let containerView = tabBarController?.view else { return }
-
-        switch action {
-        case .shuffleAudio:
-            setFABButtonImage(UIImage(named: "shuffle")?.withRenderingMode(.alwaysTemplate))
-            fabButton.accessibilityLabel = NSLocalizedString("SHUFFLE", comment: "")
-        case .playAllVideo:
-            setFABButtonImage(UIImage(named: "iconPlay")?.withRenderingMode(.alwaysTemplate))
-            fabButton.accessibilityLabel = NSLocalizedString("PLAY_ALL_BUTTON", comment: "")
-        }
-
-        containerView.addSubview(fabButton)
-
-        setFABButtonConstraints()
-        handleFABButtonVisibility()
-    }
-
-    private func setFABButtonImage(_ image: UIImage?) {
-#if !os(visionOS)
-        if #available(iOS 26.0, *), fabButton.configuration != nil {
-            var config = fabButton.configuration
-            config?.image = image
-            fabButton.configuration = config
-            return
-        }
-#endif
-        fabButton.setImage(image, for: .normal)
-    }
-
-    @objc private func fabButtonPressed() {
-        let playbackService = PlaybackService.sharedInstance()
-        switch fabAction {
-        case .shuffleAudio:
-            guard let tracks = mediaLibraryService.medialib.audioFiles(), !tracks.isEmpty else { return }
-            playbackService.isShuffleMode = true
-            playbackService.playCollection(tracks)
-        case .playAllVideo:
-            guard let videos = mediaLibraryService.medialib.videoFiles(), !videos.isEmpty else { return }
-            playbackService.isShuffleMode = false
-            playbackService.playCollection(videos)
-        case .none:
-            break
-        }
+    private var floatingActionButtonController: FloatingActionButtonController? {
+        (tabBarController as? BottomTabBarController)?.floatingActionButtonController
     }
 
     private func handleFABButtonVisibility() {
-        let isMiniPlayerVisible = VLCAppCoordinator.sharedInstance().tabBarController.isMiniPlayerVisible
-        fabButton.isHidden = fabAction == nil || model.anyfiles.isEmpty || isMiniPlayerVisible || isEditing || searchDataSource.isSearching
-    }
-
-    private func setFABButtonConstraints() {
-        guard let layoutGuide = tabBarController?.view.safeAreaLayoutGuide else { return }
-
-        fabAnchorsToContainerBottom = nil
-
-        NSLayoutConstraint.activate([
-            fabButton.trailingAnchor.constraint(equalTo: layoutGuide.trailingAnchor, constant: -15),
-            fabButton.widthAnchor.constraint(equalToConstant: MediaCategoryViewController.fabButtonSize),
-            fabButton.heightAnchor.constraint(equalToConstant: MediaCategoryViewController.fabButtonSize)
-        ])
-
-        updateFABButtonBottomConstraint()
-    }
-
-    // iPadOS 18+ keeps the tab bar at the top in regular width, but moves it back to
-    // the bottom in compact width, so the anchor has to follow window resizes.
-    private func updateFABButtonBottomConstraint() {
-        guard fabButton.superview != nil,
-              let tabBar = tabBarController?.tabBar,
-              let containerView = tabBarController?.view else { return }
-
-        let anchorsToContainerBottom: Bool
-#if os(iOS)
-        anchorsToContainerBottom = (tabBarController?.isSidebarAvailable == true
-            && traitCollection.horizontalSizeClass == .regular)
-            || !tabBar.isDescendant(of: containerView)
-#else
-        anchorsToContainerBottom = false
-#endif
-
-        if fabAnchorsToContainerBottom == anchorsToContainerBottom,
-           fabBottomConstraint?.isActive == true { return }
-        fabAnchorsToContainerBottom = anchorsToContainerBottom
-
-        let anchor = anchorsToContainerBottom ? containerView.bottomAnchor : view.safeAreaLayoutGuide.bottomAnchor
-        fabBottomConstraint?.isActive = false
-        let bottomConstraint = fabButton.bottomAnchor.constraint(equalTo: anchor, constant: -15)
-        bottomConstraint.isActive = true
-        fabBottomConstraint = bottomConstraint
+        floatingActionButtonController?.setNeedsRefresh()
     }
 }
 
@@ -3257,7 +3235,7 @@ extension MediaCategoryViewController {
 extension MediaCategoryViewController {
     override func indexTitles(for collectionView: UICollectionView) -> [String]? {
         guard isSectioned else { return nil }
-        return currentDataSetGroupedByTitle.map { $0.key }
+        return titleSections.titles
     }
 
     override func collectionView(_ collectionView: UICollectionView, indexPathForIndexTitle title: String, at index: Int) -> IndexPath {
