@@ -206,6 +206,7 @@ NS_SWIFT_NAME(PlaybackService)
 - (void)setPlayerDisplayController:(VLCPlayerDisplayController *)playerDisplayController;
 
 - (void)setNeedsMetadataUpdate;
+- (void)setNeedsMediaListSave;
 - (void)scheduleSleepTimerWithInterval:(NSTimeInterval)timeInterval;
 - (void)cancelSleepTimer;
 - (void)performNavigationAction:(VLCMediaPlaybackNavigationAction)action;
@@ -238,10 +239,6 @@ NS_SWIFT_NAME(PlaybackService)
 - (void)renameCustomEqualizerProfileAtIndex:(NSUInteger)index toName:(NSString *)name;
 - (void)deleteCustomEqualizerProfileAtIndex:(NSUInteger)index;
 - (void)moveCustomEqualizerProfileAtIndex:(NSUInteger)index up:(BOOL)up;
-#endif
-
-#if !TARGET_OS_WATCH
-- (void)saveCurrentlyPlayingMediaIdentifier;
 #endif
 
 NS_ASSUME_NONNULL_END
